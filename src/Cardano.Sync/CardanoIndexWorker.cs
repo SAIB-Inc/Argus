@@ -31,11 +31,13 @@ public class CardanoIndexWorker<T>(
     {
         DbContext = _dbContextFactory.CreateDbContext();
 
-        DbContext.Blocks.OrderByDescending(b => b.Slot).Take(1).ToList().ForEach(block =>
+        var latestBlock = await DbContext.Blocks.OrderByDescending(b => b.Slot).FirstOrDefaultAsync(cancellationToken: stoppingToken);
+
+        if (latestBlock is not null)
         {
-            _configuration["CardanoIndexStartSlot"] = block.Slot.ToString();
-            _configuration["CardanoIndexStartHash"] = block.Id;
-        });
+            _configuration["CardanoIndexStartSlot"] = latestBlock.Slot.ToString();
+            _configuration["CardanoIndexStartHash"] = latestBlock.Id;
+        }
 
         var tip = await _nodeClient.ConnectAsync(_configuration.GetValue<string>("CardanoNodeSocketPath")!, _configuration.GetValue<ulong>("CardanoNetworkMagic"));
         _logger.Log(LogLevel.Information, "Connected to Cardano Node: {Tip}", tip);
