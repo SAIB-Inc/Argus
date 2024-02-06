@@ -4,6 +4,12 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageId>SAIB.Cardano.Sync</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Authors>clark@saib.dev</Authors>
+    <Company>SAIB Inc.</Company>
+    <PackageDescription>A ASP.NET Framework for Indexing Cardano Data storing it in PostgresSQL</PackageDescription>
+    <RepositoryUrl>https://github.com/SAIB-Inc/Cardano.Sync</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
