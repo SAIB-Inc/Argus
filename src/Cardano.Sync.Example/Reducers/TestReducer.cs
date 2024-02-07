@@ -4,7 +4,7 @@ using PallasDotnet.Models;
 
 namespace Cardano.Sync.Example.Reducers;
 
-[ReducerDepends(typeof(BlockReducer<CardanoTestDbContext>))]
+[ReducerDepends(typeof(BlockReducer<>))]
 public class TestReducer(
     ILogger<TestReducer> logger
 ) : IReducer
