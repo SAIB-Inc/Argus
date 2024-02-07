@@ -69,8 +69,8 @@ public class CardanoIndexWorker<T>(
 
                                     if (dependencyState == null || dependencyState.Slot < response.Block.Slot)
                                     {
-                                        logger.Log(LogLevel.Information, "[{Reducer}]: Waiting for dependency {Dependency} Slot {depdencySlot} < {currentSlot}", 
-                                            GetTypeNameWithoutGenerics(reducer.GetType()), 
+                                        logger.Log(LogLevel.Information, "[{Reducer}]: Waiting for dependency {Dependency} Slot {depdencySlot} < {currentSlot}",
+                                            GetTypeNameWithoutGenerics(reducer.GetType()),
                                             dependencyName,
                                             dependencyState?.Slot,
                                             response.Block.Slot
@@ -129,12 +129,14 @@ public class CardanoIndexWorker<T>(
                     dbContext.ReducerStates.Add(new()
                     {
                         Name = GetTypeNameWithoutGenerics(reducer.GetType()),
-                        Slot = response.Block.Slot
+                        Slot = response.Block.Slot,
+                        Hash = response.Block.Hash.ToHex()
                     });
                 }
                 else
                 {
                     reducerState.Slot = response.Block.Slot;
+                    reducerState.Hash = response.Block.Hash.ToHex();
                 }
 
                 await dbContext.SaveChangesAsync();
@@ -162,18 +164,32 @@ public class CardanoIndexWorker<T>(
 
         nodeClient.ChainSyncNextResponse += Handler;
         nodeClient.Disconnected += DisconnectedHandler;
-        var latestBlock = await dbContext.Blocks.OrderByDescending(b => b.Slot).FirstOrDefaultAsync(cancellationToken: stoppingToken);
 
-        if (latestBlock is not null)
+        // Reducer specific start slot and hash
+        var startSlot = configuration.GetValue<ulong>($"CardanoIndexStartSlot_{GetTypeNameWithoutGenerics(reducer.GetType())}");
+        var startHash = configuration.GetValue<string>($"CardanoIndexStartHash_{GetTypeNameWithoutGenerics(reducer.GetType())}");
+
+        // Fallback to global start slot and hash
+        if (startSlot == 0 && startHash is null)
         {
-            configuration["CardanoIndexStartSlot"] = latestBlock.Slot.ToString();
-            configuration["CardanoIndexStartHash"] = latestBlock.Id;
+            startSlot = configuration.GetValue<ulong>("CardanoIndexStartSlot");
+            startHash = configuration.GetValue<string>("CardanoIndexStartHash");
+        }
+
+        // Use educer state from database if available
+        var reducerState = await dbContext.ReducerStates
+            .FirstOrDefaultAsync(rs => rs.Name == GetTypeNameWithoutGenerics(reducer.GetType()), cancellationToken: stoppingToken);
+
+        if (reducerState is not null)
+        {
+            startSlot = reducerState.Slot;
+            startHash = reducerState.Hash;
         }
 
         var tip = await nodeClient.ConnectAsync(configuration.GetValue<string>("CardanoNodeSocketPath")!, configuration.GetValue<ulong>("CardanoNetworkMagic"));
-        await nodeClient.StartChainSyncAsync(new Point(
-            configuration.GetValue<ulong>("CardanoIndexStartSlot"),
-            Hash.FromHex(configuration.GetValue<string>("CardanoIndexStartHash")!)
+        await nodeClient.StartChainSyncAsync(new(
+            startSlot,
+            Hash.FromHex(startHash!)
         ));
 
         try

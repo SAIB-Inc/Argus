@@ -44,6 +44,10 @@ namespace Cardano.Sync.Example.Migrations
                     b.Property<string>("Name")
                         .HasColumnType("text");
 
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<decimal>("Slot")
                         .HasColumnType("numeric(20,0)");
 

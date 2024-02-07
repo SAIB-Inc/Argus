@@ -34,7 +34,8 @@ namespace Cardano.Sync.Example.Migrations
                 columns: table => new
                 {
                     Name = table.Column<string>(type: "text", nullable: false),
-                    Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false)
+                    Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
+                    Hash = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {

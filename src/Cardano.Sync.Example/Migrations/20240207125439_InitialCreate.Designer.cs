@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cardano.Sync.Example.Migrations
 {
     [DbContext(typeof(CardanoTestDbContext))]
-    [Migration("20240206233021_InitialCreate")]
+    [Migration("20240207125439_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -45,6 +45,10 @@ namespace Cardano.Sync.Example.Migrations
             modelBuilder.Entity("Cardano.Sync.Data.Models.ReducerState", b =>
                 {
                     b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<decimal>("Slot")
