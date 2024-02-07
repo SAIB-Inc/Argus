@@ -39,6 +39,19 @@ namespace Cardano.Sync.Example.Migrations
                     b.ToTable("Blocks", "cardanoindexer");
                 });
 
+            modelBuilder.Entity("Cardano.Sync.Data.Models.ReducerState", b =>
+                {
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.HasKey("Name");
+
+                    b.ToTable("ReducerStates", "cardanoindexer");
+                });
+
             modelBuilder.Entity("Cardano.Sync.Data.Models.TransactionOutput", b =>
                 {
                     b.Property<string>("Id")

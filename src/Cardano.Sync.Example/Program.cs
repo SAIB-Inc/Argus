@@ -1,5 +1,7 @@
 using Cardano.Sync;
 using Cardano.Sync.Example.Data;
+using Cardano.Sync.Example.Reducers;
+using Cardano.Sync.Reducers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,6 +11,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration, typeof(CardanoTestDbContext).Assembly);
+builder.Services.AddSingleton<IReducer, TestReducer>();
 
 var app = builder.Build();
 

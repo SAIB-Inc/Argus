@@ -9,6 +9,7 @@ public class CardanoDbContext(DbContextOptions options, IConfiguration configura
     private readonly IConfiguration _configuration = configuration;
     public DbSet<Block> Blocks { get; set; }
     public DbSet<TransactionOutput> TransactionOutputs { get; set; }
+    public DbSet<ReducerState> ReducerStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -17,6 +18,7 @@ public class CardanoDbContext(DbContextOptions options, IConfiguration configura
         modelBuilder.Entity<TransactionOutput>().HasKey(item => new { item.Id, item.Index });
         modelBuilder.Entity<TransactionOutput>().OwnsOne(item => item.Amount);
         modelBuilder.Entity<TransactionOutput>().OwnsOne(item => item.Datum);
+        modelBuilder.Entity<ReducerState>().HasKey(item => item.Name);
         base.OnModelCreating(modelBuilder);
     }
 }

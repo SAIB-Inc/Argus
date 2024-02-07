@@ -29,6 +29,19 @@ namespace Cardano.Sync.Example.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "ReducerStates",
+                schema: "cardanoindexer",
+                columns: table => new
+                {
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ReducerStates", x => x.Name);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "TransactionOutputs",
                 schema: "cardanoindexer",
                 columns: table => new
@@ -53,6 +66,10 @@ namespace Cardano.Sync.Example.Migrations
         {
             migrationBuilder.DropTable(
                 name: "Blocks",
+                schema: "cardanoindexer");
+
+            migrationBuilder.DropTable(
+                name: "ReducerStates",
                 schema: "cardanoindexer");
 
             migrationBuilder.DropTable(
