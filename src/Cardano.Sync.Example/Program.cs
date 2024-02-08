@@ -10,7 +10,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration, typeof(CardanoTestDbContext).Assembly);
+builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration);
 builder.Services.AddSingleton<IReducer, TestReducer>();
 
 var app = builder.Build();

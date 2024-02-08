@@ -12,7 +12,7 @@ namespace Cardano.Sync;
 public static class ServiceCollectionExtensions
 {
     // Extension method to encapsulate the Cardano indexer service registrations
-    public static IServiceCollection AddCardanoIndexer<T>(this IServiceCollection services, IConfiguration configuration, Assembly migrationAssembly) where T : CardanoDbContext
+    public static IServiceCollection AddCardanoIndexer<T>(this IServiceCollection services, IConfiguration configuration, int commandTimout = 60) where T : CardanoDbContext
     {
         services.AddDbContextFactory<T>(options =>
         {
@@ -21,7 +21,7 @@ public static class ServiceCollectionExtensions
                 configuration!.GetConnectionString("CardanoContext"),
                     x =>
                     {
-                        x.MigrationsAssembly(migrationAssembly.FullName);
+                        x.CommandTimeout(commandTimout);
                         x.MigrationsHistoryTable(
                             "__EFMigrationsHistory",
                             configuration!.GetConnectionString("CardanoContextSchema")
