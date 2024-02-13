@@ -9,6 +9,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Cardano.Sync", "src\Cardano
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cardano.Sync.Example", "src\Cardano.Sync.Example\Cardano.Sync.Example.csproj", "{6E55DFD4-5C56-4C9D-A92D-BFF8B188640D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cardano.Sync.Tests", "src\Cardano.Sync.Tests\Cardano.Sync.Tests.csproj", "{4A5F7F49-8713-4BB5-A71C-E35CF6CC9C12}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -23,6 +25,10 @@ Global
 		{6E55DFD4-5C56-4C9D-A92D-BFF8B188640D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6E55DFD4-5C56-4C9D-A92D-BFF8B188640D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6E55DFD4-5C56-4C9D-A92D-BFF8B188640D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4A5F7F49-8713-4BB5-A71C-E35CF6CC9C12}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4A5F7F49-8713-4BB5-A71C-E35CF6CC9C12}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4A5F7F49-8713-4BB5-A71C-E35CF6CC9C12}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4A5F7F49-8713-4BB5-A71C-E35CF6CC9C12}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -30,6 +36,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{013BEA3D-B3F4-461D-9E43-FD20639178AE} = {55B3E289-8C94-4857-9CBA-C3766E971877}
 		{6E55DFD4-5C56-4C9D-A92D-BFF8B188640D} = {55B3E289-8C94-4857-9CBA-C3766E971877}
+		{4A5F7F49-8713-4BB5-A71C-E35CF6CC9C12} = {55B3E289-8C94-4857-9CBA-C3766E971877}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {2B33F9CD-7E5E-44EC-8B0B-B7B6410B3912}
