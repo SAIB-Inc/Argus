@@ -162,4 +162,17 @@ public class CborTests
             spectrumLiquidityPoolCborHex
         );
     }
+
+    [Fact]
+    public void OutputReferenceCborTest()
+    {
+        var outputReference = CborConverter.Deserialize<OutputReference>(
+            Convert.FromHexString(
+                "d8799fd8799f5820cfa1c305723466348efa5dd76e77dba8687b0bf3427f1b1371425dc39775cf27ff00ff"
+            )
+        );
+
+        var outputReferenceCborHex = Convert.ToHexString(CborConverter.Serialize(outputReference)).ToLowerInvariant();
+        Assert.Equal("d8799fd8799f5820cfa1c305723466348efa5dd76e77dba8687b0bf3427f1b1371425dc39775cf27ff00ff", outputReferenceCborHex);
+    }
 }
