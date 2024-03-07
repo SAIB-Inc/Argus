@@ -183,9 +183,17 @@ public class CborTests
             new Dictionary<string, string>
             {
                 { "locked_assets", "[(8b05e87a51c1d4a0fa888d2bb14dbc25e8c343ea379a171b63aa84a0,434e4354,1050)]" },
+                { "name", "hello world" },
             }
         );
 
+        var cip68 = new CIP68<NoDatum>(
+            cip68Metadata,
+            1,
+            new NoDatum()
+        );
+
         var cip68MetadataCborHex = Convert.ToHexString(CborConverter.Serialize(cip68Metadata)).ToLowerInvariant();
+        var cip68CborHex = Convert.ToHexString(CborConverter.Serialize(cip68)).ToLowerInvariant();
     }
 }
