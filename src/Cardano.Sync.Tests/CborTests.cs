@@ -175,4 +175,17 @@ public class CborTests
         var outputReferenceCborHex = Convert.ToHexString(CborConverter.Serialize(outputReference)).ToLowerInvariant();
         Assert.Equal("d8799fd8799f5820cfa1c305723466348efa5dd76e77dba8687b0bf3427f1b1371425dc39775cf27ff00ff", outputReferenceCborHex);
     }
+
+    [Fact]
+    public void CIP68MetataLongValuesCborTest()
+    {
+        var cip68Metadata = new CIP68Metdata(
+            new Dictionary<string, string>
+            {
+                { "locked_assets", "[(8b05e87a51c1d4a0fa888d2bb14dbc25e8c343ea379a171b63aa84a0,434e4354,1050)]" },
+            }
+        );
+
+        var cip68MetadataCborHex = Convert.ToHexString(CborConverter.Serialize(cip68Metadata)).ToLowerInvariant();
+    }
 }

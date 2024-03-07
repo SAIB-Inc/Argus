@@ -46,7 +46,26 @@ public class CIP68MetdataCborConvert : ICborConvertor<CIP68Metdata>
         foreach (var (key, v) in value.Data)
         {
             writer.WriteByteString(Encoding.UTF8.GetBytes(key));
-            writer.WriteByteString(Encoding.UTF8.GetBytes(v));
+            writer.WriteStartIndefiniteLengthByteString();
+            // Check if the value byte string exceeds the length limit
+            byte[] valueBytes = Encoding.UTF8.GetBytes(v);
+            if (valueBytes.Length > 64) // Your length limit here
+            {
+                // Split the byte string into chunks of the specified size and write each chunk
+                for (int i = 0; i < valueBytes.Length; i += 64)
+                {
+                    int chunkSize = Math.Min(64, valueBytes.Length - i);
+                    byte[] chunk = new byte[chunkSize];
+                    Array.Copy(valueBytes, i, chunk, 0, chunkSize);
+                    writer.WriteByteString(chunk);
+                }
+            }
+            else
+            {
+                // If within the length limit, write the byte string as is
+                writer.WriteByteString(valueBytes);
+            }
+            writer.WriteEndIndefiniteLengthByteString();
         }
         writer.WriteEndMap();
     }
