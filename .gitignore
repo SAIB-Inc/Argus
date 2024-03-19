@@ -6,3 +6,4 @@ appsettings.json
 appsettings.*.json
 
 .env
+.mono
