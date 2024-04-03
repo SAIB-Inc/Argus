@@ -3,7 +3,8 @@
 using System.Formats.Cbor;
 using CborSerialization;
 
-namespace Cardano.Sync.Data.Models.Datums;
+namespace Cardano.Sync.Data.Models;
+
 public static class CborConverter
 {
     public static byte[] Serialize<T>(T cborObject, CborConformanceMode cborConformanceMode = CborConformanceMode.Lax, bool convertIndefiniteLengthEncodings = false, bool allowMultipleRootLevelValues = false)

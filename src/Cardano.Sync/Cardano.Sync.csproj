@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>SAIB.Cardano.Sync</PackageId>
-    <Version>0.2.13-alpha</Version>
+    <Version>0.2.14-alpha</Version>
     <Authors>clark@saib.dev</Authors>
     <Company>SAIB Inc.</Company>
     <PackageDescription>A ASP.NET Framework for Indexing Cardano Data storing it in PostgresSQL</PackageDescription>
@@ -17,7 +17,8 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
     <PackageReference Include="CborSerializer" Version="1.0.10" />
-    <PackageReference Include="Pallas.NET" Version="0.1.23" />
+    <PackageReference Include="Pallas.NET" Version="0.1.24" />
+    <PackageReference Include="SAIB.CardanoSharp.Wallet" Version="7.1.0" />
   </ItemGroup>
 
 </Project>
