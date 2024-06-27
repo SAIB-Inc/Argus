@@ -11,6 +11,8 @@ using PallasDotnet.Models;
 
 namespace Cardano.Sync.Workers;
 
+public class CriticalNodeException(string message) : Exception(message) { }
+
 public class CardanoIndexWorker<T>(
     IConfiguration configuration,
     ILogger<CardanoIndexWorker<T>> logger,
@@ -36,6 +38,35 @@ public class CardanoIndexWorker<T>(
         void Handler(object? sender, ChainSyncNextResponseEventArgs e)
         {
             if (e.NextResponse.Action == NextResponseAction.Await) return;
+            if (e.NextResponse.Action == NextResponseAction.RollBack)
+            {
+                // Point in time up to which the slowest reducer has synced
+                ulong slowestReducerSlot = dbContext.ReducerStates.Min(rs => rs.Slot);
+
+                // Allow rollback up to 100 blocks (2000 slots) earlier than the slowest reducer
+                ulong maxAdditionalRollbackSlots = 100 * 20; // 100 blocks * 20 seconds per block
+
+                // Point in time to which we're being asked to roll back
+                ulong requestedRollbackSlot = e.NextResponse.Block.Slot;
+
+                // Calculate the earliest point in time we'll allow for rollback
+                ulong earliestAllowedRollbackSlot = (slowestReducerSlot > maxAdditionalRollbackSlots)
+                    ? slowestReducerSlot - maxAdditionalRollbackSlots
+                    : 0;
+
+                // Check if the requested rollback point is earlier than our earliest allowed point
+                if (requestedRollbackSlot < earliestAllowedRollbackSlot)
+                {
+                    logger.LogWarning(
+                        "Excessive rollback detected. Requested rollback to: {requestedRollbackSlot}, Earliest allowed: {earliestAllowedRollbackSlot}, Slowest reducer at: {slowestReducerSlot}",
+                        requestedRollbackSlot,
+                        earliestAllowedRollbackSlot,
+                        slowestReducerSlot
+                    );
+
+                    throw new CriticalNodeException("Rollback requested to a point earlier than allowed.");
+                }
+            }
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
