@@ -139,7 +139,7 @@ public class CborTests
     [Fact]
     public void AssetClassCborTest()
     {
-        var assetClass = CborConverter.Deserialize<AssetClass>(
+        var assetClass = CborConverter.Deserialize<Data.Models.Datums.AssetClass>(
             Convert.FromHexString(
                 "d8799f581c1f164eea5c242f53cb2df2150fa5ab7ba126350e904ddbcc65226e1857634e4554415f4144415f504f4f4c5f4944454e54495459ff"
             )

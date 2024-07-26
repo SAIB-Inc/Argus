@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>SAIB.Cardano.Sync</PackageId>
-    <Version>0.2.28-alpha</Version>
+    <Version>0.2.29-alpha</Version>
     <Authors>clark@saib.dev</Authors>
     <Company>SAIB Inc.</Company>
     <PackageDescription>A ASP.NET Framework for Indexing Cardano Data storing it in PostgresSQL</PackageDescription>

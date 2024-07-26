@@ -22,6 +22,7 @@ public class TupleCborConverter<F, S> : ICborConvertor<Tuple<F, S>> where F : ID
 
         ICborConvertor<S> sndConverter = (ICborConvertor<S>)CborConverter.GetConvertor(typeof(S));
         S snd = sndConverter.Read(ref reader);
+        reader.ReadEndArray();
 
         return new Tuple<F, S>(fst, snd);
     }
@@ -48,7 +49,8 @@ public class TupleCborConverter<F, S, T> : ICborConvertor<T> where F : IDatum wh
         var converter = new TupleCborConverter<F, S>().Read(ref reader);
         F fst = converter.First;
         S snd = converter.Second;
-        return (T)new Tuple<F, S>(fst, snd);
+
+        return (T)Activator.CreateInstance(typeof(T), fst, snd)!;
     }
 
     public void Write(ref CborWriter writer, T value)
