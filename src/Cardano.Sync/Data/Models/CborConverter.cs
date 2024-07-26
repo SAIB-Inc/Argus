@@ -8,19 +8,26 @@ namespace Cardano.Sync.Data.Models;
 
 public static class CborConverter
 {
-    public static byte[] Serialize<T>(T cborObject, CborConformanceMode cborConformanceMode = CborConformanceMode.Lax, bool convertIndefiniteLengthEncodings = false, bool allowMultipleRootLevelValues = false)
+    public static byte[] Serialize<T>(T cborObject, CborConformanceMode cborConformanceMode = CborConformanceMode.Lax, bool convertIndefiniteLengthEncodings = false, bool allowMultipleRootLevelValues = false) where T : IDatum
     {
         var convertor = GetConvertor(typeof(T));
         CborWriter writer = new(cborConformanceMode, convertIndefiniteLengthEncodings, allowMultipleRootLevelValues);
-        ((ICborConvertor<T>)convertor).Write(ref writer, cborObject);
+        convertor.GetType().GetMethod("Write")!.Invoke(convertor, [writer, cborObject]);
         return writer.Encode();
     }
 
-    public static T Deserialize<T>(byte[] cborData, CborConformanceMode cborConformanceMode = CborConformanceMode.Lax, bool allowMultipleRootLevelValues = false)
+    public static T Deserialize<T>(byte[] cborData, CborConformanceMode cborConformanceMode = CborConformanceMode.Lax, bool allowMultipleRootLevelValues = false) where T : IDatum
     {
         var convertor = GetConvertor(typeof(T));
         CborReader reader = new(cborData, cborConformanceMode, allowMultipleRootLevelValues);
-        return ((ICborConvertor<T>)convertor).Read(ref reader);
+        var conversionResult = convertor.GetType().GetMethod("Read")!.Invoke(convertor, [reader]);
+
+        if(conversionResult is not T && conversionResult is null)
+        {
+            throw new CborException($"Failed to convert {typeof(T).Name}");
+        }
+        
+        return (T)conversionResult;
     }
 
     public static object GetConvertor(Type type)
