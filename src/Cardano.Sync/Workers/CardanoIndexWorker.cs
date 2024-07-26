@@ -112,18 +112,19 @@ public class CardanoIndexWorker<T>(
 
                             ulong maxAdditionalRollbackSlots = 100 * 20;
                             ulong requestedRollBackSlot = response.Block.Slot;
-                        
+
                             if (reducerCurrentSlot - requestedRollBackSlot > maxAdditionalRollbackSlots)
                             {
                                 logger.Log(
-                                    LogLevel.Warning,
-                                    "RollBackwardAsync[{}] Requested RollBack Slot {requestedRollBackSlot} is more than {maxAdditionalRollbackSlots} blocks behind current slot {reducerCurrentSlot}. Skipping RollBack",
+                                    LogLevel.Error,
+                                    "RollBackwardAsync[{}] Requested RollBack Slot {requestedRollBackSlot} is more than {maxAdditionalRollbackSlots} slots behind current slot {reducerCurrentSlot}.",
                                     reducerName,
                                     requestedRollBackSlot,
                                     maxAdditionalRollbackSlots,
                                     reducerCurrentSlot
                                 );
-                                return;
+
+                                throw new CriticalNodeException("Rollback, Critical Error, Aborting");
                             }
 
                             Stopwatch reducerStopwatch = new();
