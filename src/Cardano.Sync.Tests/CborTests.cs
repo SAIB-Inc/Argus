@@ -1,6 +1,7 @@
 using Cardano.Sync.Data.Models.Datums;
 using Cardano.Sync.Data.Models;
 using Cardano.Sync.Data.Models.Experimental;
+using System.Formats.Cbor;
 
 namespace Cardano.Sync.Tests;
 
@@ -235,5 +236,35 @@ public class CborTests
 
         var lovelaceCborHex = Convert.ToHexString(CborConverter.Serialize(lovelace)).ToLowerInvariant();
         Assert.Equal("1b0000001288f7b3e3", lovelaceCborHex);
+    }
+
+    [Theory]
+    [InlineData(["9f41ff41ffff", typeof(Data.Models.Datums.Tuple<ByteArray, ByteArray>)])]
+    [InlineData(["9f0505ff", typeof(Data.Models.Datums.Tuple<CardanoInt, CardanoInt>)])]
+    public void TupleCborTest(string cborHex, Type type)
+    {
+        var tuple = typeof(CborConverter)!
+            .GetMethod("Deserialize")!
+            .MakeGenericMethod(type)
+            .Invoke(null, [Convert.FromHexString(cborHex), CborConformanceMode.Lax, false]);
+
+        var tuplBytes = typeof(CborConverter)!
+            .GetMethod("Serialize")!
+            .MakeGenericMethod(type)
+            .Invoke(null, [tuple, CborConformanceMode.Lax, false, false]) as byte[];
+
+        var tupleHex = Convert.ToHexString(tuplBytes!).ToLowerInvariant();
+
+        Assert.Equal(cborHex, tupleHex);
+    }
+
+    [Theory]
+    [InlineData("9f41ff41ffff")]
+    public void SundaeSwapAssetClassCborTest(string cborHex)
+    {
+        var sundaeAssetClass = CborConverter.Deserialize<Data.Models.Datums.SundaeSwap.AssetClass>(Convert.FromHexString(cborHex));
+        var sundaeBytes = CborConverter.Serialize(sundaeAssetClass);
+        var sundaeHex = Convert.ToHexString(sundaeBytes).ToLowerInvariant();
+        Assert.Equal(cborHex, sundaeHex);
     }
 }
