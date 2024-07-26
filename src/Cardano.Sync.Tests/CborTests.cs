@@ -2,6 +2,7 @@ using Cardano.Sync.Data.Models.Datums;
 using Cardano.Sync.Data.Models;
 using Cardano.Sync.Data.Models.Experimental;
 using System.Formats.Cbor;
+using AssetClass = Cardano.Sync.Data.Models.Datums.SundaeSwap.AssetClass;
 
 namespace Cardano.Sync.Tests;
 
@@ -241,6 +242,7 @@ public class CborTests
     [Theory]
     [InlineData(["9f41ff41ffff", typeof(Data.Models.Datums.Tuple<ByteArray, ByteArray>)])]
     [InlineData(["9f0505ff", typeof(Data.Models.Datums.Tuple<CardanoInt, CardanoInt>)])]
+    [InlineData(["9f9f41ff41ffff9f41ff41ffffff", typeof(Data.Models.Datums.Tuple<AssetClass, AssetClass>)])]
     public void TupleCborTest(string cborHex, Type type)
     {
         var tuple = typeof(CborConverter)!
