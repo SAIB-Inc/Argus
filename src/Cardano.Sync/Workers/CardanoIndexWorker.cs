@@ -31,47 +31,18 @@ public class CardanoIndexWorker<T>(
 
     private async Task ChainSyncReducerAsync(IReducer reducer, CancellationToken stoppingToken)
     {
-        using var dbContext = dbContextFactory.CreateDbContext();
-        var nodeClient = new NodeClient();
-        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        using T dbContext = dbContextFactory.CreateDbContext();
+        NodeClient nodeClient = new();
+        CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
         void Handler(object? sender, ChainSyncNextResponseEventArgs e)
         {
             if (e.NextResponse.Action == NextResponseAction.Await) return;
-            if (e.NextResponse.Action == NextResponseAction.RollBack)
-            {
-                // Point in time up to which the slowest reducer has synced
-                ulong slowestReducerSlot = dbContext.ReducerStates.Min(rs => rs.Slot);
 
-                // Allow rollback up to 100 blocks (2000 slots) earlier than the slowest reducer
-                ulong maxAdditionalRollbackSlots = 100 * 20; // 100 blocks * 20 seconds per block
-
-                // Point in time to which we're being asked to roll back
-                ulong requestedRollbackSlot = e.NextResponse.Block.Slot;
-
-                // Calculate the earliest point in time we'll allow for rollback
-                ulong earliestAllowedRollbackSlot = (slowestReducerSlot > maxAdditionalRollbackSlots)
-                    ? slowestReducerSlot - maxAdditionalRollbackSlots
-                    : 0;
-
-                // Check if the requested rollback point is earlier than our earliest allowed point
-                if (requestedRollbackSlot < earliestAllowedRollbackSlot)
-                {
-                    logger.LogWarning(
-                        "Excessive rollback detected. Requested rollback to: {requestedRollbackSlot}, Earliest allowed: {earliestAllowedRollbackSlot}, Slowest reducer at: {slowestReducerSlot}",
-                        requestedRollbackSlot,
-                        earliestAllowedRollbackSlot,
-                        slowestReducerSlot
-                    );
-
-                    throw new CriticalNodeException("Rollback requested to a point earlier than allowed.");
-                }
-            }
-
-            var stopwatch = new Stopwatch();
+            Stopwatch stopwatch = new();
             stopwatch.Start();
 
-            var response = e.NextResponse;
+            NextResponse response = e.NextResponse;
             logger.Log(
                 LogLevel.Information, "[{reducer}]: New Chain Event {Action}: {Slot} Block: {Block}",
                 CardanoIndexWorker<T>.GetTypeNameWithoutGenerics(reducer.GetType()),
@@ -80,23 +51,23 @@ public class CardanoIndexWorker<T>(
                 response.Block.Number
             );
 
-            var actionMethodMap = new Dictionary<NextResponseAction, Func<IReducer, NextResponse, Task>>
+            Dictionary<NextResponseAction, Func<IReducer, NextResponse, Task>> actionMethodMap = new()
             {
                 { NextResponseAction.RollForward, async (reducer, response) =>
                     {
                         try
                         {
-                            var reducerStopwatch = new Stopwatch();
+                            Stopwatch reducerStopwatch = new();
 
-                            var reducerDependencies = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType());
+                            Type[] reducerDependencies = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType());
 
                             while (true)
                             {
-                                var canProceed = true;
-                                foreach (var dependency in reducerDependencies)
+                                bool canProceed = true;
+                                foreach (Type dependency in reducerDependencies)
                                 {
-                                    var dependencyName = GetTypeNameWithoutGenerics(dependency);
-                                    var dependencyState = await dbContext.ReducerStates.AsNoTracking().FirstOrDefaultAsync(rs => rs.Name == dependencyName, stoppingToken); // Use cancellation token here
+                                    string dependencyName = GetTypeNameWithoutGenerics(dependency);
+                                    ReducerState? dependencyState = await dbContext.ReducerStates.AsNoTracking().FirstOrDefaultAsync(rs => rs.Name == dependencyName, stoppingToken); // Use cancellation token here
 
                                     if (dependencyState == null || dependencyState.Slot < response.Block.Slot)
                                     {
@@ -132,11 +103,34 @@ public class CardanoIndexWorker<T>(
                     {
                         try
                         {
-                            var reducerStopwatch = new Stopwatch();
+                            string reducerName = GetTypeNameWithoutGenerics(reducer.GetType());
+                            ulong reducerCurrentSlot = dbContext.ReducerStates
+                                .AsNoTracking()
+                                .Where(rs => rs.Name == reducerName)
+                                .Select(rs => rs.Slot)
+                                .FirstOrDefault();
+
+                            ulong maxAdditionalRollbackSlots = 100 * 20;
+                            ulong requestedRollBackSlot = response.Block.Slot;
+                        
+                            if (reducerCurrentSlot - requestedRollBackSlot > maxAdditionalRollbackSlots)
+                            {
+                                logger.Log(
+                                    LogLevel.Warning,
+                                    "RollBackwardAsync[{}] Requested RollBack Slot {requestedRollBackSlot} is more than {maxAdditionalRollbackSlots} blocks behind current slot {reducerCurrentSlot}. Skipping RollBack",
+                                    reducerName,
+                                    requestedRollBackSlot,
+                                    maxAdditionalRollbackSlots,
+                                    reducerCurrentSlot
+                                );
+                                return;
+                            }
+
+                            Stopwatch reducerStopwatch = new();
                             reducerStopwatch.Start();
                             await reducer.RollBackwardAsync(response);
                             reducerStopwatch.Stop();
-                            logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{}] in {ElapsedMilliseconds} ms", CardanoIndexWorker<T>.GetTypeNameWithoutGenerics(reducer.GetType()), reducerStopwatch.ElapsedMilliseconds);
+                            logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
                         }
                         catch(Exception ex)
                         {
@@ -147,13 +141,13 @@ public class CardanoIndexWorker<T>(
                 }
             };
 
-            var reducerAction = actionMethodMap[response.Action];
+            Func<IReducer, NextResponse, Task> reducerAction = actionMethodMap[response.Action];
 
             reducerAction(reducer, response).Wait(stoppingToken);
 
             Task.Run(async () =>
             {
-                var reducerState = await dbContext.ReducerStates.FirstOrDefaultAsync(rs => rs.Name == GetTypeNameWithoutGenerics(reducer.GetType()));
+                ReducerState? reducerState = await dbContext.ReducerStates.FirstOrDefaultAsync(rs => rs.Name == GetTypeNameWithoutGenerics(reducer.GetType()));
 
                 if (reducerState is null)
                 {
@@ -197,8 +191,8 @@ public class CardanoIndexWorker<T>(
         nodeClient.Disconnected += DisconnectedHandler;
 
         // Reducer specific start slot and hash
-        var startSlot = configuration.GetValue<ulong>($"CardanoIndexStartSlot_{GetTypeNameWithoutGenerics(reducer.GetType())}");
-        var startHash = configuration.GetValue<string>($"CardanoIndexStartHash_{GetTypeNameWithoutGenerics(reducer.GetType())}");
+        ulong startSlot = configuration.GetValue<ulong>($"CardanoIndexStartSlot_{GetTypeNameWithoutGenerics(reducer.GetType())}");
+        string? startHash = configuration.GetValue<string>($"CardanoIndexStartHash_{GetTypeNameWithoutGenerics(reducer.GetType())}");
 
         // Fallback to global start slot and hash
         if (startSlot == 0 && startHash is null)
@@ -208,7 +202,7 @@ public class CardanoIndexWorker<T>(
         }
 
         // Use educer state from database if available
-        var reducerState = await dbContext.ReducerStates
+        ReducerState? reducerState = await dbContext.ReducerStates
             .FirstOrDefaultAsync(rs => rs.Name == GetTypeNameWithoutGenerics(reducer.GetType()), cancellationToken: stoppingToken);
 
         if (reducerState is not null)
@@ -217,7 +211,7 @@ public class CardanoIndexWorker<T>(
             startHash = reducerState.Hash;
         }
 
-        var tip = await nodeClient.ConnectAsync(configuration.GetValue<string>("CardanoNodeSocketPath")!, configuration.GetValue<ulong>("CardanoNetworkMagic"));
+        Point tip = await nodeClient.ConnectAsync(configuration.GetValue<string>("CardanoNodeSocketPath")!, configuration.GetValue<ulong>("CardanoNetworkMagic"));
         await nodeClient.StartChainSyncAsync(new(
             startSlot,
             Hash.FromHex(startHash!)
@@ -239,8 +233,8 @@ public class CardanoIndexWorker<T>(
 
     private static string GetTypeNameWithoutGenerics(Type type)
     {
-        var typeName = type.Name;
-        var genericCharIndex = typeName.IndexOf('`');
+        string typeName = type.Name;
+        int genericCharIndex = typeName.IndexOf('`');
         if (genericCharIndex != -1)
         {
             typeName = typeName[..genericCharIndex];

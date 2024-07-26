@@ -35,7 +35,10 @@ public class TransactionOutputReducer<T>(
         _dbContext = dbContextFactory.CreateDbContext();
         var rollbackSlot = response.Block.Slot;
         var schema = configuration.GetConnectionString("CardanoContextSchema");
-        await _dbContext.Database.ExecuteSqlRawAsync($"DELETE FROM \"{schema}\".\"TransactionOutputs\" WHERE \"Slot\" > {rollbackSlot}");
+        _dbContext.TransactionOutputs.RemoveRange(
+            _dbContext.TransactionOutputs.AsNoTracking().Where(o => o.Slot > rollbackSlot)
+        );
+        await _dbContext.SaveChangesAsync();
         _dbContext.Dispose();
     }
 }
