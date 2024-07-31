@@ -3,6 +3,7 @@ using Cardano.Sync.Data.Models;
 using Cardano.Sync.Data.Models.Experimental;
 using System.Formats.Cbor;
 using AssetClass = Cardano.Sync.Data.Models.Datums.SundaeSwap.AssetClass;
+using Crashr.Data.Models.Datums;
 
 namespace Cardano.Sync.Tests;
 
@@ -268,5 +269,14 @@ public class CborTests
         var sundaeBytes = CborConverter.Serialize(sundaeAssetClass);
         var sundaeHex = Convert.ToHexString(sundaeBytes).ToLowerInvariant();
         Assert.Equal(cborHex, sundaeHex);
+    }
+
+    [Fact]
+    public void DictionaryCborTest()
+    {
+        var dictionary = CborConverter.Deserialize<Dictionary<Dictionary<CardanoInt>>>(Convert.FromHexString("a141dda341aa0141bb0241cc03"));
+        var dictionaryBytes = CborConverter.Serialize(dictionary);
+        var dictionaryHex = Convert.ToHexString(dictionaryBytes).ToLowerInvariant();
+        Assert.Equal("a141dda341aa0141bb0241cc03", dictionaryHex);
     }
 }
