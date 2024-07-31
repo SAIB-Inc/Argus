@@ -3,8 +3,16 @@ using CborSerialization;
 
 namespace Cardano.Sync.Data.Models.Datums;
 
+
 [CborSerialize(typeof(CardanoIntCborConvert<CardanoInt>))]
-public record CardanoInt(ulong Value) : IDatum;
+public record CardanoInt(ulong Value) : IDatum
+{
+    public int CompareTo(object? obj)
+    {
+        throw new NotImplementedException();
+    }
+}
+
 
 public class CardanoIntCborConvert<T> : ICborConvertor<T> where T : CardanoInt
 {
