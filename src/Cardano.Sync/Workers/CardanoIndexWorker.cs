@@ -110,21 +110,24 @@ public class CardanoIndexWorker<T>(
                                 .Select(rs => rs.Slot)
                                 .FirstOrDefault();
 
-                            ulong maxAdditionalRollbackSlots = 100 * 20;
-                            ulong requestedRollBackSlot = response.Block.Slot;
-
-                            if (reducerCurrentSlot - requestedRollBackSlot > maxAdditionalRollbackSlots)
+                            // Only execute mass rollback prevention logic if the reducer has processed at least one block
+                            if (reducerCurrentSlot > 0)
                             {
-                                logger.Log(
-                                    LogLevel.Error,
-                                    "RollBackwardAsync[{}] Requested RollBack Slot {requestedRollBackSlot} is more than {maxAdditionalRollbackSlots} slots behind current slot {reducerCurrentSlot}.",
-                                    reducerName,
-                                    requestedRollBackSlot,
-                                    maxAdditionalRollbackSlots,
-                                    reducerCurrentSlot
-                                );
+                                ulong maxAdditionalRollbackSlots = 100 * 20;
+                                ulong requestedRollBackSlot = response.Block.Slot;
+                                if (reducerCurrentSlot - requestedRollBackSlot > maxAdditionalRollbackSlots)
+                                {
+                                    logger.Log(
+                                        LogLevel.Error,
+                                        "RollBackwardAsync[{}] Requested RollBack Slot {requestedRollBackSlot} is more than {maxAdditionalRollbackSlots} slots behind current slot {reducerCurrentSlot}.",
+                                        reducerName,
+                                        requestedRollBackSlot,
+                                        maxAdditionalRollbackSlots,
+                                        reducerCurrentSlot
+                                    );
 
-                                throw new CriticalNodeException("Rollback, Critical Error, Aborting");
+                                    throw new CriticalNodeException("Rollback, Critical Error, Aborting");
+                                }
                             }
 
                             Stopwatch reducerStopwatch = new();
