@@ -1,11 +1,10 @@
 using Cardano.Sync.Data;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using PallasDotnet.Models;
 using BlockEntity = Cardano.Sync.Data.Models.Block;
 namespace Cardano.Sync.Reducers;
 
-public class BlockReducer<T>(IDbContextFactory<T> dbContextFactory) : IBlockReducer where T : CardanoDbContext
+public class BlockReducer<T>(IDbContextFactory<T> dbContextFactory) : IReducer<BlockEntity> where T : CardanoDbContext
 {
     private T _dbContext = default!;
 

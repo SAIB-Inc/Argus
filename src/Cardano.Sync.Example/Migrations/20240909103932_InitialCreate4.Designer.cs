@@ -2,6 +2,7 @@
 using Cardano.Sync.Example.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -10,9 +11,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Cardano.Sync.Example.Migrations
 {
     [DbContext(typeof(CardanoTestDbContext))]
-    partial class CardanoTestDbContextModelSnapshot : ModelSnapshot
+    [Migration("20240909103932_InitialCreate4")]
+    partial class InitialCreate4
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -52,7 +55,7 @@ namespace Cardano.Sync.Example.Migrations
 
                     b.HasKey("Name");
 
-                    b.ToTable("ReducerStates", "public");
+                    b.ToTable("reducer_state", "public");
                 });
 #pragma warning restore 612, 618
         }

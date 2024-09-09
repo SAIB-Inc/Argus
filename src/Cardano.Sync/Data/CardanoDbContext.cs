@@ -1,26 +1,36 @@
+using System.Reflection;
 using Cardano.Sync.Data.Models;
+using Cardano.Sync.Reducers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 namespace Cardano.Sync.Data;
 
 
-public class CardanoDbContext(DbContextOptions options, IConfiguration configuration) : DbContext(options)
+public class CardanoDbContext(
+    DbContextOptions options,
+    IConfiguration configuration
+) : DbContext(options)
 {
     private readonly IConfiguration _configuration = configuration;
-    public DbSet<Block> Blocks { get; set; }
-    public DbSet<TransactionOutput> TransactionOutputs { get; set; }
-    public DbSet<ReducerState> ReducerStates { get; set; }
+    public DbSet<Block> Blocks => Set<Block>();
+    public DbSet<TransactionOutput> TransactionOutputs => Set<TransactionOutput>();
+    public DbSet<ReducerState> ReducerStates => Set<ReducerState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        foreach (PropertyInfo property in GetType().GetProperties())
+        {
+            if (property.PropertyType.IsGenericType && property.PropertyType.GetGenericTypeDefinition() == typeof(DbSet<>))
+            {
+                Type entityType = property.PropertyType.GetGenericArguments()[0];
+                modelBuilder.Ignore(entityType);
+            }
+        }
+
         modelBuilder.HasDefaultSchema(_configuration.GetConnectionString("CardanoContextSchema"));
-        modelBuilder.Entity<Block>().HasIndex(b => b.Slot);
-        modelBuilder.Entity<Block>().HasKey(b => new { b.Id, b.Number, b.Slot });
-        modelBuilder.Entity<TransactionOutput>().HasIndex(item => item.Slot);
-        modelBuilder.Entity<TransactionOutput>().HasKey(item => new { item.Id, item.Index });
-        modelBuilder.Entity<TransactionOutput>().OwnsOne(item => item.Amount);
-        modelBuilder.Entity<TransactionOutput>().OwnsOne(item => item.Datum);
-        modelBuilder.Entity<ReducerState>().HasKey(item => item.Name);
+
+        modelBuilder.Entity<ReducerState>().HasKey(x => x.Name);
+
         base.OnModelCreating(modelBuilder);
     }
 }

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Cardano.Sync;
+namespace Cardano.Sync.Extensions;
 
 // Extension method class must be static
 public static class ServiceCollectionExtensions
@@ -29,9 +29,6 @@ public static class ServiceCollectionExtensions
                     }
                 );
         });
-        // Registering required services as singletons
-        services.AddSingleton<IBlockReducer, BlockReducer<T>>();
-        services.AddSingleton<ICoreReducer, TransactionOutputReducer<T>>();
 
         // Registering the hosted service
         services.AddHostedService<CardanoIndexWorker<T>>();

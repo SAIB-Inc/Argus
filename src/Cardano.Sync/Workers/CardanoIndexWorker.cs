@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Cardano.Sync.Data;
 using Cardano.Sync.Data.Models;
 using Cardano.Sync.Reducers;
@@ -8,7 +9,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PallasDotnet;
 using PallasDotnet.Models;
-
+using BlockEntity = Cardano.Sync.Data.Models.Block;
 namespace Cardano.Sync.Workers;
 
 public class CriticalNodeException(string message) : Exception(message) { }
@@ -17,19 +18,17 @@ public class CardanoIndexWorker<T>(
     IConfiguration configuration,
     ILogger<CardanoIndexWorker<T>> logger,
     IDbContextFactory<T> dbContextFactory,
-    IEnumerable<IBlockReducer> blockReducers,
-    IEnumerable<ICoreReducer> coreReducers,
-    IEnumerable<IReducer> reducers
+    IEnumerable<IReducer<IReducerModel>> reducers
 ) : BackgroundService where T : CardanoDbContext
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        IList<IReducer> combinedReducers = [.. blockReducers, .. coreReducers, .. reducers];
-
+        IList<IReducer<IReducerModel>> combinedReducers = [.. reducers];
+        Console.WriteLine(JsonSerializer.Serialize(combinedReducers));
         await Task.WhenAll(combinedReducers.Select(reducer => ChainSyncReducerAsync(reducer, stoppingToken)));
     }
 
-    private async Task ChainSyncReducerAsync(IReducer reducer, CancellationToken stoppingToken)
+    private async Task ChainSyncReducerAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
         using T dbContext = dbContextFactory.CreateDbContext();
         NodeClient nodeClient = new();
@@ -51,7 +50,7 @@ public class CardanoIndexWorker<T>(
                 response.Block.Number
             );
 
-            Dictionary<NextResponseAction, Func<IReducer, NextResponse, Task>> actionMethodMap = new()
+            Dictionary<NextResponseAction, Func<IReducer<IReducerModel>, NextResponse, Task>> actionMethodMap = new()
             {
                 { NextResponseAction.RollForward, async (reducer, response) =>
                     {
@@ -145,7 +144,7 @@ public class CardanoIndexWorker<T>(
                 }
             };
 
-            Func<IReducer, NextResponse, Task> reducerAction = actionMethodMap[response.Action];
+            Func<IReducer<IReducerModel>, NextResponse, Task> reducerAction = actionMethodMap[response.Action];
 
             reducerAction(reducer, response).Wait(stoppingToken);
 
