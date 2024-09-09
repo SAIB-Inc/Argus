@@ -1,6 +1,6 @@
 namespace Cardano.Sync.Data.Models;
 
-public record TransactionOutput
+public record TransactionOutput : IReducerModel
 {
     public string Id { get; init; } = default!;
     public uint Index { get; init; }

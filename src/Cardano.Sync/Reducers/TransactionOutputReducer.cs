@@ -11,7 +11,7 @@ namespace Cardano.Sync.Reducers;
 public class TransactionOutputReducer<T>(
     IDbContextFactory<T> dbContextFactory,
     IConfiguration configuration
-) : ICoreReducer where T : CardanoDbContext
+) : IReducer<TransactionOutputEntity> where T : CardanoDbContext
 {
     private T _dbContext = default!;
 
