@@ -8,11 +8,11 @@ builder.Services.AddSingleton<IReducer, TestReducer>();
 ```
 
 ```cs
-using Cardano.Sync.Example.Data;
-using Cardano.Sync.Reducers;
+using Argus.Sync.Example.Data;
+using Argus.Sync.Reducers;
 using PallasDotnet.Models;
 
-namespace Cardano.Sync.Example.Reducers;
+namespace Argus.Sync.Example.Reducers;
 
 public class MyReducer : IReducer
 {
