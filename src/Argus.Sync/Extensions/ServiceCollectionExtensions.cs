@@ -1,6 +1,4 @@
-using System.Reflection;
 using Argus.Sync.Data;
-using Argus.Sync.Reducers;
 using Argus.Sync.Workers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
