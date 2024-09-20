@@ -1,6 +1,11 @@
-# Cardano.Sync
+# Argus | Cardano Blockchain Indexer for .NET
 
-Cardano.Sync is a .NET library that simplifies interactions with the Cardano blockchain by providing an efficient indexing framework. Initially supporting PostgreSQL as the database backend, it processes block data into structured, queryable formats. This tool is designed for robust enterprise integration, with plans to introduce additional database backends in the future to broaden its applicability and flexibility.
+<p align="center">
+  <img src="/assets/asset.png" alt="Argus Logo">
+</p>
+
+
+Argus is a .NET library that simplifies interactions with the Cardano blockchain by providing an efficient indexing framework. Initially supporting PostgreSQL as the database backend, it processes block data into structured, queryable formats. This tool is designed for robust enterprise integration, with plans to introduce additional database backends in the future to broaden its applicability and flexibility.
 
 ```cs
 builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration);
