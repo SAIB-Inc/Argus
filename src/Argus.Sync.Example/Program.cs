@@ -1,3 +1,4 @@
+using Argus.Sync.Data.Models;
 using Argus.Sync.Example.Data;
 using Argus.Sync.Extensions;
 
@@ -9,6 +10,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration);
+builder.Services.AddReducers<CardanoTestDbContext,IReducerModel>(["TestReducer"]);
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

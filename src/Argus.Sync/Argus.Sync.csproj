@@ -22,4 +22,9 @@
     <PackageReference Include="SAIB.CardanoSharp.Wallet" Version="7.1.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Chrysalis\src\Chrysalis\Chrysalis.csproj" />
+  </ItemGroup>
+
+
 </Project>

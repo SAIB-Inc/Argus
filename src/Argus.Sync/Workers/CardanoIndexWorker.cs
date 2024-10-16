@@ -12,6 +12,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PallasDotnet.Models;
 using Point = PallasDotnet.Models.Point;
+
 namespace Argus.Sync.Workers;
 
 public class CriticalNodeException(string message) : Exception(message) { }
@@ -25,6 +26,7 @@ public class CardanoIndexWorker<T>(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        Logger.LogInformation("CardanoIndexWorker starting");
         await Task.WhenAll(
             Reducers.Select(
                 reducer => StartReducerChainSyncAsync(reducer, stoppingToken)
@@ -59,19 +61,25 @@ public class CardanoIndexWorker<T>(
 
     private async Task ProcessRollForwardAsync(NextResponse response, IReducer<IReducerModel> reducer)
     {
-        Block? block = CborSerializer.Deserialize<Block>(response.BlockCbor) ?? throw new CriticalNodeException("Block deserialization failed.");
+        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.BlockCbor) ?? throw new CriticalNodeException("Block deserialization failed.");
+        Block block = blockWithEra.Block;
+        ulong slot = block.Slot();
 
-        // Log the block slot
         Logger.Log(
             LogLevel.Information,
             "[{Reducer}]: Processing Block Slot {Slot}",
             GetTypeNameWithoutGenerics(reducer.GetType()),
-            block.Slot()
+            slot
         );
+
+        await reducer.RollForwardAsync(block);
     }
 
     private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer)
     {
+        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.BlockCbor) ?? throw new CriticalNodeException("Block deserialization failed.");
+        ulong slot = blockWithEra.Block.Slot();
+        await reducer.RollBackwardAsync(slot);
     }
 
 

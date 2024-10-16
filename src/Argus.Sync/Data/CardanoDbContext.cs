@@ -2,16 +2,18 @@ using System.Reflection;
 using Argus.Sync.Data.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+
 namespace Argus.Sync.Data;
 
 
 public class CardanoDbContext(
     DbContextOptions options,
     IConfiguration configuration
-) : DbContext(options)
+) : DbContext(options), IReducerModel
 {
     private readonly IConfiguration _configuration = configuration;
     public DbSet<ReducerState> ReducerStates => Set<ReducerState>();
+    public DbSet<TestModel> TestModels => Set<TestModel>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -27,6 +29,7 @@ public class CardanoDbContext(
         modelBuilder.HasDefaultSchema(_configuration.GetConnectionString("CardanoContextSchema"));
 
         modelBuilder.Entity<ReducerState>().HasKey(x => x.Name);
+        modelBuilder.Entity<TestModel>().HasKey(x => x.Slot);
 
         base.OnModelCreating(modelBuilder);
     }
