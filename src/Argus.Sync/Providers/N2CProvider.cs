@@ -1,6 +1,11 @@
 using Argus.Sync.Data.Models;
+using Argus.Sync.Extensions.Chrysalis;
+using Chrysalis.Cardano.Models.Core.Block;
+using Chrysalis.Cbor;
 using PallasDotnet;
-using PallasNextResponse = PallasDotnet.Models.NextResponse; 
+using PallasNextResponse = PallasDotnet.Models.NextResponse;
+using NSec.Cryptography; 
+using ChrysalisBlock = Chrysalis.Cardano.Models.Core.Block.Block;
 namespace Argus.Sync.Providers;
 
 public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoChainProvider
@@ -26,21 +31,28 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                 switch (response.Action)
                 {
                     case PallasDotnet.Models.NextResponseAction.RollForward:
+                        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.BlockCbor);
+                        ulong slot = blockWithEra!.Block.Slot();
+                        byte[] header = CborSerializer.Serialize(blockWithEra.Block.Header);
+                        Blake2b algorithm = HashAlgorithm.Blake2b_256;
+                        byte[] blockHash = algorithm.Hash(header);
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
-                            new Block(
-                                response!.Tip.Hash,
-                                response!.Tip.Slot,
+                            new Data.Models.Block(
+                                Convert.ToHexString(blockHash),
+                                slot,
                                 response?.BlockCbor
                             )
                         );
                         break;
                     case PallasDotnet.Models.NextResponseAction.RollBack:
+                        ChrysalisBlock? block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
+                        slot = block!.Slot();
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
-                            new Block(
-                                response!.Tip.Hash,
-                                response!.Tip.Slot,
+                            new Data.Models.Block(
+                                null,
+                                slot,
                                 null
                             )
                         );

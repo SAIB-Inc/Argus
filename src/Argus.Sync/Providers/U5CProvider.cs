@@ -43,7 +43,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
                             new Block(
-                                response!.UndoneBlock!.Hash,
+                                null,
                                 response!.UndoneBlock!.Slot,
                                 null
                             )
@@ -53,7 +53,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
                             new Block(
-                                response!.ResetRef!.Hash,
+                                null,
                                 response!.ResetRef!.Index,
                                 null
                             )
