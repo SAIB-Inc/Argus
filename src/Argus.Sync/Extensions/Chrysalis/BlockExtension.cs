@@ -1,4 +1,6 @@
+using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core.Block;
+using Chrysalis.Cardano.Models.Core.Transaction;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 
@@ -17,6 +19,14 @@ public static class BlockExtension
         {
             AlonzoHeaderBody alonzoHeaderBody => alonzoHeaderBody.BlockNumber.Value,
             BabbageHeaderBody babbageHeaderBody => babbageHeaderBody.BlockNumber.Value,
+            _ => throw new NotImplementedException()
+        };
+
+    public static IEnumerable<TransactionBody> TransactionBodies(this Block block)
+        => block.TransactionBodies switch
+        {
+            CborDefiniteList<TransactionBody> x => x.Value,
+            CborIndefiniteList<TransactionBody> x => x.Value,
             _ => throw new NotImplementedException()
         };
 }
