@@ -70,7 +70,7 @@ public class CardanoIndexWorker<T>(
         );
 
         // Await reducer dependencies
-        await AwaitReducerDependenciesAsync(slot, reducer, stoppingToken);
+        await AwaitReducerDependenciesRollForwardAsync(slot, reducer, stoppingToken);
 
         // Process the rollforward
         Stopwatch reducerStopwatch = Stopwatch.StartNew();
@@ -114,8 +114,16 @@ public class CardanoIndexWorker<T>(
             .FirstOrDefaultAsync(stoppingToken);
 
         ulong slot = response.Block.Slot;
+
         await PreventMassrollbackAsync(reducer, currentSlot, Logger);
+        await AwaitReducerDependenciesRollbackAsync(currentSlot, slot, reducer, stoppingToken);
+
+        Stopwatch reducerStopwatch = new();
+        reducerStopwatch.Start();
         await reducer.RollBackwardAsync(slot);
+    
+        reducerStopwatch.Stop();
+        Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
 
         Task.Run(async () =>
         {
@@ -156,8 +164,7 @@ public class CardanoIndexWorker<T>(
         }
     }
 
-
-    private async Task AwaitReducerDependenciesAsync(
+    private async Task AwaitReducerDependenciesRollForwardAsync(
         ulong slot,
         IReducer<IReducerModel> reducer,
         CancellationToken cancellationToken
@@ -173,6 +180,7 @@ public class CardanoIndexWorker<T>(
         {
             // Initialize the database context
             await using T dbContext = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+            
             // Fetch all relevant reducer states in a single query
             var currentStates = await dbContext.ReducerStates
                 .AsNoTracking()
@@ -222,6 +230,52 @@ public class CardanoIndexWorker<T>(
             await dbContext.DisposeAsync();
 
             // Wait before rechecking dependencies
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+    }
+
+    private async Task AwaitReducerDependenciesRollbackAsync(
+        ulong currentSlot,
+        ulong rollBackSlot,
+        IReducer<IReducerModel> reducer,
+        CancellationToken cancellationToken
+    )
+    {
+        var dependencyTypes = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType());
+        var dependencyNames = dependencyTypes
+            .Select(ArgusUtils.GetTypeNameWithoutGenerics)
+            .ToList();
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await using T dbContext = await DbContextFactory.CreateDbContextAsync(cancellationToken);
+            var dependencyStates = await dbContext.ReducerStates
+                .AsNoTracking()
+                .Where(rs => dependencyNames.Contains(rs.Name))
+                .ToListAsync(cancellationToken);
+
+            var dependenciesNotRolledBack = dependencyStates
+                .Where(rs => rs.Slot > rollBackSlot)
+                .ToList();
+
+            if (!dependenciesNotRolledBack.Any())
+            {
+                break; // All dependencies have rolled back to or past the requested slot
+            }
+
+            // Log dependencies that haven't rolled back yet
+            dependenciesNotRolledBack.ForEach(dependency =>
+            {
+                Logger.Log(
+                    LogLevel.Information,
+                    "[{Reducer}]: Waiting for dependency {Dependency} to roll back to Slot {RequiredSlot} (current: {CurrentSlot})",
+                    ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
+                    dependency.Name,
+                    rollBackSlot,
+                    dependency.Slot);
+            });
+
+            await dbContext.DisposeAsync();
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
         }
     }
