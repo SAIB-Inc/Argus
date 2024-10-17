@@ -14,7 +14,5 @@ public class CardanoTestDbContext
     override protected void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-
-        modelBuilder.Entity<Block>();
     }
 }

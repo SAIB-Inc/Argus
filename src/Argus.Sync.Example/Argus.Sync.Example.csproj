@@ -20,7 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
-    <ProjectReference Include="..\..\..\Chrysalis\src\Chrysalis\Chrysalis.csproj" />
+    <PackageReference Include="Chrysalis" Version="0.2.3" />
   </ItemGroup>
 
 </Project>

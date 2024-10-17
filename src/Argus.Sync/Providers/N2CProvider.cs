@@ -1,6 +1,6 @@
+using Argus.Sync.Data.Models;
 using PallasDotnet;
-using PallasDotnet.Models;
-
+using PallasNextResponse = PallasDotnet.Models.NextResponse; 
 namespace Argus.Sync.Providers;
 
 public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoChainProvider
@@ -9,7 +9,12 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
     {
         N2cClient client = new();
         await client.ConnectAsync(NodeSocketPath, NetworkMagic);
-        await foreach (NextResponse response in client.StartChainSyncAsync(intersection))
+        await foreach (PallasNextResponse response in client.StartChainSyncAsync(
+            new PallasDotnet.Models.Point(
+                intersection.Slot,
+                intersection.Hash
+            )
+        ))
         {
             if(stoppingToken.HasValue && stoppingToken.Value.IsCancellationRequested)
             {
@@ -18,7 +23,31 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
             }
             else
             {
-                yield return response;
+                switch (response.Action)
+                {
+                    case PallasDotnet.Models.NextResponseAction.RollForward:
+                        yield return new NextResponse(
+                            NextResponseAction.RollForward,
+                            new Block(
+                                response!.Tip.Hash,
+                                response!.Tip.Slot,
+                                response?.BlockCbor
+                            )
+                        );
+                        break;
+                    case PallasDotnet.Models.NextResponseAction.RollBack:
+                        yield return new NextResponse(
+                            NextResponseAction.RollBack,
+                            new Block(
+                                response!.Tip.Hash,
+                                response!.Tip.Slot,
+                                null
+                            )
+                        );
+                        break;
+                    default:
+                        continue;
+                }
             }
         }
     }

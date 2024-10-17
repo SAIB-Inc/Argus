@@ -1,5 +1,4 @@
-using PallasDotnet.Models;
-
+using Argus.Sync.Data.Models;
 namespace Argus.Sync.Providers;
 
 public interface ICardanoChainProvider

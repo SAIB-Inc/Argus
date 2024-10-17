@@ -10,8 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PallasDotnet.Models;
-using Point = PallasDotnet.Models.Point;
+
 
 namespace Argus.Sync.Workers;
 
@@ -46,8 +45,6 @@ public class CardanoIndexWorker<T>(
 
         await foreach (NextResponse response in chainProvider.StartChainSyncAsync(intersection, stoppingToken))
         {
-            if (response.Action == NextResponseAction.Await) continue;
-
             Task responseTask = response.Action switch
             {
                 NextResponseAction.RollForward => ProcessRollForwardAsync(response, reducer),
@@ -61,8 +58,8 @@ public class CardanoIndexWorker<T>(
 
     private async Task ProcessRollForwardAsync(NextResponse response, IReducer<IReducerModel> reducer)
     {
-        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.BlockCbor) ?? throw new CriticalNodeException("Block deserialization failed.");
-        Block block = blockWithEra.Block;
+        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.Block.Cbor!) ?? throw new CriticalNodeException("Block deserialization failed.");
+        Chrysalis.Cardano.Models.Core.Block.Block block = blockWithEra.Block;
         ulong slot = block.Slot();
 
         Logger.Log(
@@ -77,8 +74,7 @@ public class CardanoIndexWorker<T>(
 
     private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer)
     {
-        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.BlockCbor) ?? throw new CriticalNodeException("Block deserialization failed.");
-        ulong slot = blockWithEra.Block.Slot();
+        ulong slot = response.Block.Slot;
         await reducer.RollBackwardAsync(slot);
     }
 
@@ -208,7 +204,7 @@ public class CardanoIndexWorker<T>(
         ulong startSlot = reducerSection.GetValue<ulong?>("StartSlot") ?? defaultStartSlot;
         string startHash = reducerSection.GetValue<string>("StartHash") ?? defaultStartHash;
 
-        return new Point(startSlot, startHash);
+        return new Point(startHash, startSlot);
     }
 
     private ICardanoChainProvider GetCardanoChainProvider()
@@ -232,8 +228,15 @@ public class CardanoIndexWorker<T>(
                 throw new NotImplementedException("TCP connection type is not yet implemented."),
 
             "gRPC" =>
-                throw new NotImplementedException("gRPC connection type is not yet implemented."),
-
+                new U5CProvider(
+                    config.GetSection("gRPC").GetValue<string>("Endpoint")
+                        ?? throw new InvalidOperationException("gRPC:Endpoint is not specified in the configuration."),
+                    new Dictionary<string, string>
+                    {
+                        { "dmtr-api-key", config.GetSection("gRPC").GetValue<string>("ApiKey")
+                            ?? throw new InvalidOperationException("gRPC:ApiKey is not specified in the configuration.") }
+                    }
+                ),
             _ => throw new InvalidOperationException("Invalid ConnectionType specified.")
         };
     }
