@@ -4,6 +4,8 @@ using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
+using Argus.Sync.Utils;
+using ChrysalisBlock = Chrysalis.Cardano.Models.Core.Block.Block;
 using Chrysalis.Cardano.Models.Core.Block;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
@@ -25,7 +27,6 @@ public class CardanoIndexWorker<T>(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Logger.LogInformation("CardanoIndexWorker starting");
         await Task.WhenAll(
             Reducers.Select(
                 reducer => StartReducerChainSyncAsync(reducer, stoppingToken)
@@ -35,20 +36,15 @@ public class CardanoIndexWorker<T>(
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
-        /*
-            Support these features:
-                Support Reducer Dependencies
-                Massrollback prevention
-        */
         ICardanoChainProvider chainProvider = GetCardanoChainProvider();
-        Point intersection = GetReducerStartPoint(reducer);
+        Point intersection = await GetReducerStartPoint(reducer, stoppingToken);
 
         await foreach (NextResponse response in chainProvider.StartChainSyncAsync(intersection, stoppingToken))
         {
             Task responseTask = response.Action switch
             {
-                NextResponseAction.RollForward => ProcessRollForwardAsync(response, reducer),
-                NextResponseAction.RollBack => ProcessRollBackAsync(response, reducer),
+                NextResponseAction.RollForward => ProcessRollForwardAsync(response, reducer, stoppingToken),
+                NextResponseAction.RollBack => ProcessRollBackAsync(response, reducer, stoppingToken),
                 _ => throw new CriticalNodeException("Next response error received."),
             };
 
@@ -56,26 +52,108 @@ public class CardanoIndexWorker<T>(
         }
     }
 
-    private async Task ProcessRollForwardAsync(NextResponse response, IReducer<IReducerModel> reducer)
+    private async Task ProcessRollForwardAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
         BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.Block.Cbor!) ?? throw new CriticalNodeException("Block deserialization failed.");
-        Chrysalis.Cardano.Models.Core.Block.Block block = blockWithEra.Block;
+        ChrysalisBlock block = blockWithEra.Block;
         ulong slot = block.Slot();
+
+        // Log the new chain event rollforward
+        Logger.Log(
+            LogLevel.Information,
+            "[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}",
+            ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
+            slot,
+            block.BlockNumber()
+        );
+
+        // Await reducer dependencies
+        await AwaitReducerDependenciesAsync(slot, reducer, stoppingToken);
+
+        // Process the rollforward
+        Stopwatch reducerStopwatch = Stopwatch.StartNew();
+        await reducer.RollForwardAsync(block);
+        reducerStopwatch.Stop();
+
+        // Log the time taken to process the rollforward
+        Logger.Log(
+            LogLevel.Information,
+            "Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms",
+            ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
+            reducerStopwatch.ElapsedMilliseconds
+        );
+
+        Task.Run(async () =>
+        {
+            await UpdateReducerStateAsync(reducer, slot, response.Block.Hash, stoppingToken);
+        }, stoppingToken).Wait(stoppingToken);
+
+        stopwatch.Stop();
 
         Logger.Log(
             LogLevel.Information,
-            "[{Reducer}]: Processing Block Slot {Slot}",
-            GetTypeNameWithoutGenerics(reducer.GetType()),
-            slot
+            "[{Reducer}]: Processed Chain Event RollForward: Slot {Slot} Block: {Block} in {ElapsedMilliseconds} ms, Mem: {MemoryUsage} MB",
+            ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
+            slot,
+            block.BlockNumber(),
+            stopwatch.ElapsedMilliseconds,
+            Math.Round(GetCurrentMemoryUsageInMB(), 2)
         );
-
-        await reducer.RollForwardAsync(block);
     }
 
-    private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer)
+    private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
+        await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+        ulong currentSlot = await dbContext.ReducerStates
+            .AsNoTracking()
+            .Where(rs => rs.Name == reducerName)
+            .Select(rs => rs.Slot)
+            .FirstOrDefaultAsync(stoppingToken);
+
         ulong slot = response.Block.Slot;
+        await PreventMassrollbackAsync(reducer, currentSlot, Logger);
         await reducer.RollBackwardAsync(slot);
+
+        Task.Run(async () =>
+        {
+            await UpdateReducerStateAsync(reducer, currentSlot, response.Block.Hash, stoppingToken);
+        }, stoppingToken).Wait(stoppingToken);
+    }
+
+    private async Task UpdateReducerStateAsync(IReducer<IReducerModel> reducer, ulong slot, string hash, CancellationToken stoppingToken)
+    {
+        try
+        {
+            await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+            string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+            var reducerState = await dbContext.ReducerStates
+                .FirstOrDefaultAsync(rs => rs.Name == reducerName, stoppingToken);
+
+            if (reducerState == null)
+            {
+                reducerState = new ReducerState
+                {
+                    Name = reducerName,
+                    Slot = slot,
+                    Hash = hash
+                };
+                dbContext.ReducerStates.Add(reducerState);
+            }
+            else
+            {
+                reducerState.Slot = slot;
+                reducerState.Hash = hash;
+            }
+
+            await dbContext.SaveChangesAsync(stoppingToken);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating ReducerState for {Reducer}", ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()));
+        }
     }
 
 
@@ -88,7 +166,7 @@ public class CardanoIndexWorker<T>(
         // Retrieve and prepare dependency names
         var dependencyTypes = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType());
         var dependencyNames = dependencyTypes
-            .Select(GetTypeNameWithoutGenerics)
+            .Select(ArgusUtils.GetTypeNameWithoutGenerics)
             .ToList();
 
         while (!cancellationToken.IsCancellationRequested)
@@ -123,7 +201,7 @@ public class CardanoIndexWorker<T>(
                 Logger.Log(
                     LogLevel.Information,
                     "[{Reducer}]: Waiting for missing dependency {Dependency} to reach Slot {RequiredSlot}",
-                    GetTypeNameWithoutGenerics(reducer.GetType()),
+                    ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
                     missing,
                     slot);
             });
@@ -134,7 +212,7 @@ public class CardanoIndexWorker<T>(
                 Logger.Log(
                     LogLevel.Information,
                     "[{Reducer}]: Waiting for dependency {Dependency} to reach Slot {RequiredSlot} (current: {CurrentSlot})",
-                    GetTypeNameWithoutGenerics(reducer.GetType()),
+                    ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
                     outdated.Name,
                     slot,
                     outdated.Slot);
@@ -148,14 +226,13 @@ public class CardanoIndexWorker<T>(
         }
     }
 
-
     public async Task PreventMassrollbackAsync(
         IReducer<IReducerModel> reducer,
         ulong requestedRollBackSlot,
         ILogger logger
     )
     {
-        string reducerName = GetTypeNameWithoutGenerics(reducer.GetType());
+        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
         // Create DbContext
         await using T dbContext = await DbContextFactory.CreateDbContextAsync();
@@ -182,14 +259,15 @@ public class CardanoIndexWorker<T>(
                 );
                 throw new CriticalNodeException("Rollback, Critical Error, Aborting");
             }
+
         }
 
         await dbContext.DisposeAsync();
     }
 
-    private Point GetReducerStartPoint(IReducer<IReducerModel> reducer)
+    private async Task<Point> GetReducerStartPoint(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
-        string reducerName = GetTypeNameWithoutGenerics(reducer.GetType());
+        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
         // Get default start slot and hash from global configuration
         ulong defaultStartSlot = Configuration.GetValue<ulong?>("CardanoIndexStart:Slot")
@@ -201,10 +279,21 @@ public class CardanoIndexWorker<T>(
         var reducerSection = Configuration.GetSection($"CardanoIndexReducers:{reducerName}");
 
         // Retrieve the StartSlot and StartHash for the reducer, or use defaults if not specified
-        ulong startSlot = reducerSection.GetValue<ulong?>("StartSlot") ?? defaultStartSlot;
-        string startHash = reducerSection.GetValue<string>("StartHash") ?? defaultStartHash;
+        ulong configStartSlot = reducerSection.GetValue<ulong?>("StartSlot") ?? defaultStartSlot;
+        string configStartHash = reducerSection.GetValue<string>("StartHash") ?? defaultStartHash;
 
-        return new Point(startHash, startSlot);
+        await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+        ReducerState? reducerState = await dbContext.ReducerStates
+                  .FirstOrDefaultAsync(rs => rs.Name == ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()), stoppingToken);
+
+        if (reducerState is not null)
+        {
+            configStartSlot = reducerState.Slot;
+            configStartHash = reducerState.Hash;
+        }
+
+        await dbContext.DisposeAsync();
+        return new Point(configStartHash, configStartSlot);
     }
 
     private ICardanoChainProvider GetCardanoChainProvider()
@@ -239,17 +328,6 @@ public class CardanoIndexWorker<T>(
                 ),
             _ => throw new InvalidOperationException("Invalid ConnectionType specified.")
         };
-    }
-
-    private static string GetTypeNameWithoutGenerics(Type type)
-    {
-        string typeName = type.Name;
-        int genericCharIndex = typeName.IndexOf('`');
-        if (genericCharIndex != -1)
-        {
-            typeName = typeName[..genericCharIndex];
-        }
-        return typeName;
     }
 
     private static double GetCurrentMemoryUsageInMB()

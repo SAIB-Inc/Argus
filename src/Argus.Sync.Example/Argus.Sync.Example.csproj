@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Chrysalis" Version="0.2.3" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.1" />
     <PackageReference Include="Pallas.NET" Version="0.2.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
@@ -20,7 +21,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
-    <PackageReference Include="Chrysalis" Version="0.2.3" />
   </ItemGroup>
 
 </Project>

@@ -11,7 +11,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(CardanoTestDbContext))]
-    [Migration("20241015201541_InitialCreate")]
+    [Migration("20241017090733_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -24,26 +24,6 @@ namespace Argus.Sync.Example.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("Argus.Sync.Data.Models.Block", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("text");
-
-                    b.Property<byte[]>("BlockCbor")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<decimal>("Number")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Block", "cardanoindexer");
-                });
 
             modelBuilder.Entity("Argus.Sync.Data.Models.ReducerState", b =>
                 {
@@ -66,6 +46,9 @@ namespace Argus.Sync.Example.Migrations
                 {
                     b.Property<decimal>("Slot")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal>("BlockNumber")
                         .HasColumnType("numeric(20,0)");
 
                     b.HasKey("Slot");

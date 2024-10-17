@@ -14,21 +14,6 @@ namespace Argus.Sync.Example.Migrations
                 name: "cardanoindexer");
 
             migrationBuilder.CreateTable(
-                name: "Block",
-                schema: "cardanoindexer",
-                columns: table => new
-                {
-                    Id = table.Column<string>(type: "text", nullable: false),
-                    Number = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
-                    Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
-                    BlockCbor = table.Column<byte[]>(type: "bytea", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Block", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "ReducerStates",
                 schema: "cardanoindexer",
                 columns: table => new
@@ -47,7 +32,8 @@ namespace Argus.Sync.Example.Migrations
                 schema: "cardanoindexer",
                 columns: table => new
                 {
-                    Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false)
+                    Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
+                    BlockNumber = table.Column<decimal>(type: "numeric(20,0)", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -58,10 +44,6 @@ namespace Argus.Sync.Example.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "Block",
-                schema: "cardanoindexer");
-
             migrationBuilder.DropTable(
                 name: "ReducerStates",
                 schema: "cardanoindexer");

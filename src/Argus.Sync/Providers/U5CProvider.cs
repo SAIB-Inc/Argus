@@ -6,7 +6,7 @@ namespace Argus.Sync.Providers;
 
 public class U5CProvider(string url, Dictionary<string, string> header) : ICardanoChainProvider
 {
-    public async IAsyncEnumerable<Data.Models.NextResponse> StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken = null)
+    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken = null)
     {
         
         var client = new SyncServiceClient(

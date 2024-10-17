@@ -22,26 +22,6 @@ namespace Argus.Sync.Example.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Argus.Sync.Data.Models.Block", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("text");
-
-                    b.Property<byte[]>("BlockCbor")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<decimal>("Number")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Block", "cardanoindexer");
-                });
-
             modelBuilder.Entity("Argus.Sync.Data.Models.ReducerState", b =>
                 {
                     b.Property<string>("Name")
@@ -63,6 +43,9 @@ namespace Argus.Sync.Example.Migrations
                 {
                     b.Property<decimal>("Slot")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal>("BlockNumber")
                         .HasColumnType("numeric(20,0)");
 
                     b.HasKey("Slot");

@@ -28,8 +28,8 @@ public class CardanoDbContext(
 
         modelBuilder.HasDefaultSchema(_configuration.GetConnectionString("CardanoContextSchema"));
 
-        modelBuilder.Entity<ReducerState>().HasKey(x => x.Name);
         modelBuilder.Entity<TestModel>().HasKey(x => x.Slot);
+        modelBuilder.Entity<ReducerState>().HasKey(x => x.Name);
 
         base.OnModelCreating(modelBuilder);
     }
