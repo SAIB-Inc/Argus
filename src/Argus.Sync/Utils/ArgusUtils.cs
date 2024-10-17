@@ -1,6 +1,7 @@
 using CardanoSharp.Wallet.Enums;
 using CardanoSharpAddress = CardanoSharp.Wallet.Models.Addresses.Address;
 using Microsoft.Extensions.Configuration;
+using NSec.Cryptography; 
 
 namespace Argus.Sync.Utils;
 
@@ -38,5 +39,11 @@ public static class ArgusUtils
         {
             return null;
         }
+    }
+
+    public static byte[] ToBlake2b(byte[] input)
+    {
+        Blake2b algorithm = HashAlgorithm.Blake2b_256;
+        return algorithm.Hash(input);
     }
 }

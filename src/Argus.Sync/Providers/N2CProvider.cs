@@ -4,8 +4,9 @@ using Chrysalis.Cardano.Models.Core.Block;
 using Chrysalis.Cbor;
 using PallasDotnet;
 using PallasNextResponse = PallasDotnet.Models.NextResponse;
-using NSec.Cryptography; 
 using ChrysalisBlock = Chrysalis.Cardano.Models.Core.Block.Block;
+using Argus.Sync.Utils;
+
 namespace Argus.Sync.Providers;
 
 public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoChainProvider
@@ -34,8 +35,7 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                         BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.BlockCbor);
                         ulong slot = blockWithEra!.Block.Slot();
                         byte[] header = CborSerializer.Serialize(blockWithEra.Block.Header);
-                        Blake2b algorithm = HashAlgorithm.Blake2b_256;
-                        byte[] blockHash = algorithm.Hash(header);
+                        byte[] blockHash = ArgusUtils.ToBlake2b(header);
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
                             new Data.Models.Block(
