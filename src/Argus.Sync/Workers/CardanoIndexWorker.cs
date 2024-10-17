@@ -124,11 +124,6 @@ public class CardanoIndexWorker<T>(
     
         reducerStopwatch.Stop();
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
-
-        Task.Run(async () =>
-        {
-            await UpdateReducerStateAsync(reducer, currentSlot, response.Block.Hash, stoppingToken);
-        }, stoppingToken).Wait(stoppingToken);
     }
 
     private async Task UpdateReducerStateAsync(IReducer<IReducerModel> reducer, ulong slot, string hash, CancellationToken stoppingToken)
