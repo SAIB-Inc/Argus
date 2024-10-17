@@ -1,5 +1,6 @@
 using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core;
+using Chrysalis.Cardano.Models.Core.Block;
 using Chrysalis.Cardano.Models.Core.Transaction;
 using Chrysalis.Cbor;
 
@@ -61,5 +62,46 @@ public static class TransactionExtension
             CborDefiniteList<ShellyTransactionOutput> list => list.Value,
             CborIndefiniteList<ShellyTransactionOutput> list => list.Value,
             _ => throw new NotImplementedException($"Unsupported output type: {outputs.GetType().Name}")
+        };
+    
+    public static Address TransactionOutputAddress(this TransactionOutput transactionOutput)
+        => transactionOutput switch
+        {
+            BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Address,
+            AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.Address,
+            MaryTransactionOutput maryTransactionOutput => maryTransactionOutput.Address,
+            ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Address,
+            _ => throw new NotImplementedException()
+        };
+    
+    public static Value TransactionOutputAmount(this TransactionOutput transactionOutput)
+        => transactionOutput switch
+        {
+            BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Amount,
+            AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.Amount,
+            MaryTransactionOutput maryTransactionOutput => maryTransactionOutput.Amount,
+            ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Amount,
+            _ => throw new NotImplementedException()
+        };
+    
+    public static byte[]? TransactionOutputScriptRef(this TransactionOutput transactionOutput)
+        => transactionOutput switch
+        {
+            BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput?.ScriptRef?.Value,
+            _ => null
+        };
+    
+    public static DatumOption? TransactionOutputDatumOption(this TransactionOutput transactionOutput)
+        => transactionOutput switch
+        {
+            BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Datum,
+            _ => null
+        };
+    
+    public static byte[]? TransactionOutputDatumHash(this TransactionOutput transactionOutput)
+        => transactionOutput switch
+        {
+            AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.DatumHash.Value,
+            _ => throw new NotImplementedException()
         };
 }
