@@ -32,10 +32,10 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                 switch (response.Action)
                 {
                     case PallasDotnet.Models.NextResponseAction.RollForward:
-                        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.BlockCbor);
-                        ulong slot = blockWithEra!.Block.Slot();
-                        byte[] header = CborSerializer.Serialize(blockWithEra.Block.Header);
-                        byte[] blockHash = header.ToBlake2b();
+                        ChrysalisBlock? block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
+                        ulong slot = block!.Slot();
+                        byte[] header = CborSerializer.Serialize(block!.Header);
+                        byte[] blockHash = ArgusUtils.ToBlake2b(header);
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
                             new Data.Models.Block(
@@ -46,7 +46,7 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                         );
                         break;
                     case PallasDotnet.Models.NextResponseAction.RollBack:
-                        ChrysalisBlock? block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
+                        block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
                         slot = block!.Slot();
                         yield return new NextResponse(
                             NextResponseAction.RollBack,

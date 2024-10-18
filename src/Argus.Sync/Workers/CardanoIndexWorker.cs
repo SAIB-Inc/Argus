@@ -56,8 +56,7 @@ public class CardanoIndexWorker<T>(
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.Block.Cbor!) ?? throw new CriticalNodeException("Block deserialization failed.");
-        ChrysalisBlock block = blockWithEra.Block;
+        ChrysalisBlock? block = CborSerializer.Deserialize<ChrysalisBlock>(response.Block.Cbor!) ?? throw new CriticalNodeException("Block deserialization failed.");
         ulong slot = block.Slot();
 
         // Log the new chain event rollforward
