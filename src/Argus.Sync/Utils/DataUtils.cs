@@ -14,9 +14,9 @@ public static class DataUtils
 {
     public static TransactionOutputEntity? MapTransactionOutputEntity(string TransactionId, uint outputIndex, ulong slot, TransactionOutput output, UtxoStatus status)
     {
-        string? address = output.TransactionOutputAddress().Value.ToBech32();
+        string? address = output.Address().Value.ToBech32();
         
-        if (address == null) 
+        if (address == null)
             return null;
 
         Datum? datum = output.GetDatumInfo() is var datumInfo && datumInfo.HasValue
@@ -30,8 +30,8 @@ public static class DataUtils
             Slot = slot,
             Index = outputIndex,
             Datum = datum,
-            Amount = output.TransactionOutputAmount(),
-            ReferenceScript = output.TransactionOutputScriptRef(),
+            Amount = output.Amount(),
+            ReferenceScript = output.ScriptRef(),
             UtxoStatus = status,
         };
     }
