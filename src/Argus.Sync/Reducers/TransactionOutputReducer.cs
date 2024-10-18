@@ -61,7 +61,7 @@ public class TransactionOutputReducer<T>(
     private async Task ProcessInputsAsync(Block block)
     {
         List<(string, string)> inputHashes = block.TransactionBodies()
-            .SelectMany(txBody => txBody.Inputs().Select(input => (Convert.ToHexString(input.TransactionId.Value), input.Index.Value.ToString())))
+            .SelectMany(txBody => txBody.Inputs().Select(input => (Convert.ToHexString(input.TransactionId.Value).ToLowerInvariant(), input.Index.Value.ToString())))
             .ToList();
 
         Expression<Func<TransactionOutputEntity, bool>> predicate = PredicateBuilder.False<TransactionOutputEntity>();
@@ -91,7 +91,7 @@ public class TransactionOutputReducer<T>(
         List<TransactionOutputEntity> outputEntities = block.TransactionBodies()
             .SelectMany(txBody => txBody.Outputs().Select((output, outputIndex) =>
                 DataUtils.MapTransactionOutputEntity(
-                    Convert.ToHexString(CborSerializer.Serialize(txBody).ToBlake2b()).ToLowerInvariant(),
+                    txBody.TransactionId(),
                     (uint)outputIndex,
                     block.Slot(),
                     output,

@@ -6,6 +6,7 @@ using Chrysalis.Cardano.Models.Core.Transaction;
 using TransactionOutput = Chrysalis.Cardano.Models.Core.Transaction.TransactionOutput;
 using Chrysalis.Cbor;
 using Chrysalis.Utils;
+using Argus.Sync.Utils;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 
@@ -68,7 +69,7 @@ public static class TransactionExtension
             _ => throw new NotImplementedException($"Unsupported TransactionOutput type: {output.GetType().Name}")
         };
 
-    public static Address TransactionOutputAddress(this TransactionOutput transactionOutput)
+    public static Address Address(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
             BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Address,
@@ -78,7 +79,7 @@ public static class TransactionExtension
             _ => throw new NotImplementedException()
         };
 
-    public static Value TransactionOutputAmount(this TransactionOutput transactionOutput)
+    public static Value Amount(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
             BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Amount,
@@ -88,21 +89,21 @@ public static class TransactionExtension
             _ => throw new NotImplementedException()
         };
 
-    public static byte[]? TransactionOutputScriptRef(this TransactionOutput transactionOutput)
+    public static byte[]? ScriptRef(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
             BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput?.ScriptRef?.Value,
             _ => null
         };
 
-    public static DatumOption? TransactionOutputDatumOption(this TransactionOutput transactionOutput)
+    public static DatumOption? DatumOption(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
             BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Datum,
             _ => null
         };
 
-    public static byte[]? TransactionOutputDatumHash(this TransactionOutput transactionOutput)
+    public static byte[]? DatumHash(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
             AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.DatumHash.Value,
@@ -111,11 +112,11 @@ public static class TransactionExtension
 
     public static (DatumType Type, byte[] Value)? GetDatumInfo(this TransactionOutput transactionOutput)
     {
-        var datumOption = transactionOutput.TransactionOutputDatumOption();
+        var datumOption = transactionOutput.DatumOption();
 
         if (datumOption == null)
         {
-            byte[]? datumHash = transactionOutput.TransactionOutputDatumHash();
+            byte[]? datumHash = transactionOutput.DatumHash();
             return datumHash != null ? (DatumType.DatumHash, datumHash) : null;
         }
 
@@ -125,5 +126,23 @@ public static class TransactionExtension
             InlineDatumOption inlineOption => (DatumType.InlineDatum, CborSerializer.Serialize(inlineOption.Data)),
             _ => throw new NotImplementedException($"Unsupported DatumOption type: {datumOption.GetType().Name}")
         };
+    }
+
+    public static ulong Lovelace(this Value amount)
+        => amount switch
+        {
+            Lovelace lovelace => lovelace.Value,
+            Value value => value switch
+            {
+                Lovelace lovelace => lovelace.Value,
+                LovelaceWithMultiAsset multiasset => multiasset.Lovelace.Value,
+                _ => throw new NotImplementedException()
+            },
+            _ => throw new NotImplementedException()
+        };
+
+    public static string TransactionId(this TransactionBody txBody)
+    {
+        return Convert.ToHexString(CborSerializer.Serialize(txBody).ToBlake2b()).ToLowerInvariant();
     }
 }
