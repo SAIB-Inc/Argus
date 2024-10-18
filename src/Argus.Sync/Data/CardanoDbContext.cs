@@ -1,3 +1,4 @@
+using System.Dynamic;
 using System.Reflection;
 using Argus.Sync.Data.Models;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,11 @@ public class CardanoDbContext(
     public DbSet<ReducerState> ReducerStates => Set<ReducerState>();
     public DbSet<TestModel> TestModels => Set<TestModel>();
     public DbSet<TransactionOutput> TransactionOutputs => Set<TransactionOutput>();
+
+    public DbSet<BalanceByAddress> BalanceByAddress=> Set<BalanceByAddress>();
+    public DbSet<TxBySlot> TxBySlot=> Set<TxBySlot>();
+    public DbSet<BlockBySlot> BlockBySlot=> Set<BlockBySlot>();
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -45,7 +51,13 @@ public class CardanoDbContext(
 
         modelBuilder.Entity<TestModel>().HasKey(x => x.Slot);
         modelBuilder.Entity<ReducerState>().HasKey(x => x.Name);
+        modelBuilder.Entity<BalanceByAddress>().HasKey(x => x.Address);
+        // modelBuilder.Entity<InputsBySlot>().HasKey(x => new {x.TxHash, x.TxIndex});
+        // modelBuilder.Entity<OutputsBySlot>().HasKey(x => new {x.TxHash, x.TxIndex});
+        modelBuilder.Entity<TxBySlot>().HasKey(x => new {x.BlockSlot, x.BlockHash, x.Transaction}); //moerror kung icomment
+        modelBuilder.Entity<BlockBySlot>().HasKey(x => new {x.Slot, x.Hash});
 
         base.OnModelCreating(modelBuilder);
+        
     }
 }
