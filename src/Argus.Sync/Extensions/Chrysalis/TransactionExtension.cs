@@ -17,20 +17,27 @@ public static class TransactionExtension
         {
             ConwayTransactionBody x => x.Inputs switch
             {
+                
                 CborDefiniteList<TransactionInput> list => list.Value,
                 CborIndefiniteList<TransactionInput> list => list.Value,
+                CborDefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
+                CborIndefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
                 _ => throw new NotImplementedException()
             },
             BabbageTransactionBody x => x.Inputs switch
             {
                 CborDefiniteList<TransactionInput> list => list.Value,
                 CborIndefiniteList<TransactionInput> list => list.Value,
+                CborDefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
+                CborIndefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
                 _ => throw new NotImplementedException()
             },
             AlonzoTransactionBody x => x.Inputs switch
             {
                 CborDefiniteList<TransactionInput> list => list.Value,
                 CborIndefiniteList<TransactionInput> list => list.Value,
+                CborDefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
+                CborIndefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
                 _ => throw new NotImplementedException()
             },
             _ => throw new NotImplementedException()
@@ -88,6 +95,8 @@ public static class TransactionExtension
             ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Amount,
             _ => throw new NotImplementedException()
         };
+
+
 
     public static byte[]? ScriptRef(this TransactionOutput transactionOutput)
         => transactionOutput switch
