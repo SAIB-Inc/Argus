@@ -1,8 +1,11 @@
+using Argus.Sync.Data.Models;
+
 namespace Argus.Sync.Providers;
 
 public class N2NProvider : ICardanoChainProvider
 {
-    public IAsyncEnumerable<Data.Models.NextResponse> StartChainSyncAsync(Data.Models.Point intersection, CancellationToken? stoppingToken = null)
+
+    IAsyncEnumerable<NextResponse> ICardanoChainProvider.StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken)
     {
         throw new NotImplementedException();
     }

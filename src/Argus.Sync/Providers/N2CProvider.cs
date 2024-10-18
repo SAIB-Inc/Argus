@@ -33,28 +33,16 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                 {
                     case PallasDotnet.Models.NextResponseAction.RollForward:
                         ChrysalisBlock? block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
-                        ulong slot = block!.Slot();
-                        byte[] header = CborSerializer.Serialize(block!.Header);
-                        byte[] blockHash = ArgusUtils.ToBlake2b(header);
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
-                            new Data.Models.Block(
-                                Convert.ToHexString(blockHash),
-                                slot,
-                                response?.BlockCbor
-                            )
+                             block!
                         );
                         break;
-                    case PallasDotnet.Models.NextResponseAction.RollBack:
+                   case PallasDotnet.Models.NextResponseAction.RollBack:
                         block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
-                        slot = block!.Slot();
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
-                            new Data.Models.Block(
-                                null,
-                                slot,
-                                null
-                            )
+                            block!
                         );
                         break;
                     default:

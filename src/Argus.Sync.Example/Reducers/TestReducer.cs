@@ -16,7 +16,7 @@ public class TestReducer<T>(IDbContextFactory<T> dbContextFactory) : IReducer<Te
     public async Task RollForwardAsync(Chrysalis.Cardano.Models.Core.Block.Block block)
     {
         ulong slot = block.Slot();
-        ulong blockNum = block.BlockNumber();
+        ulong blockNum = block.Number();
         _dbContext = dbContextFactory.CreateDbContext();
 
         _dbContext.TestModels.Add(new TestModel

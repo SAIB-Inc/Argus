@@ -1,8 +1,8 @@
-namespace Argus.Sync.Data.Models;
+using Argus.Sync.Data.Models;
 
 public record NextResponse
 (
     NextResponseAction Action,
-    Block Block
+    Chrysalis.Cardano.Models.Core.Block.Block? Block
 );
 

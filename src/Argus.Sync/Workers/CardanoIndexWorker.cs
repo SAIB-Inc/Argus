@@ -5,8 +5,6 @@ using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
-using ChrysalisBlock = Chrysalis.Cardano.Models.Core.Block.Block;
-using Chrysalis.Cardano.Models.Core.Block;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -56,16 +54,16 @@ public class CardanoIndexWorker<T>(
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        ChrysalisBlock? block = CborSerializer.Deserialize<ChrysalisBlock>(response.Block.Cbor!) ?? throw new CriticalNodeException("Block deserialization failed.");
-        ulong slot = block.Slot();
-
+        ulong slot = response.Block.Slot();
+        byte[] header = CborSerializer.Serialize(response.Block!.Header);
+        string blockHash = Convert.ToHexString(ArgusUtils.ToBlake2b(header));
         // Log the new chain event rollforward
         Logger.Log(
             LogLevel.Information,
             "[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}",
             ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
             slot,
-            block.BlockNumber()
+            response.Block.Number()
         );
 
         // Await reducer dependencies
@@ -73,7 +71,7 @@ public class CardanoIndexWorker<T>(
 
         // Process the rollforward
         Stopwatch reducerStopwatch = Stopwatch.StartNew();
-        await reducer.RollForwardAsync(block);
+        await reducer.RollForwardAsync(response.Block);
         reducerStopwatch.Stop();
 
         // Log the time taken to process the rollforward
@@ -86,7 +84,7 @@ public class CardanoIndexWorker<T>(
 
         Task.Run(async () =>
         {
-            await UpdateReducerStateAsync(reducer, slot, response.Block.Hash, stoppingToken);
+            await UpdateReducerStateAsync(reducer, slot, blockHash, stoppingToken);
         }, stoppingToken).Wait(stoppingToken);
 
         stopwatch.Stop();
@@ -96,7 +94,7 @@ public class CardanoIndexWorker<T>(
             "[{Reducer}]: Processed Chain Event RollForward: Slot {Slot} Block: {Block} in {ElapsedMilliseconds} ms, Mem: {MemoryUsage} MB",
             ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
             slot,
-            block.BlockNumber(),
+            response.Block.Number(),
             stopwatch.ElapsedMilliseconds,
             Math.Round(GetCurrentMemoryUsageInMB(), 2)
         );
@@ -112,7 +110,7 @@ public class CardanoIndexWorker<T>(
             .Select(rs => rs.Slot)
             .FirstOrDefaultAsync(stoppingToken);
 
-        ulong slot = response.Block.Slot;
+        ulong slot = response.Block!.Slot();
 
         await PreventMassrollbackAsync(reducer, currentSlot, Logger);
         await AwaitReducerDependenciesRollbackAsync(currentSlot, slot, reducer, stoppingToken);
