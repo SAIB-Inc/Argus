@@ -110,7 +110,7 @@ public static class TransactionExtension
             _ => null
         };
 
-    public static (DatumType Type, byte[] Value)? GetDatumInfo(this TransactionOutput transactionOutput)
+    public static (DatumType Type, byte[] Data)? GetDatumInfo(this TransactionOutput transactionOutput)
     {
         var datumOption = transactionOutput.DatumOption();
 
@@ -123,7 +123,7 @@ public static class TransactionExtension
         return datumOption switch
         {
             DatumHashOption hashOption => (DatumType.DatumHash, hashOption.DatumHash.Value),
-            InlineDatumOption inlineOption => (DatumType.InlineDatum, CborSerializer.Serialize(inlineOption.Data)),
+            InlineDatumOption inlineOption => (DatumType.InlineDatum, inlineOption.Data.Value),
             _ => throw new NotImplementedException($"Unsupported DatumOption type: {datumOption.GetType().Name}")
         };
     }
