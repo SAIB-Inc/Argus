@@ -1,8 +1,11 @@
+using Argus.Sync.Data.Models;
 using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core;
 using Chrysalis.Cardano.Models.Core.Block;
 using Chrysalis.Cardano.Models.Core.Transaction;
+using TransactionOutput = Chrysalis.Cardano.Models.Core.Transaction.TransactionOutput;
 using Chrysalis.Cbor;
+using Chrysalis.Utils;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 
@@ -35,9 +38,24 @@ public static class TransactionExtension
     public static IEnumerable<TransactionOutput> Outputs(this TransactionBody transactionBody)
         => transactionBody switch
         {
-            ConwayTransactionBody x => ParseOutputs(x.Outputs),
-            BabbageTransactionBody x => ParseOutputs(x.Outputs),
-            AlonzoTransactionBody x => ParseOutputs(x.Outputs),
+            ConwayTransactionBody x => x.Outputs switch
+            {
+                CborDefiniteList<TransactionOutput> list => list.Value,
+                CborIndefiniteList<TransactionOutput> list => list.Value,
+                _ => throw new NotImplementedException()
+            },
+            BabbageTransactionBody x => x.Outputs switch
+            {
+                CborDefiniteList<TransactionOutput> list => list.Value,
+                CborIndefiniteList<TransactionOutput> list => list.Value,
+                _ => throw new NotImplementedException()
+            },
+            AlonzoTransactionBody x => x.Outputs switch
+            {
+                CborDefiniteList<TransactionOutput> list => list.Value,
+                CborIndefiniteList<TransactionOutput> list => list.Value,
+                _ => throw new NotImplementedException()
+            },
             _ => throw new NotImplementedException()
         };
 
@@ -50,20 +68,6 @@ public static class TransactionExtension
             _ => throw new NotImplementedException($"Unsupported TransactionOutput type: {output.GetType().Name}")
         };
 
-    private static IEnumerable<TransactionOutput> ParseOutputs(ICbor outputs)
-        => outputs switch
-        {
-            CborDefiniteList<BabbageTransactionOutput> list => list.Value,
-            CborIndefiniteList<BabbageTransactionOutput> list => list.Value,
-            CborDefiniteList<AlonzoTransactionOutput> list => list.Value,
-            CborIndefiniteList<AlonzoTransactionOutput> list => list.Value,
-            CborDefiniteList<MaryTransactionOutput> list => list.Value,
-            CborIndefiniteList<MaryTransactionOutput> list => list.Value,
-            CborDefiniteList<ShellyTransactionOutput> list => list.Value,
-            CborIndefiniteList<ShellyTransactionOutput> list => list.Value,
-            _ => throw new NotImplementedException($"Unsupported output type: {outputs.GetType().Name}")
-        };
-    
     public static Address TransactionOutputAddress(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
@@ -73,7 +77,7 @@ public static class TransactionExtension
             ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Address,
             _ => throw new NotImplementedException()
         };
-    
+
     public static Value TransactionOutputAmount(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
@@ -83,25 +87,43 @@ public static class TransactionExtension
             ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Amount,
             _ => throw new NotImplementedException()
         };
-    
+
     public static byte[]? TransactionOutputScriptRef(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
             BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput?.ScriptRef?.Value,
             _ => null
         };
-    
+
     public static DatumOption? TransactionOutputDatumOption(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
             BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Datum,
             _ => null
         };
-    
+
     public static byte[]? TransactionOutputDatumHash(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
             AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.DatumHash.Value,
-            _ => throw new NotImplementedException()
+            _ => null
         };
+
+    public static (DatumType Type, byte[] Value)? GetDatumInfo(this TransactionOutput transactionOutput)
+    {
+        var datumOption = transactionOutput.TransactionOutputDatumOption();
+
+        if (datumOption == null)
+        {
+            byte[]? datumHash = transactionOutput.TransactionOutputDatumHash();
+            return datumHash != null ? (DatumType.DatumHash, datumHash) : null;
+        }
+
+        return datumOption switch
+        {
+            DatumHashOption hashOption => (DatumType.DatumHash, hashOption.DatumHash.Value),
+            InlineDatumOption inlineOption => (DatumType.InlineDatum, CborSerializer.Serialize(inlineOption.Data)),
+            _ => throw new NotImplementedException($"Unsupported DatumOption type: {datumOption.GetType().Name}")
+        };
+    }
 }

@@ -42,7 +42,7 @@ public static class ArgusUtils
         }
     }
 
-    public static byte[] ToBlake2b(byte[] input)
+    public static byte[] ToBlake2b(this byte[] input)
     {
         Blake2b algorithm = HashAlgorithm.Blake2b_256;
         return algorithm.Hash(input);

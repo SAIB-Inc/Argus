@@ -35,7 +35,7 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                         BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.BlockCbor);
                         ulong slot = blockWithEra!.Block.Slot();
                         byte[] header = CborSerializer.Serialize(blockWithEra.Block.Header);
-                        byte[] blockHash = ArgusUtils.ToBlake2b(header);
+                        byte[] blockHash = header.ToBlake2b();
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
                             new Data.Models.Block(
