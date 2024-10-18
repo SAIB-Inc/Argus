@@ -14,7 +14,15 @@ public static class BlockExtension
             _ => throw new NotImplementedException()
         };
 
-    public static ulong BlockNumber(this Block block)
+    public static BlockHeaderBody HeaderBody(this Block block)
+        => block.Header.HeaderBody switch
+        {
+            AlonzoHeaderBody alonzoHeaderBody => alonzoHeaderBody,
+            BabbageHeaderBody babbageHeaderBody => babbageHeaderBody,
+            _ => throw new NotImplementedException()
+        };
+
+    public static ulong Number(this Block block)
         => block.Header.HeaderBody switch
         {
             AlonzoHeaderBody alonzoHeaderBody => alonzoHeaderBody.BlockNumber.Value,
