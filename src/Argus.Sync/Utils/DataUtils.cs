@@ -20,7 +20,7 @@ public static class DataUtils
             return null;
 
         Datum? datum = output.GetDatumInfo() is var datumInfo && datumInfo.HasValue
-            ? new Datum(datumInfo.Value.Type, datumInfo.Value.Value)
+            ? new Datum(datumInfo.Value.Type, datumInfo.Value.Data)
             : null;
 
         return new TransactionOutputEntity

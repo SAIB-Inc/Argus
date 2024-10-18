@@ -1,6 +1,7 @@
 using System.Dynamic;
 using System.Reflection;
 using Argus.Sync.Data.Models;
+using Argus.Sync.Data.Models.Splash;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -20,7 +21,7 @@ public class CardanoDbContext(
     public DbSet<BalanceByAddress> BalanceByAddress=> Set<BalanceByAddress>();
     public DbSet<TxBySlot> TxBySlot=> Set<TxBySlot>();
     public DbSet<BlockBySlot> BlockBySlot=> Set<BlockBySlot>();
-
+    public DbSet<SplashTokenPrice> SplashTokenPrice => Set<SplashTokenPrice>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
