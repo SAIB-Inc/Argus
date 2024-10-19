@@ -1,11 +1,9 @@
 using Argus.Sync.Data.Models;
 using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core;
-using Chrysalis.Cardano.Models.Core.Block;
 using Chrysalis.Cardano.Models.Core.Transaction;
 using TransactionOutput = Chrysalis.Cardano.Models.Core.Transaction.TransactionOutput;
 using Chrysalis.Cbor;
-using Chrysalis.Utils;
 using Argus.Sync.Utils;
 
 namespace Argus.Sync.Extensions.Chrysalis;
@@ -19,7 +17,9 @@ public static class TransactionExtension
             {
                 CborDefiniteList<TransactionInput> list => list.Value,
                 CborIndefiniteList<TransactionInput> list => list.Value,
-                _ => throw new NotImplementedException()
+                CborDefiniteListWithTag<TransactionInput> list => list.Value.Value,
+                CborIndefiniteListWithTag<TransactionInput> list => list.Value.Value,
+                _ => throw new NotImplementedException() 
             },
             BabbageTransactionBody x => x.Inputs switch
             {
@@ -43,18 +43,24 @@ public static class TransactionExtension
             {
                 CborDefiniteList<TransactionOutput> list => list.Value,
                 CborIndefiniteList<TransactionOutput> list => list.Value,
+                CborDefiniteListWithTag<TransactionOutput> list => list.Value.Value,
+                CborIndefiniteListWithTag<TransactionOutput> list => list.Value.Value,
                 _ => throw new NotImplementedException()
             },
             BabbageTransactionBody x => x.Outputs switch
             {
                 CborDefiniteList<TransactionOutput> list => list.Value,
                 CborIndefiniteList<TransactionOutput> list => list.Value,
+                CborDefiniteListWithTag<TransactionOutput> list => list.Value.Value,
+                CborIndefiniteListWithTag<TransactionOutput> list => list.Value.Value,
                 _ => throw new NotImplementedException()
             },
             AlonzoTransactionBody x => x.Outputs switch
             {
                 CborDefiniteList<TransactionOutput> list => list.Value,
                 CborIndefiniteList<TransactionOutput> list => list.Value,
+                CborDefiniteListWithTag<TransactionOutput> list => list.Value.Value,
+                CborIndefiniteListWithTag<TransactionOutput> list => list.Value.Value,
                 _ => throw new NotImplementedException()
             },
             _ => throw new NotImplementedException()
@@ -88,6 +94,31 @@ public static class TransactionExtension
             ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Amount,
             _ => throw new NotImplementedException()
         };
+
+    public static MultiAssetOutput? MultiAsset(this Value value)
+        => value switch
+        {
+            LovelaceWithMultiAsset lovelaceWithMultiAsset => lovelaceWithMultiAsset.MultiAsset,
+            _ => null
+        };
+
+    public static ulong GetCoin(this Value value)
+        => value switch
+        {
+            Lovelace lovelace => lovelace.Value,
+            LovelaceWithMultiAsset lovelaceWithMultiAsset => lovelaceWithMultiAsset.Lovelace.Value,
+            _ => throw new NotImplementedException()
+        };
+
+    public static string GetSubject(this MultiAssetOutput multiAssetOutput)
+    {
+        return multiAssetOutput.Value
+            .Select(v => v.Value.Value
+                .Select(tokenBundle =>
+                    Convert.ToHexString(v.Key.Value) + Convert.ToHexString(tokenBundle.Key.Value))
+                .First())
+            .First();
+    }
 
     public static byte[]? ScriptRef(this TransactionOutput transactionOutput)
         => transactionOutput switch

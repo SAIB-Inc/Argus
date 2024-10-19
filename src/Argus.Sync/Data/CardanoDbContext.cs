@@ -16,6 +16,7 @@ public class CardanoDbContext(
     public DbSet<ReducerState> ReducerStates => Set<ReducerState>();
     public DbSet<TestModel> TestModels => Set<TestModel>();
     public DbSet<TransactionOutput> TransactionOutputs => Set<TransactionOutput>();
+    public DbSet<JpegPriceBySubject> JpegPriceBySubjects => Set<JpegPriceBySubject>();
 
     public DbSet<BalanceByAddress> BalanceByAddress=> Set<BalanceByAddress>();
     public DbSet<TxBySlot> TxBySlot=> Set<TxBySlot>();
@@ -47,6 +48,15 @@ public class CardanoDbContext(
 
             entity.OwnsOne(item => item.Datum);
             entity.Ignore(item => item.Amount);
+        });
+        
+        modelBuilder.Entity<JpegPriceBySubject>(entity =>
+        {
+            entity.HasKey(e => new { e.Slot, e.TxHash, e.TxIndex, e.Subject, e.Status });
+
+            entity.HasIndex(e => e.Slot);
+            entity.HasIndex(e => e.Subject);
+            entity.HasIndex(e => e.Status);
         });
 
         modelBuilder.Entity<TestModel>().HasKey(x => x.Slot);
