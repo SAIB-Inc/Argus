@@ -17,20 +17,27 @@ public static class TransactionExtension
         {
             ConwayTransactionBody x => x.Inputs switch
             {
+                
                 CborDefiniteList<TransactionInput> list => list.Value,
                 CborIndefiniteList<TransactionInput> list => list.Value,
+                CborDefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
+                CborIndefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
                 _ => throw new NotImplementedException()
             },
             BabbageTransactionBody x => x.Inputs switch
             {
                 CborDefiniteList<TransactionInput> list => list.Value,
                 CborIndefiniteList<TransactionInput> list => list.Value,
+                CborDefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
+                CborIndefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
                 _ => throw new NotImplementedException()
             },
             AlonzoTransactionBody x => x.Inputs switch
             {
                 CborDefiniteList<TransactionInput> list => list.Value,
                 CborIndefiniteList<TransactionInput> list => list.Value,
+                CborDefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
+                CborIndefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
                 _ => throw new NotImplementedException()
             },
             _ => throw new NotImplementedException()
@@ -89,6 +96,8 @@ public static class TransactionExtension
             _ => throw new NotImplementedException()
         };
 
+
+
     public static byte[]? ScriptRef(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
@@ -110,7 +119,7 @@ public static class TransactionExtension
             _ => null
         };
 
-    public static (DatumType Type, byte[] Value)? GetDatumInfo(this TransactionOutput transactionOutput)
+    public static (DatumType Type, byte[] Data)? GetDatumInfo(this TransactionOutput transactionOutput)
     {
         var datumOption = transactionOutput.DatumOption();
 
@@ -123,7 +132,7 @@ public static class TransactionExtension
         return datumOption switch
         {
             DatumHashOption hashOption => (DatumType.DatumHash, hashOption.DatumHash.Value),
-            InlineDatumOption inlineOption => (DatumType.InlineDatum, CborSerializer.Serialize(inlineOption.Data)),
+            InlineDatumOption inlineOption => (DatumType.InlineDatum, inlineOption.Data.Value),
             _ => throw new NotImplementedException($"Unsupported DatumOption type: {datumOption.GetType().Name}")
         };
     }

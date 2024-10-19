@@ -46,10 +46,10 @@ public class SundaePriceByTokenReducer<T>(
 
                     string pkh = Convert.ToHexString(transactionOutput.Address().GetPublicKeyHash()).ToLowerInvariant();
                     
-                    CborEncodedValue? encodedDatumValue = CborSerializer.Deserialize<CborEncodedValue>(transactionOutput?.GetDatumInfo()!.Value.Value!);
-                    if (pkh != _sundaeSwapScriptHash || encodedDatumValue?.Value is null) continue;
                     
-                    SundaeSwapLiquidityPool liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(encodedDatumValue.Value)!;
+                    if (pkh != _sundaeSwapScriptHash) continue;
+                    
+                    SundaeSwapLiquidityPool liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput?.GetDatumInfo()!.Value.Data!)!;
                     AssetClassTuple assets = liquidityPool.Assets!;
 
                     string tokenXPolicy = Convert.ToHexString(assets.Value[0].Value[0].Value).ToLowerInvariant();

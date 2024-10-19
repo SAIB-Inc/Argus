@@ -18,7 +18,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory) :
 
         //get all the output's addresses within the block
         var blockAddresses = block.TransactionBodies()
-            .SelectMany(tx => tx.Outputs().Select(o => o.TransactionOutputAddress().Value.ToBech32()))
+            .SelectMany(tx => tx.Outputs().Select(o => o.Address().Value.ToBech32()))
             .Distinct()
             .ToList();
 
@@ -82,7 +82,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory) :
         foreach (TransactionOutput output in tx.Outputs())
         {
 
-            string? Bech32Addr = output.TransactionOutputAddress().Value.ToBech32(); //Address.Raw.ToBech32(); //util in the making
+            string? Bech32Addr = output.Address().Value.ToBech32(); //Address.Raw.ToBech32(); //util in the making
             if (Bech32Addr is null || !Bech32Addr.StartsWith("addr")) continue;
 
             Console.WriteLine($"BECH2: {Bech32Addr}");
@@ -105,14 +105,14 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory) :
             //in Local
             if (localAddress != null)
             {
-                localAddress.Balance += output.TransactionOutputAmount().Lovelace();
+                localAddress.Balance += output.Amount().Lovelace();
             }
             else if (existingBAs?.FirstOrDefault(ba => ba.Address == Bech32Addr) != null)
             {
                 //adds it in Local
                 var dbAddress = existingBAs.First(ba => ba.Address == Bech32Addr);
 
-                dbAddress.Balance += output.TransactionOutputAmount().Lovelace();
+                dbAddress.Balance += output.Amount().Lovelace();
             }
             else //neither in DB nor local
             {
@@ -120,7 +120,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory) :
                 BalanceByAddress newBba = new()
                 {
                     Address = Bech32Addr,
-                    Balance = output.TransactionOutputAmount().Lovelace()
+                    Balance = output.Amount().Lovelace()
                 };
 
                 _dbContext.BalanceByAddress.Add(newBba);
