@@ -17,6 +17,8 @@ public class CardanoDbContext(
     public DbSet<TestModel> TestModels => Set<TestModel>();
     public DbSet<TransactionOutput> TransactionOutputs => Set<TransactionOutput>();
     public DbSet<SundaeSwapTokenPrice> SundaeSwapTokenPrices => Set<SundaeSwapTokenPrice>();
+    public DbSet<JpegPriceBySubject> JpegPriceBySubjects => Set<JpegPriceBySubject>();
+
     public DbSet<BalanceByAddress> BalanceByAddress=> Set<BalanceByAddress>();
     public DbSet<TxBySlot> TxBySlot=> Set<TxBySlot>();
     public DbSet<BlockBySlot> BlockBySlot=> Set<BlockBySlot>();
@@ -57,6 +59,15 @@ public class CardanoDbContext(
             entity.HasIndex(item => item.TokenYSubject);
             entity.HasIndex(item => item.Slot);
             entity.HasIndex(item => item.TxHash);
+        });
+
+        modelBuilder.Entity<JpegPriceBySubject>(entity =>
+        {
+            entity.HasKey(e => new { e.Slot, e.TxHash, e.TxIndex, e.Subject, e.Status });
+
+            entity.HasIndex(e => e.Slot);
+            entity.HasIndex(e => e.Subject);
+            entity.HasIndex(e => e.Status);
         });
 
         modelBuilder.Entity<TestModel>().HasKey(x => x.Slot);
