@@ -9,7 +9,6 @@ namespace Argus.Sync.Data.Models.SundaeSwap;
 //          h'69555344',
 //      ],
 // ] This should be a tuple but Chrysalis does not support tuple data types
-[CborSerializable(CborType.Constr, Index = 0)]
 public record AssetClass(CborBytes[] Value) : CborIndefiniteList<CborBytes>(Value);
 
 public record AssetClassTuple(AssetClass[] Value) : CborIndefiniteList<AssetClass>(Value);

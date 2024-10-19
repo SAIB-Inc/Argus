@@ -103,6 +103,15 @@ public class CardanoIndexWorker<T>(
     private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
         await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+        
+        // Log the new chain event rollforward
+        Logger.Log(
+            LogLevel.Information,
+            "[{Reducer}]: New Chain Event RollBack: Slot {response.Block.Slot()}",
+            ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
+            response.Block?.Slot()
+        );
+        
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
         ulong currentSlot = await dbContext.ReducerStates
             .AsNoTracking()
@@ -110,14 +119,12 @@ public class CardanoIndexWorker<T>(
             .Select(rs => rs.Slot)
             .FirstOrDefaultAsync(stoppingToken);
 
-        ulong slot = response.Block!.Slot();
-
         await PreventMassrollbackAsync(reducer, currentSlot, Logger);
-        await AwaitReducerDependenciesRollbackAsync(currentSlot, slot, reducer, stoppingToken);
-
+        await AwaitReducerDependenciesRollbackAsync(currentSlot, response.Block!.Slot(), reducer, stoppingToken);
+        
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
-        await reducer.RollBackwardAsync(slot);
+        await reducer.RollBackwardAsync(response.Block!.Slot());
     
         reducerStopwatch.Stop();
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);

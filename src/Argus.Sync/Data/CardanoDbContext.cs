@@ -1,6 +1,6 @@
-using System.Dynamic;
 using System.Reflection;
 using Argus.Sync.Data.Models;
+using Argus.Sync.Data.Models.SundaeSwap;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -16,7 +16,7 @@ public class CardanoDbContext(
     public DbSet<ReducerState> ReducerStates => Set<ReducerState>();
     public DbSet<TestModel> TestModels => Set<TestModel>();
     public DbSet<TransactionOutput> TransactionOutputs => Set<TransactionOutput>();
-
+    public DbSet<SundaeSwapTokenPrice> SundaeSwapTokenPrices => Set<SundaeSwapTokenPrice>();
     public DbSet<BalanceByAddress> BalanceByAddress=> Set<BalanceByAddress>();
     public DbSet<TxBySlot> TxBySlot=> Set<TxBySlot>();
     public DbSet<BlockBySlot> BlockBySlot=> Set<BlockBySlot>();
@@ -48,15 +48,24 @@ public class CardanoDbContext(
             entity.OwnsOne(item => item.Datum);
             entity.Ignore(item => item.Amount);
         });
+        
+        modelBuilder.Entity<SundaeSwapTokenPrice>(entity =>
+        {
+            entity.HasKey(item => new { item.TokenXSubject, item.TokenYSubject, item.TxHash, item.TxIndex, item.Slot });
+
+            entity.HasIndex(item => item.TokenXSubject);
+            entity.HasIndex(item => item.TokenYSubject);
+            entity.HasIndex(item => item.Slot);
+            entity.HasIndex(item => item.TxHash);
+        });
 
         modelBuilder.Entity<TestModel>().HasKey(x => x.Slot);
         modelBuilder.Entity<ReducerState>().HasKey(x => x.Name);
         modelBuilder.Entity<BalanceByAddress>().HasKey(x => x.Address);
-        // modelBuilder.Entity<InputsBySlot>().HasKey(x => new {x.TxHash, x.TxIndex});
-        // modelBuilder.Entity<OutputsBySlot>().HasKey(x => new {x.TxHash, x.TxIndex});
+        modelBuilder.Entity<InputsBySlot>().HasKey(x => new {x.TxHash, x.TxIndex});
+        modelBuilder.Entity<OutputsBySlot>().HasKey(x => new {x.TxHash, x.TxIndex});
         modelBuilder.Entity<TxBySlot>().HasKey(x => new {x.BlockSlot, x.BlockHash, x.Transaction}); //moerror kung icomment
         modelBuilder.Entity<BlockBySlot>().HasKey(x => new {x.Slot, x.Hash});
-
         base.OnModelCreating(modelBuilder);
         
     }

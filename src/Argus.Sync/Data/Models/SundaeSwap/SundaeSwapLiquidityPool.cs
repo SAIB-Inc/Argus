@@ -1,5 +1,6 @@
 using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Plutus;
+using Chrysalis.Cardano.Models.Sundae;
 using Chrysalis.Cbor;
 
 namespace Argus.Sync.Data.Models.SundaeSwap;
