@@ -31,7 +31,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory) :
 
         //get all the inputs in the block
         var txInputs = block.TransactionBodies()
-            .SelectMany(tx => tx.Inputs().Select(i => Convert.ToHexString(i.TransactionId.Value).ToLowerInvariant() + i.Index))
+            .SelectMany(tx => tx.Inputs().Select(i => Convert.ToHexString(i.TransactionId.Value).ToLowerInvariant() + i.Index.Value))
             .ToList();
 
         //get all the outputs that it matches with
@@ -57,7 +57,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory) :
         foreach (TransactionInput input in tx.Inputs())
         {
             var matchedOutput = matchedDbOutputs
-                .FirstOrDefault(o => o.Id + o.Index == Convert.ToHexString(input.TransactionId.Value).ToLowerInvariant() + input.Index);
+                .FirstOrDefault(o => o.Id + o.Index == Convert.ToHexString(input.TransactionId.Value).ToLowerInvariant() + input.Index.Value);
 
             if (matchedOutput != null)
             {

@@ -22,7 +22,7 @@ public class TransactionOutputReducer<T>(
         _dbContext = dbContextFactory.CreateDbContext();
 
         List<TransactionOutputEntity> spentOutputs = await _dbContext.TransactionOutputs
-            .Where(o => o.SpentSlot > slot)
+            .Where(o => o.SpentSlot >= slot)
             .ToListAsync();
 
         if (spentOutputs.Any())
@@ -36,7 +36,7 @@ public class TransactionOutputReducer<T>(
         }
 
         _dbContext.TransactionOutputs.RemoveRange(
-            _dbContext.TransactionOutputs.AsNoTracking().Where(o => o.Slot > slot && o.SpentSlot == null)
+            _dbContext.TransactionOutputs.AsNoTracking().Where(o => o.Slot >= slot && o.SpentSlot == null)
         );
 
         await _dbContext.SaveChangesAsync();
