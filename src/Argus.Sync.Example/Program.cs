@@ -10,7 +10,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration);
-builder.Services.AddReducers<CardanoTestDbContext,IReducerModel>(["SundaePriceByTokenReducer"]);
+builder.Services.AddReducers<CardanoTestDbContext,IReducerModel>(["BalanceByAddressReducer", "TransactionOutputReducer","BlockBySlotReducer","TxBySlotReducer"]);
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
