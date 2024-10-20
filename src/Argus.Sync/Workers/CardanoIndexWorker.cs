@@ -55,8 +55,8 @@ public class CardanoIndexWorker<T>(
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         ulong slot = response.Block.Slot();
-        byte[] header = CborSerializer.Serialize(response.Block!.Header);
-        string blockHash = Convert.ToHexString(ArgusUtils.ToBlake2b(header));
+        string blockHash = response.Block.Hash();
+        
         // Log the new chain event rollforward
         Logger.Log(
             LogLevel.Information,

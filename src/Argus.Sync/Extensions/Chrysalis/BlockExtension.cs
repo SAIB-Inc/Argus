@@ -1,11 +1,16 @@
+using Argus.Sync.Utils;
 using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core.Block;
 using Chrysalis.Cardano.Models.Core.Transaction;
+using Chrysalis.Cbor;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 
 public static class BlockExtension
 {
+    public static string Hash(this Block block) 
+        => Convert.ToHexString(CborSerializer.Serialize(block.Header).ToBlake2b()).ToLowerInvariant();
+
     public static ulong Slot(this Block block)
         => block.Header.HeaderBody switch
         {
