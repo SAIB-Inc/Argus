@@ -1,9 +1,7 @@
-using System.Text.Json;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models.SundaeSwap;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core.Transaction;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;

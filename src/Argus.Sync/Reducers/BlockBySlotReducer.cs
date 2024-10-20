@@ -8,43 +8,34 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Reducers;
 
-public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory) : IReducer<BlockBySlot> where T : CardanoDbContext
+public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
+    : IReducer<BlockBySlot> where T : CardanoDbContext, IBlockBySlotDbContext
 {
-    private T _dbContext = default!;
-
     public async Task RollForwardAsync(Chrysalis.Cardano.Models.Core.Block.Block block)
     {
-               
-        _dbContext = dbContextFactory.CreateDbContext();
-      
+        await using T _dbContext = await dbContextFactory.CreateDbContextAsync();
         ulong slot = block.Slot();
 
         byte[] header = CborSerializer.Serialize(block!.Header);
         byte[] byteHash = ArgusUtils.ToBlake2b(header);
-        string hash = Convert.ToHexString(byteHash).ToLowerInvariant(); 
+        string hash = Convert.ToHexString(byteHash).ToLowerInvariant();
 
         byte[] serializedBlock = CborSerializer.Serialize(block);
 
-        _dbContext.BlockBySlot.Add(new BlockBySlot
-        {
-            Slot = slot,
-            Hash = hash,
-            Block = serializedBlock
-        });
+        _dbContext.BlockBySlot.Add(new BlockBySlot(slot, hash, serializedBlock));
 
         await _dbContext.SaveChangesAsync();
         await _dbContext.DisposeAsync();
-
     }
-    
+
     public async Task RollBackwardAsync(ulong slot)
     {
-
+        T _dbContext = dbContextFactory.CreateDbContext();
         _dbContext = dbContextFactory.CreateDbContext();
-        _dbContext.BlockBySlot.RemoveRange(_dbContext.BlockBySlot.AsNoTracking().Where(b => b.Slot > slot));
+        _dbContext.BlockBySlot.RemoveRange(
+            _dbContext.BlockBySlot.AsNoTracking().Where(b => b.Slot >= slot)
+        );
         await _dbContext.SaveChangesAsync();
-        _dbContext.Dispose();
-
+        await _dbContext.DisposeAsync();
     }
-
 }

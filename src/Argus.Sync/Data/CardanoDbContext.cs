@@ -1,16 +1,19 @@
 using System.Reflection;
 using Argus.Sync.Data.Models;
-using Argus.Sync.Data.Models.SundaeSwap;
-using Argus.Sync.Data.Models.Splash;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
 namespace Argus.Sync.Data;
 
+public interface ICardanoDbContext
+{
+    DbSet<ReducerState> ReducerStates { get; }
+}
+
 public class CardanoDbContext(
     DbContextOptions options,
     IConfiguration configuration
-) : DbContext(options), IReducerModel
+) : DbContext(options), ICardanoDbContext
 {
     private readonly IConfiguration _configuration = configuration;
     public DbSet<ReducerState> ReducerStates => Set<ReducerState>();

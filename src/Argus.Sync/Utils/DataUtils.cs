@@ -1,18 +1,14 @@
-// using TxOutput = Cardano.Sync.Data.Models.Datums.TransactionOutput;
-using TransactionOutputEntity = Argus.Sync.Data.Models.TransactionOutput;
-using Chrysalis.Cbor;
 using Argus.Sync.Data.Models.Enums;
 using TransactionOutput = Chrysalis.Cardano.Models.Core.Transaction.TransactionOutput;
-// using ValueEntity = Argus.Sync.Data.Models.Value;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Data.Models;
-using Chrysalis.Cardano.Models.Core;
+using Chrysalis.Cbor;
 
 namespace Argus.Sync.Utils;
 
 public static class DataUtils
 {
-    public static TransactionOutputEntity? MapTransactionOutputEntity(string TransactionId, uint outputIndex, ulong slot, TransactionOutput output, UtxoStatus status)
+    public static OutputBySlot? MapTransactionOutputEntity(string transactionId, uint outputIndex, ulong slot, TransactionOutput output, UtxoStatus status)
     {
         string? address = output.Address().Value.ToBech32();
         
@@ -23,16 +19,16 @@ public static class DataUtils
             ? new Datum(datumInfo.Value.Type, datumInfo.Value.Data)
             : null;
 
-        return new TransactionOutputEntity
-        {
-            Id = TransactionId,
-            Address = address,
-            Slot = slot,
-            Index = outputIndex,
-            Datum = datum,
-            Amount = output.Amount(),
-            ReferenceScript = output.ScriptRef(),
-            UtxoStatus = status,
-        };
+        return new(
+            transactionId,
+            outputIndex,
+            slot,
+            null,
+            address,
+            CborSerializer.Serialize(output),
+            datum,
+            output.ScriptRef(),
+            status
+        );
     }
 }

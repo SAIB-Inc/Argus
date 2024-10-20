@@ -9,48 +9,48 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Reducers;
 
-public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory) : IReducer<TxBySlot> where T : CardanoDbContext
+public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
+    : IReducer<TxBySlot> where T : CardanoDbContext, ITxBySlotDbContext
 {
-    private T _dbContext = default!;
 
     public async Task RollForwardAsync(Chrysalis.Cardano.Models.Core.Block.Block block)
     {
-        _dbContext = dbContextFactory.CreateDbContext();
-
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
 
         ulong slot = block.Slot();
 
         byte[] header = CborSerializer.Serialize(block!.Header);
         byte[] byteHash = ArgusUtils.ToBlake2b(header);
-        string hash = Convert.ToHexString(byteHash).ToLowerInvariant(); 
+        string hash = Convert.ToHexString(byteHash).ToLowerInvariant();
 
         IEnumerable<TransactionBody> transactions = block.TransactionBodies();
 
-        foreach(TransactionBody tx in transactions)
+        for (uint x = 0; x < transactions.Count(); x++)
         {
-            byte[] serializedTx = CborSerializer.Serialize(tx);
-
-            _dbContext.TxBySlot.Add( new TxBySlot
-            {
-                BlockSlot = slot,
-                BlockHash = hash,
-                Transaction = serializedTx
-            });
+            dbContext.TxBySlot.Add(new(
+                hash,
+                slot,
+                x,
+                CborSerializer.Serialize(transactions.ElementAt((int)x))
+            ));
         }
-        
-        await _dbContext.SaveChangesAsync();
-        await _dbContext.DisposeAsync();
+
+        await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
 
     }
-    
+
     public async Task RollBackwardAsync(ulong slot)
     {
-
-        _dbContext = dbContextFactory.CreateDbContext();
-        _dbContext.TxBySlot.RemoveRange(_dbContext.TxBySlot.AsNoTracking().Where(b => b.BlockSlot > slot));
-        await _dbContext.SaveChangesAsync();
-        _dbContext.Dispose();
-
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
+        dbContext.TxBySlot.RemoveRange(
+            dbContext
+                .TxBySlot
+                .AsNoTracking()
+                .Where(b => b.Slot >= slot)
+        );
+        await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
     }
 
 }
