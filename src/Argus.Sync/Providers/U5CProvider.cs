@@ -2,18 +2,19 @@ using Argus.Sync.Data.Models;
 using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core;
 using Chrysalis.Cardano.Models.Core.Block;
+using Chrysalis.Cardano.Models.Core.Transaction;
 using Chrysalis.Cbor;
 using Utxorpc.Sdk;
 using ChrysalisBlock = Chrysalis.Cardano.Models.Core.Block.Block;
 
-using U5CNextResponse = Utxorpc.Sdk.Models.NextResponse; 
+using U5CNextResponse = Utxorpc.Sdk.Models.NextResponse;
 namespace Argus.Sync.Providers;
 
 public class U5CProvider(string url, Dictionary<string, string> header) : ICardanoChainProvider
 {
     public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken = null)
     {
-        
+
         var client = new SyncServiceClient(
             url,
             header
@@ -25,7 +26,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                 intersection.Slot
             )))
         {
-            
+
             if (stoppingToken.HasValue && stoppingToken.Value.IsCancellationRequested)
             {
                 yield break;
@@ -51,7 +52,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Reset:
-                        
+
                         block = new ChrysalisBlock(
                             new BlockHeader(
                                 new AlonzoHeaderBody(
@@ -60,8 +61,8 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                                     new CborNullable<CborBytes>(new CborBytes([])),
                                     new CborBytes([]),
                                     new CborBytes([]),
-                                    new VrfCert(new CborBytes([]),new CborBytes([])),
-                                    new VrfCert(new CborBytes([]),new CborBytes([])),
+                                    new VrfCert(new CborBytes([]), new CborBytes([])),
+                                    new VrfCert(new CborBytes([]), new CborBytes([])),
                                     new CborUlong(0),
                                     new CborBytes([]),
                                     new CborBytes([]),
@@ -73,10 +74,10 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                                 ),
                             new CborBytes([])
                             ),
-                            null,
-                            null,
-                            null,
-                            null
+                            new CborDefiniteList<TransactionBody>([]),
+                            new CborDefiniteList<TransactionWitnessSet>([]),
+                            new AuxiliaryDataSet([]),
+                            new CborDefiniteList<CborInt>([])
                         );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
@@ -86,7 +87,6 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                     default:
                         continue;
                 }
-
             }
         }
     }
