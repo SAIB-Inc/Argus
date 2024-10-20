@@ -12,7 +12,8 @@ public record OutputBySlot : IReducerModel
     public ulong? SpentSlot { get; set; }
     public string Address { get; init; }
     public byte[] RawCbor { get; init; }
-    public Datum? Datum { get; init; }
+    public DatumType DatumType { get; init; }
+    public byte[] DatumData { get; init; }
     public byte[]? ReferenceScript { get; init; }
     public UtxoStatus UtxoStatus { get; set; }
 
@@ -23,7 +24,8 @@ public record OutputBySlot : IReducerModel
         ulong? spentSlot,
         string address,
         byte[] rawCbor,
-        Datum? datum,
+        DatumType datumType,
+        byte[] datumData,
         byte[]? referenceScript,
         UtxoStatus utxoStatus
     )
@@ -34,9 +36,23 @@ public record OutputBySlot : IReducerModel
         SpentSlot = spentSlot;
         Address = address;
         RawCbor = rawCbor;
-        Datum = datum;
+        DatumType = datumType;
+        DatumData = datumData;
         ReferenceScript = referenceScript;
         UtxoStatus = utxoStatus;
+    }
+
+    public Datum? Datum
+    {
+        get
+        {
+            if (DatumType == DatumType.NoDatum)
+            {
+                return null;
+            }
+
+            return new Datum(DatumType, DatumData);
+        }
     }
 
     public Value Amount

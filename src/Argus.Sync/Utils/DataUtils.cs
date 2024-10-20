@@ -11,13 +11,16 @@ public static class DataUtils
     public static OutputBySlot? MapTransactionOutputEntity(string transactionId, uint outputIndex, ulong slot, TransactionOutput output, UtxoStatus status)
     {
         string? address = output.Address().Value.ToBech32();
-        
+
         if (address == null)
             return null;
 
         Datum? datum = output.DatumInfo() is var datumInfo && datumInfo.HasValue
             ? new Datum(datumInfo.Value.Type, datumInfo.Value.Data)
             : null;
+
+        if (datum == null)
+            return null;
 
         return new(
             transactionId,
@@ -26,7 +29,8 @@ public static class DataUtils
             null,
             address,
             CborSerializer.Serialize(output),
-            datum,
+            datum.Type,
+            datum.Data,
             output.ScriptRef(),
             status
         );

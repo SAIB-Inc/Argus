@@ -24,7 +24,7 @@ public class OutputBySlotDbContext
         modelBuilder.Entity<OutputBySlot>(entity =>
         {
             entity.HasKey(e => new { e.Id, e.Index, e.Slot });
-            entity.HasOne(e => e.Datum);
+            entity.Ignore(e => e.Datum);
             entity.Ignore(e => e.Amount);
         });
     }

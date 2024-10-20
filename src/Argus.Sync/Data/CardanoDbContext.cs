@@ -11,11 +11,10 @@ public interface ICardanoDbContext
 }
 
 public class CardanoDbContext(
-    DbContextOptions options,
-    IConfiguration configuration
-) : DbContext(options), ICardanoDbContext
+    DbContextOptions Options,
+    IConfiguration Configuration
+) : DbContext(Options), ICardanoDbContext
 {
-    private readonly IConfiguration _configuration = configuration;
     public DbSet<ReducerState> ReducerStates => Set<ReducerState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -29,7 +28,12 @@ public class CardanoDbContext(
             }
         }
 
-        modelBuilder.HasDefaultSchema(_configuration.GetConnectionString("CardanoContextSchema"));
+        modelBuilder.Entity<ReducerState>(entity =>
+        {
+            entity.HasKey(e => e.Name);
+        });
+
+        modelBuilder.HasDefaultSchema(Configuration.GetConnectionString("CardanoContextSchema"));
         base.OnModelCreating(modelBuilder);
     }
 }
