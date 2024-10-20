@@ -2,7 +2,6 @@ using Argus.Sync.Data;
 using Argus.Sync.Data.Models.Splash;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core.Transaction;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
@@ -13,25 +12,24 @@ namespace Argus.Sync.Reducers;
 public partial class SplashByPriceTokenReducer<T>(
     IDbContextFactory<T> dbContextFactory,
     IConfiguration configuration
-) : IReducer<SplashTokenPrice> where T : CardanoDbContext
+) : IReducer<PriceByToken> where T : SplashPriceByTokenDbContext, ISplashPriceByTokenDbContext
 {
     private readonly string _splashScriptHash = configuration["SplashScriptHash"]!;
 
     public async Task RollBackwardAsync(ulong slot)
     {
-        using CardanoDbContext _dbContext = dbContextFactory.CreateDbContext();
-
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
         ulong rollbackSlot = slot;
-        IQueryable<SplashTokenPrice> rollbackEntries = _dbContext.SplashTokenPrice.AsNoTracking().Where(stp => stp.Slot > rollbackSlot);
-        _dbContext.SplashTokenPrice.RemoveRange(rollbackEntries);
+        IQueryable<PriceByToken> rollbackEntries = dbContext.PriceByToken.AsNoTracking().Where(stp => stp.Slot >= rollbackSlot);
+        dbContext.PriceByToken.RemoveRange(rollbackEntries);
 
-        await _dbContext.SaveChangesAsync();
-        await _dbContext.DisposeAsync();
+        await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
     }
 
     public async Task RollForwardAsync(Chrysalis.Cardano.Models.Core.Block.Block block)
     {
-        using CardanoDbContext _dbContext = dbContextFactory.CreateDbContext();
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
         IEnumerable<TransactionBody> transactions = block.TransactionBodies();
 
         foreach (TransactionBody tx in transactions)
@@ -48,11 +46,11 @@ public partial class SplashByPriceTokenReducer<T>(
                     if (string.IsNullOrEmpty(address) || !address!.StartsWith("addr")) continue;
 
                     string pkh = Convert.ToHexString(output.Address().GetPublicKeyHash()).ToLowerInvariant();
-                    
+
                     if (pkh != _splashScriptHash) continue;
 
-                    SplashLiquidityPool? liquidityPool = CborSerializer.Deserialize<SplashLiquidityPool>(output?.GetDatumInfo()!.Value.Data!);
-                 
+                    SplashLiquidityPool? liquidityPool = CborSerializer.Deserialize<SplashLiquidityPool>(output?.DatumInfo()!.Value.Data!);
+
                     string tokenXPolicy = Convert.ToHexString(liquidityPool!.AssetX.PolicyId.Value).ToLowerInvariant();
                     string tokenXName = Convert.ToHexString(liquidityPool.AssetX.AssetName.Value).ToLowerInvariant();
                     string tokenYPolicy = Convert.ToHexString(liquidityPool.AssetY.PolicyId.Value).ToLowerInvariant();
@@ -60,7 +58,7 @@ public partial class SplashByPriceTokenReducer<T>(
 
                     if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                     {
-                        ulong loveLaceReserve = output.Amount().TransactionValueLovelace().Lovelace.Value;
+                        ulong loveLaceReserve = output!.Amount().TransactionValueLovelace().Lovelace.Value;
                         decimal adaReserve = (decimal)loveLaceReserve / 1_000_000;
 
                         if (adaReserve < 10_000) continue;
@@ -70,29 +68,36 @@ public partial class SplashByPriceTokenReducer<T>(
                         string otherTokenHexName = tokenXName == string.Empty ? tokenYName : tokenXName;
                         string unit = otherTokenPolicy + otherTokenName;
 
-                        ulong otherTokenReserve = output.Amount().TransactionValueLovelace().MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value), v => v.Value.Value.ToDictionary(
+                        ulong otherTokenReserve = output!.Amount().TransactionValueLovelace().MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value), v => v.Value.Value.ToDictionary(
                             k => Convert.ToHexString(k.Key.Value),
                             v => v.Value.Value
                             ))[otherTokenPolicy][otherTokenName];
 
 
-                        decimal price = adaReserve / otherTokenReserve * 1_000_000 ; 
+                        decimal price = adaReserve / otherTokenReserve * 1_000_000;
 
-                      
-                        SplashTokenPrice priceEntry = new() { Slot = block.Slot(), TxHash = Convert.ToHexString(CborSerializer.Serialize(tx).ToBlake2b()), TxIndex = index, PolicyId = otherTokenPolicy, AssetName = otherTokenName, Price = (ulong)price};
+                        PriceByToken priceEntry = new()
+                        {
+                            Slot = block.Slot(),
+                            TxHash = tx.Id(),
+                            TxIndex = index,
+                            PolicyId = otherTokenPolicy,
+                            AssetName = otherTokenName,
+                            Price = (ulong)price
+                        };
 
-                        _dbContext.SplashTokenPrice.Add(priceEntry);
+                        dbContext.PriceByToken.Add(priceEntry);
                     }
                 }
-                catch (Exception e)
+                catch
                 {
-                    
+
                 }
 
             }
         }
 
-        await _dbContext.SaveChangesAsync();
-        await _dbContext.DisposeAsync();
+        await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
     }
 }

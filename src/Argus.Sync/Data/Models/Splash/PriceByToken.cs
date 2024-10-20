@@ -1,6 +1,6 @@
 namespace Argus.Sync.Data.Models.Splash;
 
-public record SplashTokenPrice() : IReducerModel
+public record PriceByToken : IReducerModel
 {
     public ulong Slot { get; init; }
     public string TxHash { get; init; } = default!;

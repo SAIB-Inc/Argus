@@ -15,7 +15,7 @@ public static class DataUtils
         if (address == null)
             return null;
 
-        Datum? datum = output.GetDatumInfo() is var datumInfo && datumInfo.HasValue
+        Datum? datum = output.DatumInfo() is var datumInfo && datumInfo.HasValue
             ? new Datum(datumInfo.Value.Type, datumInfo.Value.Data)
             : null;
 

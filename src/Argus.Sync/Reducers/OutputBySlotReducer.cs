@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using OutputBySlot = Argus.Sync.Data.Models.OutputBySlot;
 using System.Linq.Expressions;
 using Argus.Sync.Data;
 using Block = Chrysalis.Cardano.Models.Core.Block.Block;
@@ -7,6 +6,7 @@ using Argus.Sync.Data.Models.Enums;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Extensions;
 using Argus.Sync.Utils;
+using Argus.Sync.Data.Models;
 
 namespace Argus.Sync.Reducers;
 
@@ -98,7 +98,7 @@ public class OutputBySlotReducer<T>(
         List<OutputBySlot> outputEntities = block.TransactionBodies()
             .SelectMany(txBody => txBody.Outputs().Select((output, outputIndex) =>
                 DataUtils.MapTransactionOutputEntity(
-                    txBody.TransactionId(),
+                    txBody.Id(),
                     (uint)outputIndex,
                     block.Slot(),
                     output,

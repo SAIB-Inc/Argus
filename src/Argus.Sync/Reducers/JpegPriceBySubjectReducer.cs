@@ -13,69 +13,68 @@ using JpegOffer = Chrysalis.Cardano.Models.Jpeg.Offer;
 using Chrysalis.Cbor;
 using Chrysalis.Cardano.Models.Core;
 using Chrysalis.Cardano.Models.Core.Transaction;
+using Argus.Sync.Data.Models.Jpeg;
 
 namespace Argus.Sync.Reducers;
 
-public class JpegPriceBySubjectReducer<T>(
+public class JpegPriceByTokenReducer<T>(
     IDbContextFactory<T> dbContextFactory,
     IConfiguration configuration
-) : IReducer<JpegPriceBySubject> where T : CardanoDbContext
+) : IReducer<PriceByToken> where T : JpegPriceByTokenDbContext, IJpegPriceByTokenDbContext
 {
-    private T _dbContext = default!;
     private readonly string _jpegV1validatorPkh = configuration.GetValue<string>("JPGStoreMarketplaceV1ValidatorScriptHash")!;
     private readonly string _jpegV2validatorPkh = configuration.GetValue<string>("JPGStoreMarketplaceV1ValidatorScriptHash")!;
 
     public async Task RollBackwardAsync(ulong slot)
     {
-        _dbContext = dbContextFactory.CreateDbContext();
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
 
-        IQueryable<JpegPriceBySubject> rollbackEntries = _dbContext.JpegPriceBySubjects.AsNoTracking().Where(jpg => jpg.Slot >= slot);
-        _dbContext.JpegPriceBySubjects.RemoveRange(rollbackEntries);
+        IQueryable<PriceByToken> rollbackEntries = dbContext.PriceByToken.AsNoTracking().Where(jpg => jpg.Slot >= slot);
+        dbContext.PriceByToken.RemoveRange(rollbackEntries);
 
-        await _dbContext.SaveChangesAsync();
-        _dbContext.Dispose();
+        await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
     }
 
     public async Task RollForwardAsync(Block block)
     {
         if (block.TransactionBodies().Count() != 0)
         {
-            _dbContext = dbContextFactory.CreateDbContext();
+            await using T dbContext = await dbContextFactory.CreateDbContextAsync();
+            IEnumerable<TransactionBody> transactionBodies = block.TransactionBodies();
 
-            await ProcessInputsAsync(block);
-            ProcessOutputs(block);
+            List<(string, string)> inputHashes = [];
 
-            await _dbContext.SaveChangesAsync();
-            _dbContext.Dispose();
+            foreach (TransactionBody txBody in transactionBodies)
+            {
+                IEnumerable<TransactionInput> transactionInputs = txBody.Inputs();
+
+                inputHashes.AddRange(transactionInputs
+                    .Select(input => (Convert.ToHexString(input.TransactionId.Value).ToLowerInvariant(), input.Index.Value.ToString()))
+                    .ToList());
+            }
+
+            Expression<Func<PriceByToken, bool>> predicate = PredicateBuilder.False<PriceByToken>();
+
+            foreach ((string txHash, string txIndex) in inputHashes)
+            {
+                predicate = predicate.Or(jpg => jpg.TxHash == txHash && jpg.TxIndex.ToString() == txIndex);
+            }
+
+            List<PriceByToken> existingOutputs = await dbContext.PriceByToken
+                .Where(predicate)
+                .ToListAsync();
+
+            ProcessInputs(existingOutputs, dbContext);
+            ProcessOutputs(block, dbContext);
+
+            await dbContext.SaveChangesAsync();
+            dbContext.Dispose();
         }
     }
 
-    private async Task ProcessInputsAsync(Block block)
+    private void ProcessInputs(List<PriceByToken> existingOutputs, T dbContext)
     {
-        IEnumerable<TransactionBody> transactionBodies = block.TransactionBodies();
-
-        List<(string, string)> inputHashes = [];
-
-        foreach (TransactionBody txBody in transactionBodies)
-        {
-            IEnumerable<TransactionInput> transactionInputs = txBody.Inputs();
-
-            inputHashes.AddRange(transactionInputs
-                .Select(input => (Convert.ToHexString(input.TransactionId.Value).ToLowerInvariant(), input.Index.Value.ToString()))
-                .ToList());
-        }
-        
-        Expression<Func<JpegPriceBySubject, bool>> predicate = PredicateBuilder.False<JpegPriceBySubject>();
-
-        foreach ((string txHash, string txIndex) in inputHashes)
-        {
-            predicate = predicate.Or(jpg => jpg.TxHash == txHash && jpg.TxIndex.ToString() == txIndex);
-        }
-
-        List<JpegPriceBySubject> existingOutputs = await _dbContext.JpegPriceBySubjects
-            .Where(predicate)
-            .ToListAsync();
-
         if (existingOutputs.Any())
         {
             existingOutputs.ForEach(jpg =>
@@ -83,21 +82,21 @@ public class JpegPriceBySubjectReducer<T>(
                 jpg.Status = UtxoStatus.Spent;
             });
 
-            _dbContext.JpegPriceBySubjects.UpdateRange(existingOutputs);
+            dbContext.PriceByToken.UpdateRange(existingOutputs);
         }
     }
 
-    private void ProcessOutputs(Block block)
+    private void ProcessOutputs(Block block, T dbContext)
     {
-        List<JpegPriceBySubject?> jpegPriceBySubjects = block.TransactionBodies()
+        List<PriceByToken?> jpegPriceBySubjects = block.TransactionBodies()
             .SelectMany(txBody => txBody.Outputs()
                 .Select((output, outputIndex) =>
                 {
                     string? outputAddressPkh = Convert.ToHexString(output.Address().GetPublicKeyHash()).ToLowerInvariant();
-                    
+
                     if (outputAddressPkh == null || (outputAddressPkh != _jpegV1validatorPkh && outputAddressPkh != _jpegV2validatorPkh)) return null;
 
-                    Datum? datum = output.GetDatumInfo() is var datumInfo && datumInfo.HasValue
+                    Datum? datum = output.DatumInfo() is var datumInfo && datumInfo.HasValue
                         ? new Datum(datumInfo.Value.Type, datumInfo.Value.Data)
                         : null;
 
@@ -110,16 +109,7 @@ public class JpegPriceBySubjectReducer<T>(
 
                     string subject = multiAssetOutput.GetSubject().ToLowerInvariant();
                     ulong outputCoin = outputAmount.GetCoin();
-
-                    JpegPriceBySubject jpegPriceBySubject = new()
-                    {
-                        Slot = block.Number(),
-                        TxHash = Convert.ToHexString(CborSerializer.Serialize(txBody).ToBlake2b()).ToLowerInvariant(),
-                        TxIndex = (ulong)outputIndex,
-                        Subject = subject,
-                        Status = UtxoStatus.Unspent
-                    };
-
+                    ulong price = 0;
                     if (outputAddressPkh == _jpegV1validatorPkh)
                     {
                         JpegListing? listing = CborSerializer.Deserialize<JpegListing>(datum.Data);
@@ -128,8 +118,8 @@ public class JpegPriceBySubjectReducer<T>(
 
                         decimal totalPayoutAmount = listing.Payouts.Value
                             .Sum(jpgPayout => (decimal)jpgPayout.Amount.Value);
-    
-                        jpegPriceBySubject.Price = (ulong)totalPayoutAmount + outputCoin;
+
+                        price = (ulong)totalPayoutAmount + outputCoin;
                     }
                     else if (outputAddressPkh == _jpegV2validatorPkh)
                     {
@@ -145,18 +135,25 @@ public class JpegPriceBySubjectReducer<T>(
                                 .First()
                             );
 
-                        jpegPriceBySubject.Price = (ulong)totalPayoutAmount + outputCoin;
+                        price = (ulong)totalPayoutAmount + outputCoin;
                     }
 
-                    return jpegPriceBySubject;
+                    return new PriceByToken(
+                        block.Slot(),
+                        txBody.Id(),
+                        (ulong)outputIndex,
+                        price,
+                        subject,
+                        UtxoStatus.Unspent
+                    );
                 }))
             .ToList();
 
-        jpegPriceBySubjects.ForEach(jpegPriceBySubject => 
+        jpegPriceBySubjects.ForEach(jpegPriceBySubject =>
         {
             if (jpegPriceBySubject is null) return;
 
-            _dbContext.JpegPriceBySubjects.Add(jpegPriceBySubject);
+            dbContext.PriceByToken.Add(jpegPriceBySubject);
         });
     }
 }

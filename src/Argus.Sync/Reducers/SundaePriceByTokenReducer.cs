@@ -13,24 +13,22 @@ namespace Argus.Sync.Reducers;
 public class SundaePriceByTokenReducer<T>(
     IDbContextFactory<T> dbContextFactory,
     IConfiguration configuration
-) : IReducer<SundaeSwapTokenPrice> where T : CardanoDbContext
+) : IReducer<PriceByToken> where T : SundaePriceByTokenDbContext, ISundaePriceByTokenDbContext
 {
-    private T _dbContext = default!;
     private readonly string _sundaeSwapScriptHash = configuration["SundaeSwapScriptHash"] ?? "e0302560ced2fdcbfcb2602697df970cd0d6a38f94b32703f51c312b";
-    
+
     public async Task RollBackwardAsync(ulong slot)
     {
-        _dbContext = dbContextFactory.CreateDbContext();
-        _dbContext.SundaeSwapTokenPrices.RemoveRange(_dbContext.SundaeSwapTokenPrices.AsNoTracking().Where(b => b.Slot >= slot));
-        
-        await _dbContext.SaveChangesAsync();
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
+        dbContext.PriceByToken.RemoveRange(dbContext.PriceByToken.AsNoTracking().Where(b => b.Slot >= slot));
+        await dbContext.SaveChangesAsync();
     }
 
     public async Task RollForwardAsync(Block block)
     {
-        _dbContext = await dbContextFactory.CreateDbContextAsync();
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
         IEnumerable<TransactionBody> transactions = block.TransactionBodies();
-        
+
         foreach (TransactionBody transaction in transactions)
         {
             ulong txIndex = 0;
@@ -39,15 +37,15 @@ public class SundaePriceByTokenReducer<T>(
                 try
                 {
                     string? outputBech32Addr = transactionOutput.Address().Value.ToBech32();
-                    
+
                     if (string.IsNullOrEmpty(outputBech32Addr) || !outputBech32Addr.StartsWith("addr")) continue;
 
                     string pkh = Convert.ToHexString(transactionOutput.Address().GetPublicKeyHash()).ToLowerInvariant();
-                    
-                    
+
+
                     if (pkh != _sundaeSwapScriptHash) continue;
-                    
-                    SundaeSwapLiquidityPool liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput?.GetDatumInfo()!.Value.Data!)!;
+
+                    SundaeSwapLiquidityPool liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput?.DatumInfo()!.Value.Data!)!;
                     AssetClassTuple assets = liquidityPool.Assets!;
 
                     string tokenXPolicy = Convert.ToHexString(assets.Value[0].Value[0].Value).ToLowerInvariant();
@@ -73,19 +71,18 @@ public class SundaePriceByTokenReducer<T>(
                                         k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
                                         v => v.Value.Value
                                     ))[otherTokenPolicy][otherTokenName];
-                        
-                        SundaeSwapTokenPrice sundaeSwapTokenPrice = new()
-                        {
-                            TokenXSubject = tokenXPolicy + tokenXName,
-                            TokenYSubject = tokenYPolicy + tokenXName,
-                            TokenXPrice = adaReserve,
-                            TokenYPrice = otherTokenReserve,
-                            Slot = block.Slot(),
-                            TxHash = transaction.TransactionId(),
-                            TxIndex = txIndex
-                        };
-                        
-                        _dbContext.SundaeSwapTokenPrices.Add(sundaeSwapTokenPrice);
+
+                        PriceByToken sundaeSwapTokenPrice = new(
+                            block.Slot(),
+                            transaction.Id(),
+                            txIndex,
+                            $"{tokenXPolicy}{tokenXName}",
+                            $"{tokenYPolicy}{tokenYName}",
+                            adaReserve,
+                            otherTokenReserve
+                        );
+
+                        dbContext.PriceByToken.Add(sundaeSwapTokenPrice);
                     }
                 }
                 catch (Exception)
@@ -94,8 +91,8 @@ public class SundaePriceByTokenReducer<T>(
                 }
             }
         }
-        
-        await _dbContext.SaveChangesAsync();
-        await _dbContext.DisposeAsync();
+
+        await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
     }
 }
