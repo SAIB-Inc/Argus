@@ -70,5 +70,5 @@ public record SplashLiquidityPool(
     [CborProperty(7)]
     CborBytes Last
 
-) : ICbor;
+) : RawCbor;
 

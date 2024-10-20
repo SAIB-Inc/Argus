@@ -13,4 +13,4 @@ public record AssetClass(
 
     [CborProperty(1)]
     CborBytes AssetName
-) : ICbor;
+) : RawCbor;

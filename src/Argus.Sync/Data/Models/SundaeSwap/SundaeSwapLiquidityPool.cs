@@ -66,5 +66,5 @@ public record SundaeSwapLiquidityPool(
     
     [CborProperty(7)]
     CborUlong ProtocolFees
-) : ICbor;
+) : RawCbor;
 
