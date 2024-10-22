@@ -58,16 +58,16 @@ public record SplashLiquidityPool(
     [CborProperty(6)]
     CborUlong Fee3,
 
-    [CborProperty(4)]
+    [CborProperty(7)]
     CborUlong Fee4,
     
-    [CborProperty(7)]
+    [CborProperty(8)]
     CborIndefiniteList<Inline<Credential>> Verification,
 
-    [CborProperty(6)]
+    [CborProperty(9)]
     CborUlong MarketOpen,
 
-    [CborProperty(7)]
+    [CborProperty(10)]
     CborBytes Last
 
 ) : RawCbor;
