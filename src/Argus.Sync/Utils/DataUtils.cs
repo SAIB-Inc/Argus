@@ -1,5 +1,5 @@
 using Argus.Sync.Data.Models.Enums;
-using TransactionOutput = Chrysalis.Cardano.Models.Core.Transaction.TransactionOutput;
+using TransactionOutput = Chrysalis.Cardano.Models.Core.Block.Transaction.TransactionOutput;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Data.Models;
 using Chrysalis.Cbor;

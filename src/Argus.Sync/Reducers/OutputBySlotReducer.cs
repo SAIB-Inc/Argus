@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 using Argus.Sync.Data;
-using Block = Chrysalis.Cardano.Models.Core.Block.Block;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
 using Argus.Sync.Data.Models.Enums;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Extensions;
@@ -45,7 +45,7 @@ public class OutputBySlotReducer<T>(
 
     public async Task<IEnumerable<OutputBySlot>> ResolveInputsAsync(Block block, T dbContext)
     {
-        List<(string, int)> inputHashes = block.TransactionBodies()
+        List<(string, ulong)> inputHashes = block.TransactionBodies()
             .SelectMany(
                 txBody => 
                     txBody.Inputs()
@@ -57,7 +57,7 @@ public class OutputBySlotReducer<T>(
 
         Expression<Func<OutputBySlot, bool>> predicate = PredicateBuilder.False<OutputBySlot>();
 
-        foreach ((string id, int index) in inputHashes)
+        foreach ((string id, ulong index) in inputHashes)
         {
             predicate = predicate.Or(p => p.Id == id && p.Index == index);
         }

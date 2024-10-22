@@ -2,9 +2,10 @@ using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Models.Core.Transaction;
+using Chrysalis.Cardano.Models.Core.Block.Transaction;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
 
 
 namespace Argus.Sync.Reducers;
@@ -13,7 +14,7 @@ public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
     : IReducer<TxBySlot> where T : CardanoDbContext, ITxBySlotDbContext
 {
 
-    public async Task RollForwardAsync(Chrysalis.Cardano.Models.Core.Block.Block block)
+    public async Task RollForwardAsync(Block block)
     {
         await using T dbContext = await dbContextFactory.CreateDbContextAsync();
 

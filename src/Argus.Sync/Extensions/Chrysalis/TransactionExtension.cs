@@ -1,6 +1,6 @@
-using Chrysalis.Cardano.Models.Core;
-using Chrysalis.Cardano.Models.Core.Transaction;
-using TransactionOutput = Chrysalis.Cardano.Models.Core.Transaction.TransactionOutput;
+using Chrysalis.Cardano.Models.Core.Block.Transaction;
+using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
+using TransactionOutput = Chrysalis.Cardano.Models.Core.Block.Transaction.TransactionOutput;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 

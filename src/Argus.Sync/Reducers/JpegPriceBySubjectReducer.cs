@@ -1,3 +1,4 @@
+using Chrysalis.Cbor;
 using System.Linq.Expressions;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
@@ -7,13 +8,13 @@ using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Block = Chrysalis.Cardano.Models.Core.Block.Block;
+using Argus.Sync.Data.Models.Jpeg;
+using Chrysalis.Cardano.Models.Core.Block.Transaction;
+using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
 using JpegListing = Chrysalis.Cardano.Models.Jpeg.Listing;
 using JpegOffer = Chrysalis.Cardano.Models.Jpeg.Offer;
-using Chrysalis.Cbor;
-using Chrysalis.Cardano.Models.Core;
-using Chrysalis.Cardano.Models.Core.Transaction;
-using Argus.Sync.Data.Models.Jpeg;
+
 
 namespace Argus.Sync.Reducers;
 

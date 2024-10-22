@@ -1,8 +1,9 @@
+using Chrysalis.Cbor;
 using Argus.Sync.Utils;
 using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core.Block;
-using Chrysalis.Cardano.Models.Core.Transaction;
-using Chrysalis.Cbor;
+using Chrysalis.Cardano.Models.Core.Block.Transaction;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 

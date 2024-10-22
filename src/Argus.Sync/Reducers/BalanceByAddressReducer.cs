@@ -2,17 +2,18 @@ using Microsoft.EntityFrameworkCore;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions.Chrysalis;
-using Chrysalis.Cardano.Models.Core.Transaction;
 using Argus.Sync.Utils;
-using TransactionOutput = Chrysalis.Cardano.Models.Core.Transaction.TransactionOutput;
+using TransactionOutput = Chrysalis.Cardano.Models.Core.Block.Transaction.TransactionOutput;
 using TransactionOutputEntity = Argus.Sync.Data.Models.OutputBySlot;
-using Chrysalis.Cardano.Models.Core;
+using Chrysalis.Cardano.Models.Core.Block.Transaction;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
+using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
 namespace Argus.Sync.Reducers;
 
 public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
     : IReducer<BalanceByAddress> where T : BalanceByAddressDbContext, IBalanceByAddressDbContext
 {
-    public async Task RollForwardAsync(Chrysalis.Cardano.Models.Core.Block.Block block)
+    public async Task RollForwardAsync(Block block)
     {
         await using T _dbContext = await dbContextFactory.CreateDbContextAsync();
 

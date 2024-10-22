@@ -1,8 +1,9 @@
 using Argus.Sync.Data.Models;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
 
 public record NextResponse
 (
     NextResponseAction Action,
-    Chrysalis.Cardano.Models.Core.Block.Block Block
+    Block Block
 );
 

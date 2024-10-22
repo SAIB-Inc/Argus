@@ -1,4 +1,4 @@
-using Chrysalis.Cardano.Models.Core;
+using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 

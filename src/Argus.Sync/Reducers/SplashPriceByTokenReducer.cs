@@ -1,11 +1,12 @@
 using Argus.Sync.Data;
+using Argus.Sync.Utils;
 using Argus.Sync.Data.Models.Splash;
 using Argus.Sync.Extensions.Chrysalis;
-using Argus.Sync.Utils;
-using Chrysalis.Cardano.Models.Core.Transaction;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
+using Chrysalis.Cardano.Models.Core.Block.Transaction;
 
 namespace Argus.Sync.Reducers;
 
@@ -27,7 +28,7 @@ public partial class SplashPriceByTokenReducer<T>(
         await dbContext.DisposeAsync();
     }
 
-    public async Task RollForwardAsync(Chrysalis.Cardano.Models.Core.Block.Block block)
+    public async Task RollForwardAsync(Block block)
     {
         await using T dbContext = await dbContextFactory.CreateDbContextAsync();
         IEnumerable<TransactionBody> transactions = block.TransactionBodies();
@@ -68,10 +69,14 @@ public partial class SplashPriceByTokenReducer<T>(
                         string otherTokenHexName = tokenXName == string.Empty ? tokenYName : tokenXName;
                         string unit = otherTokenPolicy + otherTokenName;
 
-                        ulong otherTokenReserve = output!.Amount().TransactionValueLovelace().MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value), v => v.Value.Value.ToDictionary(
-                            k => Convert.ToHexString(k.Key.Value),
-                            v => v.Value.Value
-                            ))[otherTokenPolicy][otherTokenName];
+                        // calculate the price
+                        ulong otherTokenReserve = output!.Amount().TransactionValueLovelace()
+                            .MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
+                                v =>
+                                    v.Value.Value.ToDictionary(
+                                        k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
+                                        v => v.Value.Value
+                                    ))[otherTokenPolicy][otherTokenName];
 
 
                         decimal price = adaReserve / otherTokenReserve * 1_000_000;

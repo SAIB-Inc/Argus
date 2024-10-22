@@ -11,7 +11,7 @@ public interface IBlockBySlotDbContext
 
 public class BlockBySlotDbContext
 (
-    DbContextOptions<BlockBySlotDbContext> options,
+    DbContextOptions options,
     IConfiguration configuration
 ) : CardanoDbContext(options, configuration), IBlockBySlotDbContext
 {

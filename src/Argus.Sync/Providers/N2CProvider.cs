@@ -1,11 +1,8 @@
 using Argus.Sync.Data.Models;
-using Argus.Sync.Extensions.Chrysalis;
-using Chrysalis.Cardano.Models.Core.Block;
 using Chrysalis.Cbor;
 using PallasDotnet;
 using PallasNextResponse = PallasDotnet.Models.NextResponse;
-using ChrysalisBlock = Chrysalis.Cardano.Models.Core.Block.Block;
-using Argus.Sync.Utils;
+using ChrysalisBlock = Chrysalis.Cardano.Models.Core.BlockEntity;
 
 namespace Argus.Sync.Providers;
 

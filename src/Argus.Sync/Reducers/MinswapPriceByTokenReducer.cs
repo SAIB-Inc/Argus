@@ -2,11 +2,11 @@ using Argus.Sync.Data;
 using Argus.Sync.Data.Models.Minswap;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Models.Core.Transaction;
+using Chrysalis.Cardano.Models.Core.Block.Transaction;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Block = Chrysalis.Cardano.Models.Core.Block.Block;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
 
 namespace Argus.Sync.Reducers;
 

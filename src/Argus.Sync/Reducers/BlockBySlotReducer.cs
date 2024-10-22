@@ -5,13 +5,14 @@ using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
+using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
 
 namespace Argus.Sync.Reducers;
 
 public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
     : IReducer<BlockBySlot> where T : CardanoDbContext, IBlockBySlotDbContext
 {
-    public async Task RollForwardAsync(Chrysalis.Cardano.Models.Core.Block.Block block)
+    public async Task RollForwardAsync(Block block)
     {
         await using T _dbContext = await dbContextFactory.CreateDbContextAsync();
         ulong slot = block.Slot();

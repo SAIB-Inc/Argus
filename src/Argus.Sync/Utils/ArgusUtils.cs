@@ -2,7 +2,8 @@ using CardanoSharp.Wallet.Enums;
 using Chrysalis.Cardano.Models.Core;
 using CardanoSharpAddress = CardanoSharp.Wallet.Models.Addresses.Address;
 using Microsoft.Extensions.Configuration;
-using NSec.Cryptography; 
+using NSec.Cryptography;
+using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
 
 namespace Argus.Sync.Utils;
 
@@ -51,7 +52,7 @@ public static class ArgusUtils
     public static byte[] GetPublicKeyHash(this Address address)
     {
         byte[] dst = new byte[28];
-        Buffer.BlockCopy((Array) address.Value, 1, (Array) dst, 0, dst.Length);
+        Buffer.BlockCopy(address.Value, 1, dst, 0, dst.Length);
         return dst;
     }
 }
