@@ -9,7 +9,7 @@ using Microsoft.Extensions.Configuration;
 
 namespace Argus.Sync.Reducers;
 
-public partial class SplashByPriceTokenReducer<T>(
+public partial class SplashPriceByTokenReducer<T>(
     IDbContextFactory<T> dbContextFactory,
     IConfiguration configuration
 ) : IReducer<PriceByToken> where T : SplashPriceByTokenDbContext, ISplashPriceByTokenDbContext
@@ -54,7 +54,7 @@ public partial class SplashByPriceTokenReducer<T>(
                     string tokenXPolicy = Convert.ToHexString(liquidityPool!.AssetX.PolicyId.Value).ToLowerInvariant();
                     string tokenXName = Convert.ToHexString(liquidityPool.AssetX.AssetName.Value).ToLowerInvariant();
                     string tokenYPolicy = Convert.ToHexString(liquidityPool.AssetY.PolicyId.Value).ToLowerInvariant();
-                    string tokenYName = Convert.ToHexString(liquidityPool.AssetY.PolicyId.Value).ToLowerInvariant();
+                    string tokenYName = Convert.ToHexString(liquidityPool.AssetY.AssetName.Value).ToLowerInvariant();
 
                     if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                     {
