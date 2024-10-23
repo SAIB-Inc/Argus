@@ -56,7 +56,7 @@ public record MinswapLiquidityPool(
     Option<CborUlong> fee_sharing_numerator_opt,
 
     [CborProperty(9)]
-    Option<CborUlong> allow_dynamic_fee
+    Bool allow_dynamic_fee
 
 ) : RawCbor;
 
