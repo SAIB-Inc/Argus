@@ -20,10 +20,7 @@ public partial class SplashPriceByTokenReducer<T>(
     public async Task RollBackwardAsync(ulong slot)
     {
         await using T dbContext = await dbContextFactory.CreateDbContextAsync();
-        ulong rollbackSlot = slot;
-        IQueryable<PriceByToken> rollbackEntries = dbContext.PriceByToken.AsNoTracking().Where(stp => stp.Slot >= rollbackSlot);
-        dbContext.PriceByToken.RemoveRange(rollbackEntries);
-
+        dbContext.PriceByToken.RemoveRange(dbContext.PriceByToken.AsNoTracking().Where(b => b.Slot >= slot));
         await dbContext.SaveChangesAsync();
         await dbContext.DisposeAsync();
     }
@@ -36,10 +33,10 @@ public partial class SplashPriceByTokenReducer<T>(
         foreach (TransactionBody tx in transactions)
         {
             IEnumerable<TransactionOutput> transactionOutputs = tx.Outputs();
-            ulong index = 0;
+            ulong txIndex = 0;
             foreach (TransactionOutput output in transactionOutputs)
             {
-                index++;
+                
                 try
                 {
                     string? address = output.Address().Value.ToBech32();
@@ -66,8 +63,6 @@ public partial class SplashPriceByTokenReducer<T>(
 
                         string otherTokenPolicy = tokenXPolicy == string.Empty ? tokenYPolicy : tokenXPolicy;
                         string otherTokenName = tokenXName == string.Empty ? tokenYName : tokenXName;
-                        string otherTokenHexName = tokenXName == string.Empty ? tokenYName : tokenXName;
-                        string unit = otherTokenPolicy + otherTokenName;
 
                         // calculate the price
                         ulong otherTokenReserve = output!.Amount().TransactionValueLovelace()
@@ -78,25 +73,23 @@ public partial class SplashPriceByTokenReducer<T>(
                                         v => v.Value.Value
                                     ))[otherTokenPolicy][otherTokenName];
 
-
-                        decimal price = adaReserve / otherTokenReserve * 1_000_000;
-
-                        PriceByToken priceEntry = new()
-                        {
-                            Slot = block.Slot(),
-                            TxHash = tx.Id(),
-                            TxIndex = index,
-                            PolicyId = otherTokenPolicy,
-                            AssetName = otherTokenName,
-                            Price = (ulong)price
-                        };
-
-                        dbContext.PriceByToken.Add(priceEntry);
+                        PriceByToken splashTokenPrice = new(
+                            block.Slot(),
+                            tx.Id(),
+                            txIndex,
+                            $"{tokenXPolicy}{tokenXName}",
+                            $"{tokenYPolicy}{tokenYName}",
+                            loveLaceReserve,
+                            otherTokenReserve
+                        );
+                        
+                        dbContext.PriceByToken.Add(splashTokenPrice);
+                        txIndex++;
                     }
                 }
-                catch
+                catch(Exception)
                 {
-
+                    
                 }
 
             }

@@ -23,7 +23,7 @@ public class SplashPriceByTokenDbContext
 
         modelBuilder.Entity<PriceByToken>(entity =>
         {
-            entity.HasKey(e => new { e.Slot, e.TxHash, e.TxIndex, e.PolicyId, e.AssetName });
+            entity.HasKey(e => new { e.Slot, e.TxHash, e.TxIndex, e.TokenXSubject, e.TokenYSubject });
         });
     }
 }

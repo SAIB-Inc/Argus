@@ -5,7 +5,6 @@ using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
-using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -119,14 +118,38 @@ public class CardanoIndexWorker<T>(
             .Select(rs => rs.Slot)
             .FirstOrDefaultAsync(stoppingToken);
 
+        if (currentSlot == 0) return;
+        
         await PreventMassrollbackAsync(reducer, currentSlot, Logger);
         await AwaitReducerDependenciesRollbackAsync(currentSlot, response.Block!.Slot(), reducer, stoppingToken);
         
+        ulong responseSlot = response.Block!.Slot();
+        ulong rollBackSlot = 0;
+
+        if (response.RollBackType == RollBackType.Exclusive) 
+        {
+            if (currentSlot >= responseSlot) 
+            {
+                rollBackSlot = responseSlot + 1;
+            }
+            else
+            {
+                return;
+            }
+        }
+        else if (response.RollBackType == RollBackType.Inclusive) 
+        {
+            rollBackSlot = responseSlot; 
+        }
+
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
-        await reducer.RollBackwardAsync(response.Block!.Slot());
-    
+        if (rollBackSlot != 0)
+        {
+            await reducer.RollBackwardAsync(rollBackSlot);
+        }
         reducerStopwatch.Stop();
+       
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
     }
 

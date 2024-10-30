@@ -22,6 +22,7 @@ public class SundaePriceByTokenReducer<T>(
         await using T dbContext = await dbContextFactory.CreateDbContextAsync();
         dbContext.PriceByToken.RemoveRange(dbContext.PriceByToken.AsNoTracking().Where(b => b.Slot >= slot));
         await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
     }
 
     public async Task RollForwardAsync(Block block)

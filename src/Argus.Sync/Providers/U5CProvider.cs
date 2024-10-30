@@ -42,6 +42,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         Console.WriteLine($"Deserialized block: Slot {response.AppliedBlock.NativeBytes}");
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
+                            null,
                             block!
                         );
                         break;
@@ -51,6 +52,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         Console.WriteLine($"Deserialized block: Slot {response.UndoneBlock.NativeBytes}");
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
+                            RollBackType.Inclusive,
                             block!
                         );
                         break;
@@ -84,6 +86,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
+                            RollBackType.Exclusive,
                             block
                         );
                         break;
