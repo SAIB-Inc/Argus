@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\Chrysalis\src\Chrysalis\Chrysalis.csproj" />
     <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
   </ItemGroup>
 

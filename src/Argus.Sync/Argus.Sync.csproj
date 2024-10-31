@@ -13,7 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Chrysalis" Version="0.2.7" />
+    <!-- <PackageReference Include="Chrysalis" Version="0.2.7" /> -->
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
@@ -23,5 +23,9 @@
     <PackageReference Include="Utxorpc.Sdk" Version="1.1.0-alpha" />
     <PackageReference Include="NSec.Cryptography" Version="24.4.0" />
   </ItemGroup>
+
+<ItemGroup>
+    <ProjectReference Include="..\..\..\Chrysalis\src\Chrysalis\Chrysalis.csproj" />
+</ItemGroup>
 
 </Project>
