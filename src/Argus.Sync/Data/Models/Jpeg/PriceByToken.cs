@@ -5,6 +5,7 @@ namespace Argus.Sync.Data.Models.Jpeg;
 public record PriceByToken : IReducerModel
 {
     public ulong Slot { get; init; }
+    public ulong? SpentSlot { get; set; }
     public string TxHash { get; init; }
     public ulong TxIndex { get; init; }
     public ulong Price { get; set; } = default;
@@ -13,6 +14,7 @@ public record PriceByToken : IReducerModel
 
     public PriceByToken(
         ulong Slot,
+        ulong? SpentSlot,
         string TxHash,
         ulong TxIndex,
         ulong Price,
@@ -21,6 +23,7 @@ public record PriceByToken : IReducerModel
     )
     {
         this.Slot = Slot;
+        this.SpentSlot = SpentSlot;
         this.TxHash = TxHash;
         this.TxIndex = TxIndex;
         this.Price = Price;

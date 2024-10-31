@@ -1,7 +1,6 @@
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions.Chrysalis;
-using Argus.Sync.Utils;
 using Chrysalis.Cardano.Models.Core.Block.Transaction;
 using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
@@ -20,9 +19,7 @@ public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
 
         ulong slot = block.Slot();
 
-        byte[] header = CborSerializer.Serialize(block!.Header);
-        byte[] byteHash = ArgusUtils.ToBlake2b(header);
-        string hash = Convert.ToHexString(byteHash).ToLowerInvariant();
+        string hash = block.Hash();
 
         IEnumerable<TransactionBody> transactions = block.TransactionBodies();
 
@@ -38,7 +35,6 @@ public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
 
         await dbContext.SaveChangesAsync();
         await dbContext.DisposeAsync();
-
     }
 
     public async Task RollBackwardAsync(ulong slot)

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions.Chrysalis;
@@ -8,6 +9,8 @@ using TransactionOutputEntity = Argus.Sync.Data.Models.OutputBySlot;
 using Chrysalis.Cardano.Models.Core.Block.Transaction;
 using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
 using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
+using Argus.Sync.Extensions;
+
 namespace Argus.Sync.Reducers;
 
 public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
@@ -17,33 +20,36 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
     {
         await using T _dbContext = await dbContextFactory.CreateDbContextAsync();
 
-        //get all the output's addresses within the block
+        Expression<Func<BalanceByAddress, bool>> predicate = PredicateBuilder.False<BalanceByAddress>();
+
         var blockAddresses = block.TransactionBodies()
             .SelectMany(tx => tx.Outputs().Select(o => o.Address().Value.ToBech32()))
             .Distinct()
             .ToList();
 
-        //get all the addresses in the DB that match blockAddresses
+        predicate = predicate.Or(ba => blockAddresses.Contains(ba.Address));
+
         var existingBAs = await _dbContext.BalanceByAddress
-            .Where(ba => blockAddresses.Contains(ba.Address))
+            .Where(predicate)
             .ToListAsync();
 
-        //get all the inputs in the block
+        Expression<Func<OutputBySlot, bool>> predicateObyS = PredicateBuilder.False<OutputBySlot>();
+
         var txInputs = block.TransactionBodies()
             .SelectMany(tx => tx.Inputs().Select(i => Convert.ToHexString(i.TransactionId.Value).ToLowerInvariant() + i.Index.Value))
             .ToList();
 
-        //get all the outputs that it matches with
+        predicateObyS = predicateObyS.Or(obs => txInputs.Contains(obs.Id + obs.Index));
         List<TransactionOutputEntity> matchedDbOutputs = await _dbContext.OutputBySlot
-            .Where(o => txInputs.Contains(o.Id + o.Index))
+            .Where(predicateObyS)
             .ToListAsync();
 
         IEnumerable<TransactionBody> transactions = block.TransactionBodies();
 
         foreach (TransactionBody tx in transactions)
         {
-            ProcessInputs(block.Slot(), tx, matchedDbOutputs, existingBAs);
             ProcessOutputs(block.Slot(), tx, existingBAs, _dbContext);
+            ProcessInputs(block.Slot(), tx, matchedDbOutputs, existingBAs);
         }
 
         await _dbContext.SaveChangesAsync();
@@ -70,6 +76,10 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
                     updateBalance.Balance -= balance.Lovelace();
                 }
             }
+            else
+            {
+                continue;
+            }
         }
     }
 
@@ -83,21 +93,18 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
             var localAddress = dbContext.BalanceByAddress.Local
                 .FirstOrDefault(ba => ba.Address == addr);
 
-            //in Local
             if (localAddress != null)
             {
                 localAddress.Balance += output.Amount().Lovelace();
             }
             else if (existingBAs?.FirstOrDefault(ba => ba.Address == addr) != null)
             {
-                //adds it in Local
                 var dbAddress = existingBAs.First(ba => ba.Address == addr);
 
                 dbAddress.Balance += output.Amount().Lovelace();
             }
-            else //neither in DB nor local
+            else 
             {
-                //also adds to local
                 BalanceByAddress newBba = new(
                     addr,
                     output.Amount().Lovelace()
@@ -112,9 +119,11 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
     {
         await using T _dbContext = await dbContextFactory.CreateDbContextAsync();
 
-        //undo inputs and outputs, but what if naguna ang Rollback sa Input or Output niya gi remove na ang history?
         ulong rollbackSlot = slot;
 
+        Expression<Func<OutputBySlot, bool>> predicate = PredicateBuilder.False<OutputBySlot>();
+
+        predicate = predicate.Or(tr => tr.Slot >= rollbackSlot);
         List<TransactionOutputEntity> outInRollbackEntries = await _dbContext.OutputBySlot
                 .AsNoTracking()
                 .Where(tr => tr.Slot >= rollbackSlot)
@@ -125,13 +134,15 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
             .Distinct()
             .ToList();
 
+        Expression<Func<BalanceByAddress, bool>> balancePredicate = PredicateBuilder.False<BalanceByAddress>();
+        balancePredicate = balancePredicate.Or(ba => outInAddresses.Contains(ba.Address));
+
         List<BalanceByAddress> balanceAddressEntries = await _dbContext.BalanceByAddress
             .Where(ba => outInAddresses.Contains(ba.Address))
             .ToListAsync();
 
         foreach (TransactionOutputEntity output in outInRollbackEntries)
         {
-            //find the address
             var match = balanceAddressEntries
                 .FirstOrDefault(ba => ba.Address == output.Address);
 
@@ -141,7 +152,6 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
             {
                 if (output.SpentSlot != null)
                 {
-                    //is an input
                     match.Balance += lovelaceBalance.Lovelace();
                 }
                 else

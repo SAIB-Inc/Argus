@@ -1,6 +1,8 @@
 using Argus.Sync.Utils;
 using Chrysalis.Cardano.Models.Cbor;
 using Chrysalis.Cardano.Models.Core.Block.Transaction;
+using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
+using Chrysalis.Cardano.Models.Core.Transaction;
 using Chrysalis.Cbor;
 
 namespace Argus.Sync.Extensions.Chrysalis;
@@ -71,4 +73,16 @@ public static class TransactionBodyExtension
             },
             _ => throw new NotImplementedException()
         };
+
+    public static byte[] AuxiliaryDataHash(this TransactionBody transactionBody)
+        => transactionBody switch
+        {
+            ConwayTransactionBody x => x.AuxiliaryDataHash.Value, 
+
+            BabbageTransactionBody x => x.AuxiliaryDataHash.Value,
+  
+            AlonzoTransactionBody x => x.AuxiliaryDataHash.Value,
+            _ => throw new NotImplementedException()
+        };
+    
 }

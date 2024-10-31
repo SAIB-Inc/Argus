@@ -1,13 +1,14 @@
+using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
-using Argus.Sync.Utils;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Argus.Sync.Extensions;
 
 public static class ReducerExtensions
 {
-    public static void AddReducers<TContext, V>(this IServiceCollection services, string[]? optInList = null)
+    public static void AddReducers<T, V>(this IServiceCollection services, Type[]? optInList = null)
         where V : IReducerModel
     {
         optInList ??= [];
@@ -22,14 +23,12 @@ public static class ReducerExtensions
         {
             foreach (Type reducerType in reducerTypes)
             {
-                string typeName = ArgusUtils.GetTypeNameWithoutGenerics(reducerType);
-
-                if (optInList.Contains(typeName))
+                if (optInList.Contains(reducerType))
                 {
                     if (reducerType.IsGenericTypeDefinition)
                     {
-                        Type closedType = reducerType.MakeGenericType(typeof(TContext));
-                        services.AddSingleton(typeof(IReducer<V>), closedType);
+                        Type closedReducerType = reducerType.MakeGenericType(typeof(T));
+                        services.AddSingleton(typeof(IReducer<V>), closedReducerType);
                     }
                     else
                     {
