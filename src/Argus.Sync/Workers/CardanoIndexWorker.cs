@@ -123,23 +123,16 @@ public class CardanoIndexWorker<T>(
         await PreventMassrollbackAsync(reducer, currentSlot, Logger);
         await AwaitReducerDependenciesRollbackAsync(currentSlot, response.Block!.Slot(), reducer, stoppingToken);
         
-        ulong responseSlot = response.Block!.Slot();
+        ulong requestedRollbackSlot = response.Block!.Slot();
         ulong rollBackSlot = 0;
 
         if (response.RollBackType == RollBackType.Exclusive) 
         {
-            if (currentSlot >= responseSlot) 
-            {
-                rollBackSlot = responseSlot + 1;
-            }
-            else
-            {
-                return;
-            }
+            rollBackSlot = requestedRollbackSlot + 1;
         }
         else if (response.RollBackType == RollBackType.Inclusive) 
         {
-            rollBackSlot = responseSlot; 
+            rollBackSlot = requestedRollbackSlot;
         }
 
         Stopwatch reducerStopwatch = new();
