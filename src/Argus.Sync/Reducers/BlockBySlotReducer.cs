@@ -19,7 +19,7 @@ public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
 
         byte[] serializedBlock = CborSerializer.Serialize(block);
 
-        _dbContext.BlockBySlot.Add(new BlockBySlot(slot, hash, serializedBlock));
+        _dbContext.BlockBySlot.Add(new (slot, hash, serializedBlock));
 
         await _dbContext.SaveChangesAsync();
         await _dbContext.DisposeAsync();
