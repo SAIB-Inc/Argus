@@ -16,11 +16,13 @@ public static class DataUtils
             return null;
 
         Datum? datum = output.DatumInfo() is var datumInfo && datumInfo.HasValue
-            ? new Datum(datumInfo.Value.Type, datumInfo.Value.Data)
+            ? new (datumInfo.Value.Type, datumInfo.Value.Data)
             : null;
 
+        //go over the implementation of the Datum in OutputBySlot again and recheck what to do
+        //because it seems like it would be better if data or type was null?
         if (datum == null)
-            return null;
+            datum = new(DatumType.NoDatum, Array.Empty<byte>());
 
         return new(
             transactionId,

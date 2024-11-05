@@ -1,7 +1,8 @@
-using Chrysalis.Cardano.Models.Core;
 using Argus.Sync.Data.Models.Enums;
+using Argus.Sync.Extensions.Chrysalis;
 using Chrysalis.Cbor;
 using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
+using Chrysalis.Cardano.Models.Core.Block.Transaction;
 
 namespace Argus.Sync.Data.Models;
 
@@ -58,7 +59,7 @@ public record OutputBySlot : IReducerModel
 
     public Value Amount
     {
-        get => CborSerializer.Deserialize<Value>(RawCbor)
+        get => CborSerializer.Deserialize<TransactionOutput>(RawCbor)?.Amount()
             ?? throw new InvalidOperationException("Failed to deserialize Value from RawCbor");
     }
 }

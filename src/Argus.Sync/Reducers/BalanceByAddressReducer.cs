@@ -1,166 +1,162 @@
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
+using Argus.Sync.Utils;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
+using Argus.Sync.Extensions;
 using Argus.Sync.Extensions.Chrysalis;
-using Argus.Sync.Utils;
-using TransactionOutput = Chrysalis.Cardano.Models.Core.Block.Transaction.TransactionOutput;
-using TransactionOutputEntity = Argus.Sync.Data.Models.OutputBySlot;
 using Chrysalis.Cardano.Models.Core.Block.Transaction;
 using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
-using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
-using Argus.Sync.Extensions;
+using TransactionOutputEntity = Argus.Sync.Data.Models.OutputBySlot;
 
 namespace Argus.Sync.Reducers;
-
+//[ReducerDepends([typeof(OutputBySlotReducer<>)])]
 public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
     : IReducer<BalanceByAddress> where T : BalanceByAddressDbContext, IBalanceByAddressDbContext
 {
-    public async Task RollForwardAsync(Block block)
-    {
-        await using T _dbContext = await dbContextFactory.CreateDbContextAsync();
-
-        Expression<Func<BalanceByAddress, bool>> predicate = PredicateBuilder.False<BalanceByAddress>();
-
-        var blockAddresses = block.TransactionBodies()
-            .SelectMany(tx => tx.Outputs().Select(o => o.Address().Value.ToBech32()))
-            .Distinct()
-            .ToList();
-
-        predicate = predicate.Or(ba => blockAddresses.Contains(ba.Address));
-
-        var existingBAs = await _dbContext.BalanceByAddress
-            .Where(predicate)
-            .ToListAsync();
-
-        Expression<Func<OutputBySlot, bool>> predicateObyS = PredicateBuilder.False<OutputBySlot>();
-
-        var txInputs = block.TransactionBodies()
-            .SelectMany(tx => tx.Inputs().Select(i => Convert.ToHexString(i.TransactionId.Value).ToLowerInvariant() + i.Index.Value))
-            .ToList();
-
-        predicateObyS = predicateObyS.Or(obs => txInputs.Contains(obs.Id + obs.Index));
-        List<TransactionOutputEntity> matchedDbOutputs = await _dbContext.OutputBySlot
-            .Where(predicateObyS)
-            .ToListAsync();
-
-        IEnumerable<TransactionBody> transactions = block.TransactionBodies();
-
-        foreach (TransactionBody tx in transactions)
-        {
-            ProcessOutputs(block.Slot(), tx, existingBAs, _dbContext);
-            ProcessInputs(block.Slot(), tx, matchedDbOutputs, existingBAs);
-        }
-
-        await _dbContext.SaveChangesAsync();
-        await _dbContext.DisposeAsync();
-    }
-
-    private void ProcessInputs(ulong slot, TransactionBody tx, List<TransactionOutputEntity> matchedDbOutputs, List<BalanceByAddress> existingBAs)
-    {
-        foreach (TransactionInput input in tx.Inputs())
-        {
-            var matchedOutput = matchedDbOutputs
-                .FirstOrDefault(o => o.Id == input.TransacationId() && o.Index == input.Index());
-
-            if (matchedOutput != null)
-            {
-                string outputAddress = matchedOutput.Address;
-                var updateBalance = existingBAs
-                    .FirstOrDefault(ba => ba.Address == outputAddress);
-
-                Value? balance = matchedOutput.Amount;
-
-                if (updateBalance != null && balance != null)
-                {
-                    updateBalance.Balance -= balance.Lovelace();
-                }
-            }
-            else
-            {
-                continue;
-            }
-        }
-    }
-
-    private void ProcessOutputs(ulong slot, TransactionBody tx, List<BalanceByAddress> existingBAs, T dbContext)
-    {
-        foreach (TransactionOutput output in tx.Outputs())
-        {
-            string? addr = output.Address().Value.ToBech32();
-            if (addr is null || !addr.StartsWith("addr")) continue;
-
-            var localAddress = dbContext.BalanceByAddress.Local
-                .FirstOrDefault(ba => ba.Address == addr);
-
-            if (localAddress != null)
-            {
-                localAddress.Balance += output.Amount().Lovelace();
-            }
-            else if (existingBAs?.FirstOrDefault(ba => ba.Address == addr) != null)
-            {
-                var dbAddress = existingBAs.First(ba => ba.Address == addr);
-
-                dbAddress.Balance += output.Amount().Lovelace();
-            }
-            else 
-            {
-                BalanceByAddress newBba = new(
-                    addr,
-                    output.Amount().Lovelace()
-                );
-                dbContext.BalanceByAddress.Add(newBba);
-            }
-        }
-
-    }
-
     public async Task RollBackwardAsync(ulong slot)
     {
-        await using T _dbContext = await dbContextFactory.CreateDbContextAsync();
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
 
-        ulong rollbackSlot = slot;
+        List<TransactionOutputEntity> rollbackEntries = await dbContext.OutputBySlot
+            .AsNoTracking()
+            .Where(tr => tr.Slot >= slot)
+            .ToListAsync();
 
-        Expression<Func<OutputBySlot, bool>> predicate = PredicateBuilder.False<OutputBySlot>();
-
-        predicate = predicate.Or(tr => tr.Slot >= rollbackSlot);
-        List<TransactionOutputEntity> outInRollbackEntries = await _dbContext.OutputBySlot
-                .AsNoTracking()
-                .Where(tr => tr.Slot >= rollbackSlot)
-                .ToListAsync();
-
-        var outInAddresses = outInRollbackEntries
+        List<string> addresses = rollbackEntries
             .Select(o => o.Address)
             .Distinct()
             .ToList();
 
-        Expression<Func<BalanceByAddress, bool>> balancePredicate = PredicateBuilder.False<BalanceByAddress>();
-        balancePredicate = balancePredicate.Or(ba => outInAddresses.Contains(ba.Address));
+        Expression<Func<BalanceByAddress, bool>> predicate = PredicateBuilder.False<BalanceByAddress>();
 
-        List<BalanceByAddress> balanceAddressEntries = await _dbContext.BalanceByAddress
-            .Where(ba => outInAddresses.Contains(ba.Address))
+        addresses.ForEach(addr =>
+        {
+            predicate = predicate.Or(ba => ba.Address == addr);
+        });
+
+        List<BalanceByAddress> balanceAddressEntries = await dbContext.BalanceByAddress
+            .Where(predicate)
             .ToListAsync();
 
-        foreach (TransactionOutputEntity output in outInRollbackEntries)
+        foreach (TransactionOutputEntity output in rollbackEntries)
         {
-            var match = balanceAddressEntries
+            BalanceByAddress? address = balanceAddressEntries
                 .FirstOrDefault(ba => ba.Address == output.Address);
 
-            Value lovelaceBalance = output.Amount;
-
-            if (match != null && lovelaceBalance != null)
+            if(address is not null)
             {
                 if (output.SpentSlot != null)
                 {
-                    match.Balance += lovelaceBalance.Lovelace();
+                    address.Balance += output.Amount.Lovelace();
                 }
                 else
                 {
-                    match.Balance -= lovelaceBalance.Lovelace();
+                    address.Balance -= output.Amount.Lovelace();
                 }
             }
         }
 
-        await _dbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
+    }
+
+    public async Task RollForwardAsync(Block block)
+    {
+        await using T dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        List<string> blockAddresses = block.TransactionBodies()
+            .SelectMany(
+                tx => tx.Outputs(),
+                (_, output) => output.Address().Value.ToBech32()
+            )
+            .Where(addr => !string.IsNullOrEmpty(addr))
+            .Select(addr => addr!)
+            .Distinct()
+            .ToList();
+
+        Expression<Func<BalanceByAddress, bool>> predicate = PredicateBuilder.False<BalanceByAddress>();
+
+        blockAddresses.ForEach(addr =>
+        {
+            predicate = predicate.Or(ba => ba.Address == addr);
+        });
+
+        List<BalanceByAddress> existingAddresses = await dbContext.BalanceByAddress
+            .Where(predicate)
+            .ToListAsync();
+
+        foreach (TransactionBody tx in block.TransactionBodies())
+        {
+            ProcessOutputs(tx, existingAddresses, dbContext);
+        }
+
+        List<(string TxHash, ulong TxIndex)> inputsTuple = block.TransactionBodies()
+            .SelectMany(
+                tx => tx.Inputs(),
+                (_, input) => (input.TransacationId(), input.Index())
+            )
+            .ToList();
+
+        Expression<Func<TransactionOutputEntity, bool>> inputsPredicate = PredicateBuilder.False<TransactionOutputEntity>();
+
+        inputsTuple.ForEach(input =>
+        {
+            inputsPredicate = inputsPredicate.Or(tr => tr.Id == input.TxHash && tr.Index == input.TxIndex);
+        });
+
+        List<TransactionOutputEntity> existingOutputEntries = await dbContext.OutputBySlot
+            .AsNoTracking()
+            .Where(inputsPredicate)
+            .ToListAsync();
+
+        foreach (TransactionBody tx in block.TransactionBodies())
+        {
+            ProcessInputs(tx, existingOutputEntries, existingAddresses);
+        }
+
+        await dbContext.SaveChangesAsync();
+        await dbContext.DisposeAsync();
+    }
+
+    private void ProcessInputs(TransactionBody tx, List<TransactionOutputEntity> existingOutputEntries, List<BalanceByAddress> existingAddresses)
+    {
+        foreach (TransactionInput input in tx.Inputs())
+        {
+            TransactionOutputEntity? utxo = existingOutputEntries
+                .FirstOrDefault(o => o.Id == input.TransacationId() && o.Index == input.Index());
+            if(utxo == null) continue;
+
+            BalanceByAddress? address = existingAddresses
+                .FirstOrDefault(ba => ba.Address == utxo.Address);
+            if(address == null) continue;
+
+            address.Balance -= utxo.Amount.Lovelace();
+        }
+    }
+
+    private void ProcessOutputs(TransactionBody tx, List<BalanceByAddress> existingAddresses, T dbContext)
+    {
+        foreach (TransactionOutput output in tx.Outputs())
+        {
+            string? addr = output.Address().Value.ToBech32();
+
+            if (addr is not null && addr.StartsWith("addr"))
+            {
+                BalanceByAddress? address = existingAddresses.FirstOrDefault(ba => ba.Address == addr);
+
+                if (address != null)
+                {
+                    address.Balance += output.Amount().Lovelace();
+                }
+                else
+                {
+                    BalanceByAddress newAddress = new(addr, output.Amount().Lovelace());
+
+                    dbContext.BalanceByAddress.Add(newAddress);
+                    existingAddresses.Add(newAddress);
+                }
+            }
+        }
     }
 }
