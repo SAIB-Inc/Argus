@@ -41,10 +41,11 @@ This tool is designed for robust enterprise integration, with plans to introduce
 ## Features :sparkles:
 
 - **Indexing**: Communicate with the Cardano blockchain and filter required information, allowing users to store relevant data in a database.
-- **Cross-Platform Compatibility**: Use Argus to create .NET projects on web, mobile, and more! Furthermore, utilize powerful C# tools like LINQ, ASP .NET, and Entity Framework.
+- **Cross-Platform Compatibility**: Use Argus to create .NET projects on web, mobile, and more! 
+- **Power**: Furthermore, utilize powerful C# tools like LINQ, ASP.NET, and Entity Framework.
 - **C# Data Structures**: Utilize C# data structures such as Lists and Dictionaries to insert Cardano data into a database or read and use that data.
 - **Efficiency**: Improved producivity allows users to create secure and powerful Cardano dApps or update existing ones faster.
-- **Utility**: Utilize C# for Cardano operations such as transaction or smart contract building. Additionally, users may use provided general reducers or create customer reducers that better suit your needs.
+- **Customizable**: Users may use provided general reducers or create custom reducers that better suit your needs.
 
 ## Roadmap :rocket:
 
