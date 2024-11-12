@@ -9,9 +9,9 @@
 
 <div align="center">
 
-![Forks](https://img.shields.io/github/forks/SAIB-Inc/Argus.svg?style=social)  
-![Stars](https://img.shields.io/github/stars/SAIB-Inc/Argus.svg?style=social)  
-
+  <img src="https://img.shields.io/github/forks/SAIB-Inc/Argus.svg?style=social" style="display: inline-block;">
+  <img src="https://img.shields.io/github/stars/SAIB-Inc/Argus.svg?style=social" style="display: inline-block;">
+  
 </div>
 
 <div align="center">
