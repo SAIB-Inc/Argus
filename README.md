@@ -21,11 +21,14 @@
 ![Issues](https://img.shields.io/github/issues/SAIB-Inc/Argus.svg?label=Open%20Issues)
 ![Issues Closed](https://img.shields.io/github/issues-closed/SAIB-Inc/Argus.svg?label=Closed%20Issues)
 
-<a href="https://www.nuget.org/packages/SAIB.Cardano.Sync">
-    <img src="https://img.shields.io/nuget/v/SAIB.Cardano.Sync.svg" alt="NuGet">
-</a>
+</div>
 
-![C#](https://img.shields.io/badge/C%23-purple.svg) 
+<div align="center">
+
+  <a href="https://www.nuget.org/packages/SAIB.Cardano.Sync" style="display: inline-block;">
+    <img src="https://img.shields.io/nuget/v/SAIB.Cardano.Sync.svg" alt="NuGet">
+  </a>
+  <img src="https://img.shields.io/badge/C%23-purple.svg" style="display: inline-block;">
 
 </div>
 
