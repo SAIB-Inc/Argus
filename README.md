@@ -2,7 +2,7 @@
  <h1 style="font-size: 5em;">Argus | Cardano Blockchain Indexer for .NET</h1>
 </div>  
 
-<div align="center" style="background-color: black;">
+<div align="center" style="background-color: black; display: inline-block; padding 5px;">
   <img src="/assets/asset.png" alt="Argus Logo"/>
 </div>
 
