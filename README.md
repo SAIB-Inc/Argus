@@ -30,7 +30,7 @@
   </a>
   <img src="https://img.shields.io/badge/C%23-purple.svg" style="display: inline-block;">
 
-</div>
+</div>  
 
 
 
@@ -58,7 +58,12 @@ This tool is designed for robust enterprise integration, with plans to introduce
 To use Argus in your .NET project:
 
 1. You can install Argus via NuGet:  
-    `dotnet add package SAIB.Cardano.Sync`
+
+    ```bash
+    
+      dotnet add package SAIB.Cardano.Sync
+    
+    ```
 
 2. Dependency Installation:  
     Chrysalis, Nsec.Cryptography, Microsoft.EntityFramework.Design, Pallas.NET
@@ -174,11 +179,20 @@ To use Argus in your .NET project:
 6. Migrate and update your database changes:  
   *In the terminal
 
-      `dotnet ef migrations add <migrationName>`  
-      `dotned ef database update`  
+  ```bash
+      
+    dotnet ef migrations add <migrationName> 
+    dotnet ef database update
+
+  ```  
 
 7. Run your reducer!  
-  `dotnet run -c Release`
+
+  ```bash
+  
+    dotnet run -c Release
+  
+  ```
 
 ## Example :pencil2:  
 
