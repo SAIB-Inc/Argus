@@ -92,7 +92,7 @@ To use Argus in your .NET project:
         "StartHash": "3fd9925888302fca267c580d8fe6ebc923380d0b984523a1dfbefe88ef089b66",
         "ConnectionType": "gRPC",
         "UnixSocket": {
-          "Path": "yourPath/tmp/node.socket"
+          "Path": "yourPath/node.socket"
         },
         "TCP": {
           "Host": "localhost",
@@ -179,20 +179,20 @@ To use Argus in your .NET project:
 6. Migrate and update your database changes:  
   *In the terminal
 
-  ```bash
-      
-    dotnet ef migrations add <migrationName> 
-    dotnet ef database update
+    ```bash
 
-  ```  
+      dotnet ef migrations add <migrationName> 
+      dotnet ef database update
+
+    ```  
 
 7. Run your reducer!  
 
-  ```bash
-  
-    dotnet run -c Release
-  
-  ```
+    ```bash
+    
+      dotnet run -c Release
+    
+    ```
 
 ## Example :pencil2:  
 
