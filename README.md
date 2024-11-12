@@ -2,7 +2,7 @@
  <h1 style="font-size: 5em;">Argus | Cardano Blockchain Indexer for .NET</h1>
 </div>  
 
-<div align="center" style="margin: 15px;">
+<div align="center" style="margin: 25px;">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="/assets/darkmodeAsset.png">
     <source media="(prefers-color-scheme: light)" srcset="/assets/lightmodeAsset.png">
