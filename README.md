@@ -11,7 +11,7 @@
 
   <img src="https://img.shields.io/github/forks/SAIB-Inc/Argus.svg?style=social" style="display: inline-block;">
   <img src="https://img.shields.io/github/stars/SAIB-Inc/Argus.svg?style=social" style="display: inline-block;">
-  
+
 </div>
 
 <div align="center">
@@ -20,10 +20,6 @@
 ![Contributors](https://img.shields.io/github/contributors/SAIB-Inc/Argus.svg?label=Contributors)
 ![Issues](https://img.shields.io/github/issues/SAIB-Inc/Argus.svg?label=Open%20Issues)
 ![Issues Closed](https://img.shields.io/github/issues-closed/SAIB-Inc/Argus.svg?label=Closed%20Issues)
-
-</div>
-
-<div align="center">
 
 <a href="https://www.nuget.org/packages/SAIB.Cardano.Sync">
     <img src="https://img.shields.io/nuget/v/SAIB.Cardano.Sync.svg" alt="NuGet">
