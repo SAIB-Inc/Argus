@@ -163,7 +163,7 @@ To use Argus in your .NET project:
     
     ```cs 
 
-  TxBySlotDbContext.cs
+    TxBySlotDbContext.cs
 
       public interface ITxBySlotDbContext
       {
@@ -188,6 +188,7 @@ To use Argus in your .NET project:
             });
         }
       }
+      
     ```
 
 6. Migrate and update your database changes:  
