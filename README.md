@@ -137,18 +137,17 @@ To use Argus in your .NET project:
 
     Entity Class:
 
-    ```markdown
-    **TxBySlot.cs**
-
-    <hr>
-
     ```cs
+    TxBySlot.cs
+    ---
+
       public record TxBySlot(
         string Hash,
         ulong Slot,
         uint Index,
         byte[] RawCbor
       ) : IReducerModel;
+      
     ```
 
     Context Object:
