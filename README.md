@@ -32,18 +32,17 @@
 
 
 
-Argus is a .NET library that simplifies interactions with the Cardano blockchain by providing an efficient indexing framework.
+Argus is a .NET library that simplifies interactions with the Cardano blockchain by providing an efficient and easy to use indexing framework.
 Initially supporting PostgreSQL as the database backend, it processes block data into structured, queryable formats.
 This tool is designed for robust enterprise integration, with plans to introduce additional database backends in the future to broaden its applicability and flexibility.
 
 ## Features :sparkles:
 
-- **Indexing**: Communicate with the Cardano blockchain and filter required information, allowing users to store relevant data in a database.
-- **Cross-Platform Compatibility**: Use Argus to create .NET projects on web, mobile, and more! 
-- **Power**: Furthermore, utilize powerful C# tools like LINQ, ASP.NET, and Entity Framework.
-- **C# Data Structures**: Utilize C# data structures such as Lists and Dictionaries to insert Cardano data into a database or read and use that data.
-- **Efficiency**: Improved producivity allows users to create secure and powerful Cardano dApps or update existing ones faster.
-- **Customizable**: Users may use provided general reducers or create custom reducers that better suit your needs.
+- **Indexing**: Communicate with the Cardano blockchain to filter and retrieve required information, making it easy for users to store relevant data in a database.
+- **Power**: Integrates with C# tools like LINQ, ASP.NET, and Entity Framework, enhancing the development experience for building and updating dApps.
+- **C# Data Structures**: Translates Cardano's CBOR data into C# data types, allowing users to seamlessly utilize blockchain data.
+- **Efficiency**: Boosts producivity by allowing users to create secure and powerful Cardano dApps or update existing ones easier and faster.
+- **Customizable**: Create custom reducers tailored to your specific needs. You may also utilize the given general reducers.
 
 ## Roadmap :rocket:
 
@@ -65,16 +64,15 @@ To use Argus in your .NET project:
     ```
 
 2. Dependency Installation:  
-    Chrysalis, Nsec.Cryptography, Microsoft.EntityFramework.Design, Pallas.NET
+    Entity Framework
 
-3. Create your PostgreSQL DB.  
+3. Run your PostgreSQL server instance.  
 
 4. Configure your appsettings.json file:  
     Database Connection:
 
     ```json
 
-      "AllowedHosts": "*",
       "ConnectionStrings": {
         "CardanoContext": "Host=localhost;Database=dbName;Username=yourUsername;Password=yourPassword;Port=yourPort",
         "CardanoContextSchema": "cardanoindexer"
@@ -124,6 +122,7 @@ To use Argus in your .NET project:
     ```
 
     Smart Contract Related Info (Optional):
+      Argus includes general reducers, add the corresponding configuration lines for the dApp reducers you plan to use.
 
     ```json
 
@@ -137,6 +136,11 @@ To use Argus in your .NET project:
 5. Create your models and DbContext or use our general reducers:  
 
     Entity Class:
+
+    ```markdown
+    **TxBySlot.cs**
+
+    <hr>
 
     ```cs
       public record TxBySlot(
