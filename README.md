@@ -210,14 +210,11 @@ To use Argus in your .NET project:
 
 ## Example :pencil2:  
 
-    ```cs
 
-      Program.cs
+    ```cs
 
         builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration); 
         builder.Services.AddReducers<CardanoTestDbContext, IReducerModel>([typeof(TxBySlotReducer<>)]); 
-
-      TxBySlotReducer.cs
 
         using Argus.Sync.Data;
         using Argus.Sync.Data.Models;
@@ -245,8 +242,5 @@ To use Argus in your .NET project:
             }
 
         }
+
     ```
-
-    
-
-
