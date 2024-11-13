@@ -137,9 +137,12 @@ To use Argus in your .NET project:
 
     Entity Class:
 
-    ```cs
+    ```markdown
+
     TxBySlot.cs
     ---
+
+    ```cs
 
       public record TxBySlot(
         string Hash,
@@ -147,12 +150,14 @@ To use Argus in your .NET project:
         uint Index,
         byte[] RawCbor
       ) : IReducerModel;
-      
+
+    ```
+
     ```
 
     Context Object:
 
-    ```cs
+    ```cs [TxBySlotSbContext.cs]
       public interface ITxBySlotDbContext
       {
         DbSet<TxBySlot> TxBySlot { get; }
