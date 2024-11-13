@@ -46,7 +46,7 @@ This tool is designed for robust enterprise integration, with plans to introduce
 
 ## Roadmap :rocket:
 
-- [ ] **Expand Comprehensive Library Enhancement**: 
+- [x] **Expand Comprehensive Library Enhancement**: 
   - Expose blockchain data based upon the CDDL fields.
   - Implement common general reducers and common use-case dApp reducers.
   - Simplify installation and usage for developers through NuGet and a comprehensive tutorial.
@@ -188,7 +188,7 @@ To use Argus in your .NET project:
             });
         }
       }
-      
+
     ```
 
 6. Migrate and update your database changes:  
