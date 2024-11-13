@@ -94,8 +94,6 @@ To use Argus in your .NET project:
     ```json
 
       "CardanoNodeConnection": {
-        "StartSlot": 139522569,
-        "StartHash": "3fd9925888302fca267c580d8fe6ebc923380d0b984523a1dfbefe88ef089b66",
         "ConnectionType": "gRPC",
         "UnixSocket": {
           "Path": "yourPath/node.socket"
@@ -146,8 +144,10 @@ To use Argus in your .NET project:
 
     Entity Class:  
 
-    TxBySlot.cs
+    
     ```cs
+
+    TxBySlot.cs
 
       public record TxBySlot(
         string Hash,
@@ -160,8 +160,11 @@ To use Argus in your .NET project:
 
     Context Object:  
 
-    TxBySlotDbContext.cs
-    ```cs [TxBySlotSbContext.cs]
+    
+    ```cs 
+
+  TxBySlotDbContext.cs
+
       public interface ITxBySlotDbContext
       {
         DbSet<TxBySlot> TxBySlot { get; }
