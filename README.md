@@ -210,37 +210,40 @@ To use Argus in your .NET project:
 
 ## Example :pencil2:  
 
+```cs
 
-    ```cs
+  Program.cs
 
-        builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration); 
-        builder.Services.AddReducers<CardanoTestDbContext, IReducerModel>([typeof(TxBySlotReducer<>)]); 
+  builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration); 
+  builder.Services.AddReducers<CardanoTestDbContext, IReducerModel>([typeof(TxBySlotReducer<>)]); 
 
-        using Argus.Sync.Data;
-        using Argus.Sync.Data.Models;
-        using Chrysalis.Cardano.Core;
-        using Chrysalis.Cbor;
-        using Chrysalis.Utils;
-        using Microsoft.EntityFrameworkCore;
-        using Block = Chrysalis.Cardano.Core.Block;
+  TxBySlotReducer.cs
+  
+  using Argus.Sync.Data;
+  using Argus.Sync.Data.Models;
+  using Chrysalis.Cardano.Core;
+  using Chrysalis.Cbor;
+  using Chrysalis.Utils;
+  using Microsoft.EntityFrameworkCore;
+  using Block = Chrysalis.Cardano.Core.Block;
 
 
-        namespace Argus.Sync.Reducers;
+  namespace Argus.Sync.Reducers;
 
-        public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
-            : IReducer<TxBySlot> where T : CardanoDbContext, ITxBySlotDbContext
-        {
+  public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
+      : IReducer<TxBySlot> where T : CardanoDbContext, ITxBySlotDbContext
+  {
 
-            public async Task RollForwardAsync(Block block)
-            {
-                //Implement your rollforward logic
-            }
+      public async Task RollForwardAsync(Block block)
+      {
+        //Implement your rollforward logic
+      }
 
-            public async Task RollBackwardAsync(ulong slot)
-            {
-                //Implement your rollbackward logic
-            }
+      public async Task RollBackwardAsync(ulong slot)
+      {
+        //Implement your rollbackward logic
+      }
 
-        }
+  }
 
-    ```
+```
