@@ -147,7 +147,7 @@ To use Argus in your .NET project:
     
     ```cs
 
-    TxBySlot.cs
+    //TxBySlot.cs
 
       public record TxBySlot(
         string Hash,
@@ -163,7 +163,7 @@ To use Argus in your .NET project:
     
     ```cs 
 
-    TxBySlotDbContext.cs
+    //TxBySlotDbContext.cs
 
       public interface ITxBySlotDbContext
       {
@@ -212,12 +212,12 @@ To use Argus in your .NET project:
 
 ```cs
 
-  Program.cs
+  //Program.cs
 
     builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration); 
     builder.Services.AddReducers<CardanoTestDbContext, IReducerModel>([typeof(TxBySlotReducer<>)]); 
 
-  TxBySlotReducer.cs
+  //TxBySlotReducer.cs
 
     using Argus.Sync.Data;
     using Argus.Sync.Data.Models;
