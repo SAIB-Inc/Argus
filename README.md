@@ -46,10 +46,19 @@ This tool is designed for robust enterprise integration, with plans to introduce
 
 ## Roadmap :rocket:
 
-1. **Expand Functionality**: Expose blockchain data based upon the CDDL fields, create general reducers, and facilitate ease of installation and use for developers through nuget and a tutorial.
-2. **Performance Improvements**: Improve the stability and performance of Argus.
-3. **Documentation**: Expand and enhance Argus documentation through a website detailing its features and use cases.
-4. **Launch**: Officially launch the Argus website and extensive documentation, with community engagement events such as webinars.
+- [ ] **Expand Comprehensive Library Enhancement**: 
+  - Expose blockchain data based upon the CDDL fields.
+  - Implement common general reducers and common use-case dApp reducers.
+  - Simplify installation and usage for developers through NuGet and a comprehensive tutorial.
+- [ ] **Stability Enhancement and Performance Optimization**: 
+  - Improve the stability and performance of Argus.
+  - Create a performance report detailing benchmarks, optimizations, and testing results.
+- [ ] **Official Website**: 
+  - Expand and enhance Argus documentation by creating a website detailing its features and use cases.
+  - Have a reviewer confirm the accuracy of the website and asses the clarity and ease of use of the tutorial.
+- [ ] **Official Launch and Community Outreach**: 
+  - Officially launch the Argus website and extensive documentation.
+  - Hold community engagement events such as webinars.
 
 ## Getting Started :package:
 
@@ -135,13 +144,9 @@ To use Argus in your .NET project:
 
 5. Create your models and DbContext or use our general reducers:  
 
-    Entity Class:
-
-    ```markdown
+    Entity Class:  
 
     TxBySlot.cs
-    ---
-
     ```cs
 
       public record TxBySlot(
@@ -153,10 +158,9 @@ To use Argus in your .NET project:
 
     ```
 
-    ```
+    Context Object:  
 
-    Context Object:
-
+    TxBySlotDbContext.cs
     ```cs [TxBySlotSbContext.cs]
       public interface ITxBySlotDbContext
       {
@@ -203,15 +207,15 @@ To use Argus in your .NET project:
 
 ## Example :pencil2:  
 
-Program.cs
+
 
 ```cs
+
+Program.cs
     builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration); 
     builder.Services.AddReducers<CardanoTestDbContext, IReducerModel>([typeof(TxBySlotReducer<>)]); 
-```
 
-```cs
-
+TxBySlotReducer.cs
     using Argus.Sync.Data;
     using Argus.Sync.Data.Models;
     using Chrysalis.Cardano.Core;
