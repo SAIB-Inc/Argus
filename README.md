@@ -192,7 +192,6 @@ To use Argus in your .NET project:
     ```
 
 6. Migrate and update your database changes:  
-  *In the terminal
 
     ```bash
 
@@ -246,5 +245,6 @@ To use Argus in your .NET project:
             }
 
         }
+        
     ```
 
