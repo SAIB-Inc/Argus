@@ -14,6 +14,7 @@
 
   <img src="https://img.shields.io/github/forks/SAIB-Inc/Argus.svg?style=social" style="display: inline-block;">
   <img src="https://img.shields.io/github/stars/SAIB-Inc/Argus.svg?style=social" style="display: inline-block;">
+    <img src="https://img.shields.io/badge/C%23-purple.svg" style="display: inline-block;">
 
 </div>
 
@@ -26,7 +27,6 @@
   <a href="https://www.nuget.org/packages/SAIB.Cardano.Sync" style="display: inline-block; text-decoration: none; border: none;">
       <img src="https://img.shields.io/nuget/v/SAIB.Cardano.Sync.svg" alt="NuGet">
   </a>
-  <img src="https://img.shields.io/badge/C%23-purple.svg" style="display: inline-block;">
 
 </div>
 
@@ -40,7 +40,7 @@ This tool is designed for robust enterprise integration, with plans to introduce
 
 - **Indexing**: Communicate with the Cardano blockchain to filter and retrieve required information, making it easy for users to store relevant data in a database.
 - **Power**: Integrates with C# tools like LINQ, ASP.NET, and Entity Framework, enhancing the development experience for building and updating dApps.
-- **C# Data Structures**: Translates Cardano's CBOR data into C# data types, allowing users to seamlessly utilize blockchain data.
+- **C# Data Structures**: Serialize and deserialize Cardano's CBOR data into C# data types, allowing users to seamlessly utilize blockchain data.
 - **Efficiency**: Boosts producivity by allowing users to create secure and powerful Cardano dApps or update existing ones easier and faster.
 - **Customizable**: Create custom reducers tailored to your specific needs. You may also utilize the given general reducers.
 
@@ -72,8 +72,13 @@ To use Argus in your .NET project:
     
     ```
 
-2. Dependency Installation:  
-    Entity Framework
+2. Dependency Installation - Entity Framework Design:  
+
+    ```bash
+    
+      dotnet add package Microsoft.EntityFrameworkCore.Design
+    
+    ```
 
 3. Run your PostgreSQL server instance.  
 
@@ -210,40 +215,44 @@ To use Argus in your .NET project:
 
 ## Example :pencil2:  
 
-```cs
+  ```cs
 
-  //Program.cs
+    //Program.cs
 
-    builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration); 
-    builder.Services.AddReducers<CardanoTestDbContext, IReducerModel>([typeof(TxBySlotReducer<>)]); 
+      builder.Services.AddCardanoIndexer<CardanoTestDbContext>(builder.Configuration); 
+      builder.Services.AddReducers<CardanoTestDbContext, IReducerModel>([typeof(TxBySlotReducer<>)]); 
 
-  //TxBySlotReducer.cs
+  ```
 
-    using Argus.Sync.Data;
-    using Argus.Sync.Data.Models;
-    using Chrysalis.Cardano.Core;
-    using Chrysalis.Cbor;
-    using Chrysalis.Utils;
-    using Microsoft.EntityFrameworkCore;
-    using Block = Chrysalis.Cardano.Core.Block;
+  ```cs
+
+    //TxBySlotReducer.cs
+
+      using Argus.Sync.Data;
+      using Argus.Sync.Data.Models;
+      using Chrysalis.Cardano.Core;
+      using Chrysalis.Cbor;
+      using Chrysalis.Utils;
+      using Microsoft.EntityFrameworkCore;
+      using Block = Chrysalis.Cardano.Core.Block;
 
 
-    namespace Argus.Sync.Reducers;
+      namespace Argus.Sync.Reducers;
 
-    public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
-        : IReducer<TxBySlot> where T : CardanoDbContext, ITxBySlotDbContext
-    {
+      public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
+          : IReducer<TxBySlot> where T : CardanoDbContext, ITxBySlotDbContext
+      {
 
-        public async Task RollForwardAsync(Block block)
-        {
-          //Implement your rollforward logic
-        }
+          public async Task RollForwardAsync(Block block)
+          {
+            //Implement your rollforward logic
+          }
 
-        public async Task RollBackwardAsync(ulong slot)
-        {
-          //Implement your rollbackward logic
-        }
+          public async Task RollBackwardAsync(ulong slot)
+          {
+            //Implement your rollbackward logic
+          }
 
-    }
+      }
 
-```
+  ```
