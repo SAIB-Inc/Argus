@@ -1,9 +1,8 @@
 using CardanoSharp.Wallet.Enums;
-using Chrysalis.Cardano.Models.Core;
 using CardanoSharpAddress = CardanoSharp.Wallet.Models.Addresses.Address;
 using Microsoft.Extensions.Configuration;
 using NSec.Cryptography;
-using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
+using Chrysalis.Cardano.Core;
 
 namespace Argus.Sync.Utils;
 

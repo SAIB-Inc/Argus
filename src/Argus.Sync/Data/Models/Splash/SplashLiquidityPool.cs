@@ -1,6 +1,7 @@
-using Chrysalis.Cardano.Models.Cbor;
-using Chrysalis.Cardano.Models.Plutus;
+using Chrysalis.Cardano.Cbor;
+using Chrysalis.Cardano.Plutus;
 using Chrysalis.Cbor;
+using CborBytes = Chrysalis.Cardano.Cbor.CborBytes;
 
 namespace Argus.Sync.Data.Models.Splash;
 
@@ -62,7 +63,7 @@ public record SplashLiquidityPool(
     CborUlong Fee4,
     
     [CborProperty(8)]
-    CborIndefiniteList<Inline<Credential>> Verification,
+    CborMaybeIndefList<Inline<Credential>> Verification,
 
     [CborProperty(9)]
     CborUlong MarketOpen,

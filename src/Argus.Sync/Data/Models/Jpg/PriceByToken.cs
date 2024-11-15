@@ -1,6 +1,5 @@
 using Argus.Sync.Data.Models.Enums;
-
-namespace Argus.Sync.Data.Models.Jpeg;
+namespace Argus.Sync.Data.Models.Jpg;
 
 public record PriceByToken : IReducerModel
 {

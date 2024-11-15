@@ -1,8 +1,9 @@
-using Chrysalis.Cardano.Models.Cbor;
-using Chrysalis.Cardano.Models.Plutus;
 using Chrysalis.Cbor;
+using Chrysalis.Cardano.Cbor;
+using CborBytes = Chrysalis.Cardano.Cbor.CborBytes;
+using Address = Chrysalis.Cardano.Plutus.Address;
 
-namespace Argus.Sync.Data.Models.Jpeg;
+namespace Argus.Sync.Data.Models.Jpg;
 
 // 121_0([_
 //     [_
@@ -103,14 +104,6 @@ public record ListingPayout(
 //                     ]),
 //                 ]),
 //             ])
-[CborSerializable(CborType.Constr, Index = 0)]
-public record Address(
-    [CborProperty(0)]
-    Credential PaymentCredential,
-
-    [CborProperty(1)]
-    Option<Inline<Credential>> StakeCredential
-) : RawCbor;
 
 
 

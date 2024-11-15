@@ -8,11 +8,12 @@ using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Argus.Sync.Data.Models.Jpeg;
-using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
-using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
-using JpgListing = Argus.Sync.Data.Models.Jpeg.Listing;
-using Chrysalis.Cardano.Models.Cbor;
+using Argus.Sync.Data.Models.Jpg;
+using Block = Chrysalis.Cardano.Core.Block;
+using JpgListing = Argus.Sync.Data.Models.Jpg.Listing;
+using Chrysalis.Cardano.Cbor;
+using Chrysalis.Cardano.Core;
+using Chrysalis.Utils;
 
 namespace Argus.Sync.Reducers;
 
@@ -63,7 +64,7 @@ public class JpgPriceByTokenReducer<T>(
                 )
             ).ToList();
 
-        Expression<Func<PriceByToken, bool>> predicate = PredicateBuilder.False<PriceByToken>();
+        /*Expression<Func<PriceByToken, bool>> predicate = PredicateBuilder.False<PriceByToken>();
 
         inputsTuple.ForEach(inputTuple =>
         {
@@ -72,6 +73,11 @@ public class JpgPriceByTokenReducer<T>(
 
         List<PriceByToken> jpgListingEntries = await dbContext.PriceByToken
             .Where(predicate)
+            .ToListAsync();*/
+
+        List<PriceByToken> jpgListingEntries = await dbContext.PriceByToken
+            .Where(jpg => inputsTuple.Any(inputTuple => 
+            jpg.TxHash == inputTuple.TxHash && jpg.TxIndex.ToString() == inputTuple.TxIndex))
             .ToListAsync();
 
         IEnumerable<string> inputOutRefs = inputsTuple.Select(inputTuple => inputTuple.TxHash + inputTuple.TxIndex);
@@ -105,7 +111,7 @@ public class JpgPriceByTokenReducer<T>(
             {
                 bool txHasJpgOutput = tx.Outputs().Any(e =>
                 {
-                    string pkh = Convert.ToHexString(e.Address().GetPublicKeyHash());
+                    string pkh = Convert.ToHexString(e.Address()!.GetPublicKeyHash());
                     return pkh.Equals(_jpegV1validatorPkh, StringComparison.InvariantCultureIgnoreCase);
                 });
 
@@ -122,14 +128,14 @@ public class JpgPriceByTokenReducer<T>(
                 return tx.Outputs()
                     .Select((o, outputIdx) =>
                     {
-                        string pkh = Convert.ToHexString(o.Address().GetPublicKeyHash());
+                        string pkh = Convert.ToHexString(o.Address()!.GetPublicKeyHash());
                         bool isJpgOutput = pkh.Equals(
                             _jpegV1validatorPkh,
                             StringComparison.InvariantCultureIgnoreCase
                         );
                         if (!isJpgOutput) return null;
 
-                        (DatumType Type, byte[] Data)? datumInfo = o.DatumInfo();
+                        (DatumType Type, byte[] Data)? datumInfo = o.ArgusDatumInfo();
                         if (datumInfo is null) return null;
 
                         Datum datum = new(datumInfo.Value.Type, datumInfo.Value.Data);
@@ -140,14 +146,14 @@ public class JpgPriceByTokenReducer<T>(
                             rawDatum != null
                         )
                         {
-                            datum = new Datum(DatumType.InlineDatum, rawDatum);
+                            datum = new (DatumType.InlineDatum, rawDatum);
                         }
 
                         JpgListing? listing = CborSerializer.Deserialize<JpgListing>(datum!.Data);
                         if (listing is null) return null;
 
-                        Value outputAmount = o.Amount();
-                        MultiAssetOutput? multiAssetOutput = outputAmount.MultiAsset();
+                        Value outputAmount = o.Amount()!;
+                        MultiAssetOutput? multiAssetOutput = outputAmount!.MultiAsset();
                         if (multiAssetOutput is null) return null;
 
                         ulong totalPayoutAmount = listing.Payouts.Value

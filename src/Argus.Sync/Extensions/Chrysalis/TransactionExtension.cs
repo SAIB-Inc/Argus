@@ -1,6 +1,4 @@
-using Chrysalis.Cardano.Models.Core.Block.Transaction;
-using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
-using TransactionOutput = Chrysalis.Cardano.Models.Core.Block.Transaction.TransactionOutput;
+using Chrysalis.Cardano.Core;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 
@@ -16,33 +14,6 @@ public static class TransactionExtension
             _ => throw new NotImplementedException($"Unsupported TransactionOutput type: {output.GetType().Name}")
         };
 
-    public static Address Address(this TransactionOutput transactionOutput)
-        => transactionOutput switch
-        {
-            BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Address,
-            AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.Address,
-            MaryTransactionOutput maryTransactionOutput => maryTransactionOutput.Address,
-            ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Address,
-            _ => throw new NotImplementedException()
-        };
-
-    public static Value Amount(this TransactionOutput transactionOutput)
-        => transactionOutput switch
-        {
-            BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Amount,
-            AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.Amount,
-            MaryTransactionOutput maryTransactionOutput => maryTransactionOutput.Amount,
-            ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Amount,
-            _ => throw new NotImplementedException()
-        };
-
-    public static MultiAssetOutput? MultiAsset(this Value value)
-        => value switch
-        {
-            LovelaceWithMultiAsset lovelaceWithMultiAsset => lovelaceWithMultiAsset.MultiAsset,
-            _ => null
-        };
-
     public static ulong GetCoin(this Value value)
         => value switch
         {
@@ -50,16 +21,6 @@ public static class TransactionExtension
             LovelaceWithMultiAsset lovelaceWithMultiAsset => lovelaceWithMultiAsset.Lovelace.Value,
             _ => throw new NotImplementedException()
         };
-
-    public static string GetSubject(this MultiAssetOutput multiAssetOutput)
-    {
-        return multiAssetOutput.Value
-            .Select(v => v.Value.Value
-                .Select(tokenBundle =>
-                    Convert.ToHexString(v.Key.Value) + Convert.ToHexString(tokenBundle.Key.Value))
-                .First())
-            .First();
-    }
 
     public static ulong Lovelace(this Value amount)
         => amount switch

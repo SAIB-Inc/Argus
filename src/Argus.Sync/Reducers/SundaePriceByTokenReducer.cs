@@ -1,12 +1,12 @@
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models.SundaeSwap;
-using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Models.Core.Block.Transaction;
+using Chrysalis.Cardano.Core;
 using Chrysalis.Cbor;
+using Chrysalis.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
+using Block = Chrysalis.Cardano.Core.Block;
 
 namespace Argus.Sync.Reducers;
 
@@ -33,63 +33,64 @@ public class SundaePriceByTokenReducer<T>(
         foreach (TransactionBody transaction in transactions)
         {
             ulong txIndex = 0;
+            string txHash = transaction.Id();
             foreach (TransactionOutput transactionOutput in transaction.Outputs())
             {
-                try
+                string? outputBech32Addr = transactionOutput!.Address()!.Value.ToBech32();
+
+
+                if (string.IsNullOrEmpty(outputBech32Addr) || !outputBech32Addr.StartsWith("addr")) continue;
+
+                string pkh = Convert.ToHexString(transactionOutput!.Address()!.GetPublicKeyHash()).ToLowerInvariant();
+
+                if (pkh != _sundaeSwapScriptHash)
                 {
-                    string? outputBech32Addr = transactionOutput.Address().Value.ToBech32();
-
-                    if (string.IsNullOrEmpty(outputBech32Addr) || !outputBech32Addr.StartsWith("addr")) continue;
-
-                    string pkh = Convert.ToHexString(transactionOutput.Address().GetPublicKeyHash()).ToLowerInvariant();
-
-
-                    if (pkh != _sundaeSwapScriptHash) continue;
-
-                    SundaeSwapLiquidityPool liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput?.DatumInfo()!.Value.Data!)!;
-                    AssetClassTuple assets = liquidityPool.Assets!;
-
-                    string tokenXPolicy = Convert.ToHexString(assets.Value[0].Value[0].Value).ToLowerInvariant();
-                    string tokenXName = Convert.ToHexString(assets.Value[0].Value[1].Value).ToLowerInvariant();
-                    string tokenYPolicy = Convert.ToHexString(assets.Value[1].Value[0].Value).ToLowerInvariant();
-                    string tokenYName = Convert.ToHexString(assets.Value[1].Value[1].Value).ToLowerInvariant();
-
-                    if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
-                    {
-                        ulong adaReserve = transactionOutput!.Amount().TransactionValueLovelace().Lovelace.Value;
-
-                        // if reserve is less than 10k ada, skip
-                        if (adaReserve < 10_000) continue;
-
-                        string otherTokenPolicy = tokenXPolicy == string.Empty ? tokenYPolicy : tokenXPolicy;
-                        string otherTokenName = tokenXName == string.Empty ? tokenYName : tokenXName;
-
-                        // calculate the price
-                        ulong otherTokenReserve = transactionOutput!.Amount().TransactionValueLovelace()
-                            .MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
-                                v =>
-                                    v.Value.Value.ToDictionary(
-                                        k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
-                                        v => v.Value.Value
-                                    ))[otherTokenPolicy][otherTokenName];
-
-                        PriceByToken sundaeSwapTokenPrice = new(
-                            block.Slot(),
-                            transaction.Id(),
-                            txIndex,
-                            $"{tokenXPolicy}{tokenXName}",
-                            $"{tokenYPolicy}{tokenYName}",
-                            adaReserve,
-                            otherTokenReserve
-                        );
-
-                        dbContext.PriceByToken.Add(sundaeSwapTokenPrice);
-                    }
+                    txIndex++;
+                    continue;
                 }
-                catch (Exception)
+
+
+                SundaeSwapLiquidityPool? liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput.DatumInfo()!);
+                //put ! above and below, because if liquidityPool is null, it will throw and exception, stopping execution
+                AssetClassTuple assets = liquidityPool!.Assets;
+
+                string tokenXPolicy = Convert.ToHexString(assets.Value()[0].Value()[0].Value).ToLowerInvariant();
+                string tokenXName = Convert.ToHexString(assets.Value()[0].Value()[1].Value).ToLowerInvariant();
+                string tokenYPolicy = Convert.ToHexString(assets.Value()[1].Value()[0].Value).ToLowerInvariant();
+                string tokenYName = Convert.ToHexString(assets.Value()[1].Value()[1].Value).ToLowerInvariant();
+
+                if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                 {
-                    // ignored
+                    ulong adaReserve = transactionOutput!.Amount()!.TransactionValueLovelace().Lovelace.Value;
+
+                    // if reserve is less than 10k ada, skip
+                    if (adaReserve < 10_000) continue;
+
+                    string otherTokenPolicy = tokenXPolicy == string.Empty ? tokenYPolicy : tokenXPolicy;
+                    string otherTokenName = tokenXName == string.Empty ? tokenYName : tokenXName;
+
+                    // calculate the price
+                    ulong otherTokenReserve = transactionOutput!.Amount()!.TransactionValueLovelace()
+                        .MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
+                            v =>
+                                v.Value.Value.ToDictionary(
+                                    k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
+                                    v => v.Value.Value
+                                ))[otherTokenPolicy][otherTokenName];
+
+                    PriceByToken sundaeSwapTokenPrice = new(
+                        block.Slot(),
+                        transaction.Id(),
+                        txIndex,
+                        $"{tokenXPolicy}{tokenXName}",
+                        $"{tokenYPolicy}{tokenYName}",
+                        adaReserve,
+                        otherTokenReserve
+                    );
+
+                    dbContext.PriceByToken.Add(sundaeSwapTokenPrice);
                 }
+                txIndex++;
             }
         }
 

@@ -4,10 +4,11 @@ using Argus.Sync.Utils;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions;
-using Argus.Sync.Extensions.Chrysalis;
-using Chrysalis.Cardano.Models.Core.Block.Transaction;
-using Block = Chrysalis.Cardano.Models.Core.BlockEntity;
+using Block = Chrysalis.Cardano.Core.Block;
 using TransactionOutputEntity = Argus.Sync.Data.Models.OutputBySlot;
+using Chrysalis.Cardano.Core;
+using Chrysalis.Utils;
+using Argus.Sync.Extensions.Chrysalis;
 
 namespace Argus.Sync.Reducers;
 //[ReducerDepends([typeof(OutputBySlotReducer<>)])]
@@ -68,7 +69,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
         List<string> blockAddresses = block.TransactionBodies()
             .SelectMany(
                 tx => tx.Outputs(),
-                (_, output) => output.Address().Value.ToBech32()
+                (_, output) => output.AddressValue().ToBech32()
             )
             .Where(addr => !string.IsNullOrEmpty(addr))
             .Select(addr => addr!)
@@ -139,7 +140,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
     {
         foreach (TransactionOutput output in tx.Outputs())
         {
-            string? addr = output.Address().Value.ToBech32();
+            string? addr = output.AddressValue().ToBech32();
 
             if (addr is not null && addr.StartsWith("addr"))
             {
@@ -147,11 +148,11 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
 
                 if (address != null)
                 {
-                    address.Balance += output.Amount().Lovelace();
+                    address.Balance += output.Amount()!.Lovelace();
                 }
                 else
                 {
-                    BalanceByAddress newAddress = new(addr, output.Amount().Lovelace());
+                    BalanceByAddress newAddress = new(addr, output.Amount()!.Lovelace());
 
                     dbContext.BalanceByAddress.Add(newAddress);
                     existingAddresses.Add(newAddress);

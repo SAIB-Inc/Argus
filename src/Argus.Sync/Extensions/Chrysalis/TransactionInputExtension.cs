@@ -1,16 +1,10 @@
 using Argus.Sync.Data.Models;
-using Chrysalis.Cardano.Models.Core.Block.Transaction;
-using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
+using Chrysalis.Cardano.Core;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 
 public static class TransactionInputExtension
 {
-    public static string TransacationId(this TransactionInput transactionInput)
-        => Convert.ToHexString(transactionInput.TransactionId.Value).ToLowerInvariant();
-
-    public static ulong Index(this TransactionInput transactionInput)
-        => transactionInput.Index.Value;
 
     public static byte[]? ScriptRef(this TransactionOutput transactionOutput)
         => transactionOutput switch
@@ -33,7 +27,7 @@ public static class TransactionInputExtension
             _ => null
         };
 
-    public static (DatumType Type, byte[] Data)? DatumInfo(this TransactionOutput transactionOutput)
+    public static (DatumType Type, byte[] Data)? ArgusDatumInfo(this TransactionOutput transactionOutput)
     {
         var datumOption = transactionOutput.DatumOption();
 

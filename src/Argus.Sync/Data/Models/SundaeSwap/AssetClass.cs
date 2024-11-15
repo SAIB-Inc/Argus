@@ -1,5 +1,6 @@
-using Chrysalis.Cardano.Models.Cbor;
+using Chrysalis.Cardano.Cbor;
 using Chrysalis.Cbor;
+using CborBytes = Chrysalis.Cardano.Cbor.CborBytes;
 
 namespace Argus.Sync.Data.Models.SundaeSwap;
 // [_
@@ -9,6 +10,25 @@ namespace Argus.Sync.Data.Models.SundaeSwap;
 //          h'69555344',
 //      ],
 // ] This should be a tuple but Chrysalis does not support tuple data types
-public record AssetClass(CborBytes[] Value) : CborIndefiniteList<CborBytes>(Value);
+[CborSerializable(CborType.Union)]
+[CborUnionTypes([
+    typeof(AssetClassIndefinite),
+    typeof(AssetClassDefinite),
+])]
+public interface AssetClass : ICbor;
 
-public record AssetClassTuple(AssetClass[] Value) : CborIndefiniteList<AssetClass>(Value);
+public record AssetClassIndefinite(CborBytes[] Value) : CborIndefiniteList<CborBytes>(Value), AssetClass;
+
+public record AssetClassDefinite(CborBytes[] Value) : CborDefiniteList<CborBytes>(Value), AssetClass;
+
+
+[CborSerializable(CborType.Union)]
+[CborUnionTypes([
+    typeof(AssetClassTupleIndef),
+    typeof(AssetClassTupleDef),
+])]
+public interface AssetClassTuple : ICbor;
+
+public record AssetClassTupleIndef(AssetClass[] Value) : CborIndefiniteList<AssetClass>(Value), AssetClassTuple;
+
+public record AssetClassTupleDef(AssetClass[] Value) : CborDefiniteList<AssetClass>(Value), AssetClassTuple;

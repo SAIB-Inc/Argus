@@ -1,88 +1,28 @@
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Models.Cbor;
-using Chrysalis.Cardano.Models.Core.Block.Transaction;
-using Chrysalis.Cardano.Models.Core.Block.Transaction.Output;
-using Chrysalis.Cardano.Models.Core.Transaction;
+using Chrysalis.Cardano.Cbor;
+using Chrysalis.Cardano.Core;
 using Chrysalis.Cbor;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 
 public static class TransactionBodyExtension
 {
-
-    public static string Id(this TransactionBody txBody) =>
-        Convert.ToHexString(CborSerializer.Serialize(txBody).ToBlake2b()).ToLowerInvariant();
-
-    public static IEnumerable<TransactionInput> Inputs(this TransactionBody transactionBody)
+    public static byte[] AuxiliaryDataHash(this TransactionBody transactionBody)
     => transactionBody switch
     {
-        ConwayTransactionBody x => x.Inputs switch
-        {
-
-            CborDefiniteList<TransactionInput> list => list.Value,
-            CborIndefiniteList<TransactionInput> list => list.Value,
-            CborDefiniteListWithTag<TransactionInput> list => list.Value.Value,
-            CborIndefiniteListWithTag<TransactionInput> list => list.Value.Value,
-            _ => throw new NotImplementedException()
-        },
-        BabbageTransactionBody x => x.Inputs switch
-        {
-            CborDefiniteList<TransactionInput> list => list.Value,
-            CborIndefiniteList<TransactionInput> list => list.Value,
-            CborDefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
-            CborIndefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
-            _ => throw new NotImplementedException()
-        },
-        AlonzoTransactionBody x => x.Inputs switch
-        {
-            CborDefiniteList<TransactionInput> list => list.Value,
-            CborIndefiniteList<TransactionInput> list => list.Value,
-            CborDefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
-            CborIndefiniteListWithTag<TransactionInput> tagList => tagList.Value.Value,
-            _ => throw new NotImplementedException()
-        },
-        _ => throw new NotImplementedException()
+        ConwayTransactionBody x when x.AuxiliaryDataHash != null => x.AuxiliaryDataHash.Value,
+        BabbageTransactionBody x when x.AuxiliaryDataHash != null => x.AuxiliaryDataHash.Value,
+        AlonzoTransactionBody x when x.AuxiliaryDataHash != null => x.AuxiliaryDataHash.Value,
+        _ => throw new NotImplementedException("AuxiliaryDataHash is either null or not implemented for this transaction type.")
     };
 
-    public static IEnumerable<TransactionOutput> Outputs(this TransactionBody transactionBody)
-        => transactionBody switch
-        {
-            ConwayTransactionBody x => x.Outputs switch
-            {
-                CborDefiniteList<TransactionOutput> list => list.Value,
-                CborIndefiniteList<TransactionOutput> list => list.Value,
-                CborDefiniteListWithTag<TransactionOutput> list => list.Value.Value,
-                CborIndefiniteListWithTag<TransactionOutput> list => list.Value.Value,
-                _ => throw new NotImplementedException()
-            },
-            BabbageTransactionBody x => x.Outputs switch
-            {
-                CborDefiniteList<TransactionOutput> list => list.Value,
-                CborIndefiniteList<TransactionOutput> list => list.Value,
-                CborDefiniteListWithTag<TransactionOutput> list => list.Value.Value,
-                CborIndefiniteListWithTag<TransactionOutput> list => list.Value.Value,
-                _ => throw new NotImplementedException()
-            },
-            AlonzoTransactionBody x => x.Outputs switch
-            {
-                CborDefiniteList<TransactionOutput> list => list.Value,
-                CborIndefiniteList<TransactionOutput> list => list.Value,
-                CborDefiniteListWithTag<TransactionOutput> list => list.Value.Value,
-                CborIndefiniteListWithTag<TransactionOutput> list => list.Value.Value,
-                _ => throw new NotImplementedException()
-            },
-            _ => throw new NotImplementedException()
-        };
-
-    public static byte[] AuxiliaryDataHash(this TransactionBody transactionBody)
-        => transactionBody switch
-        {
-            ConwayTransactionBody x => x.AuxiliaryDataHash.Value, 
-
-            BabbageTransactionBody x => x.AuxiliaryDataHash.Value,
-  
-            AlonzoTransactionBody x => x.AuxiliaryDataHash.Value,
-            _ => throw new NotImplementedException()
-        };
-    
+    public static byte[] AddressValue(this TransactionOutput transactionOutput)
+    => transactionOutput switch
+    {
+        BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput.Address.Value,
+        AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.Address.Value,
+        MaryTransactionOutput maryTransactionOutput => maryTransactionOutput.Address.Value,
+        ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Address.Value,
+        _=> throw new NotImplementedException()
+    };
 }

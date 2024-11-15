@@ -1,12 +1,10 @@
 using Argus.Sync.Data.Models;
-using Chrysalis.Cardano.Models.Cbor;
-using Chrysalis.Cardano.Models.Core;
-using Chrysalis.Cardano.Models.Core.Block;
-using Chrysalis.Cardano.Models.Core.Block.Header;
-using Chrysalis.Cardano.Models.Core.Block.Transaction;
+using Chrysalis.Cardano.Cbor;
+using Chrysalis.Cardano.Core;
 using Chrysalis.Cbor;
 using Utxorpc.Sdk;
-using ChrysalisBlock = Chrysalis.Cardano.Models.Core.BlockEntity;
+using ChrysalisBlock = Chrysalis.Cardano.Core.Block;
+using CborBytes = Chrysalis.Cardano.Cbor.CborBytes;
 
 using U5CNextResponse = Utxorpc.Sdk.Models.NextResponse;
 namespace Argus.Sync.Providers;

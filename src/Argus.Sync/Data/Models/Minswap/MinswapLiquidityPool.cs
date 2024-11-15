@@ -1,5 +1,5 @@
-using Chrysalis.Cardano.Models.Cbor;
-using Chrysalis.Cardano.Models.Plutus;
+using Chrysalis.Cardano.Cbor;
+using Chrysalis.Cardano.Plutus;
 using Chrysalis.Cbor;
 
 namespace Argus.Sync.Data.Models.Minswap;

@@ -1,4 +1,4 @@
-using Argus.Sync.Data.Models.Jpeg;
+using Argus.Sync.Data.Models.Jpg;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
