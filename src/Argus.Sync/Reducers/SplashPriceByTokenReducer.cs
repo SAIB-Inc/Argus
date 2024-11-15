@@ -40,7 +40,6 @@ public partial class SplashPriceByTokenReducer<T>(
 
                 if (string.IsNullOrEmpty(address) || !address!.StartsWith("addr")) continue;
 
-                //the output has to exist due to the foreach and a tx needs an output, and each output should always have an address, the line below also checks if it == splashscripthash
                 string pkh = Convert.ToHexString(output!.Address()!.GetPublicKeyHash()).ToLowerInvariant();
 
                 if (pkh != _splashScriptHash)
@@ -52,7 +51,6 @@ public partial class SplashPriceByTokenReducer<T>(
                 string txHash = tx.Id();
 
                 SplashLiquidityPool? liquidityPool = CborSerializer.Deserialize<SplashLiquidityPool>(output?.DatumInfo()!);
-                //put ! because if null, it will throw an exception, stopping code
                 string tokenXPolicy = Convert.ToHexString(liquidityPool!.AssetX.PolicyId.Value).ToLowerInvariant();
                 string tokenXName = Convert.ToHexString(liquidityPool.AssetX.AssetName.Value).ToLowerInvariant();
                 string tokenYPolicy = Convert.ToHexString(liquidityPool.AssetY.PolicyId.Value).ToLowerInvariant();
@@ -60,7 +58,6 @@ public partial class SplashPriceByTokenReducer<T>(
 
                 if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                 {
-                    //are you sure Amount() will never be null? Should this be handled in Argus or Chrysalis?
                     ulong loveLaceReserve = output!.Amount()!.TransactionValueLovelace().Lovelace.Value;
                     decimal adaReserve = (decimal)loveLaceReserve / 1_000_000;
 
@@ -69,8 +66,6 @@ public partial class SplashPriceByTokenReducer<T>(
                     string otherTokenPolicy = tokenXPolicy == string.Empty ? tokenYPolicy : tokenXPolicy;
                     string otherTokenName = tokenXName == string.Empty ? tokenYName : tokenXName;
 
-                    // calculate the price
-                    //transaction must have output, and each output must have an amount
                     ulong otherTokenReserve = output!.Amount()!.TransactionValueLovelace()
                         .MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
                             v =>

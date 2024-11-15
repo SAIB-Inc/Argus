@@ -51,7 +51,6 @@ public class SundaePriceByTokenReducer<T>(
 
 
                 SundaeSwapLiquidityPool? liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput.DatumInfo()!);
-                //put ! above and below, because if liquidityPool is null, it will throw and exception, stopping execution
                 AssetClassTuple assets = liquidityPool!.Assets;
 
                 string tokenXPolicy = Convert.ToHexString(assets.Value()[0].Value()[0].Value).ToLowerInvariant();
@@ -63,13 +62,11 @@ public class SundaePriceByTokenReducer<T>(
                 {
                     ulong adaReserve = transactionOutput!.Amount()!.TransactionValueLovelace().Lovelace.Value;
 
-                    // if reserve is less than 10k ada, skip
                     if (adaReserve < 10_000) continue;
 
                     string otherTokenPolicy = tokenXPolicy == string.Empty ? tokenYPolicy : tokenXPolicy;
                     string otherTokenName = tokenXName == string.Empty ? tokenYName : tokenXName;
 
-                    // calculate the price
                     ulong otherTokenReserve = transactionOutput!.Amount()!.TransactionValueLovelace()
                         .MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
                             v =>

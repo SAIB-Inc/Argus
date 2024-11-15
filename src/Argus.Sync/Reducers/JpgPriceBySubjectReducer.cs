@@ -1,9 +1,7 @@
 using Chrysalis.Cbor;
-using System.Linq.Expressions;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Data.Models.Enums;
-using Argus.Sync.Extensions;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Microsoft.EntityFrameworkCore;
@@ -63,17 +61,6 @@ public class JpgPriceByTokenReducer<T>(
                     input.Index.Value.ToString()
                 )
             ).ToList();
-
-        /*Expression<Func<PriceByToken, bool>> predicate = PredicateBuilder.False<PriceByToken>();
-
-        inputsTuple.ForEach(inputTuple =>
-        {
-            predicate = predicate.Or(jpg => jpg.TxHash == inputTuple.TxHash && jpg.TxIndex.ToString() == inputTuple.TxIndex);
-        });
-
-        List<PriceByToken> jpgListingEntries = await dbContext.PriceByToken
-            .Where(predicate)
-            .ToListAsync();*/
 
         List<PriceByToken> jpgListingEntries = await dbContext.PriceByToken
             .Where(jpg => inputsTuple.Any(inputTuple => 
