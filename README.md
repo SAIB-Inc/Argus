@@ -68,7 +68,7 @@ To use Argus in your .NET project:
 
     ```bash
     
-      dotnet add package SAIB.Cardano.Sync
+      dotnet add package Argus.Sync --version 0.1.0-alpha
     
     ```
 
