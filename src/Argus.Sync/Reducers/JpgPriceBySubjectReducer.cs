@@ -64,7 +64,7 @@ public class JpgPriceByTokenReducer<T>(
                 )
             ).ToList();
 
-        /*Expression<Func<PriceByToken, bool>> predicate = PredicateBuilder.False<PriceByToken>();
+        Expression<Func<PriceByToken, bool>> predicate = PredicateBuilder.False<PriceByToken>();
 
         inputsTuple.ForEach(inputTuple =>
         {
@@ -73,11 +73,6 @@ public class JpgPriceByTokenReducer<T>(
 
         List<PriceByToken> jpgListingEntries = await dbContext.PriceByToken
             .Where(predicate)
-            .ToListAsync();*/
-
-        List<PriceByToken> jpgListingEntries = await dbContext.PriceByToken
-            .Where(jpg => inputsTuple.Any(inputTuple => 
-            jpg.TxHash == inputTuple.TxHash && jpg.TxIndex.ToString() == inputTuple.TxIndex))
             .ToListAsync();
 
         IEnumerable<string> inputOutRefs = inputsTuple.Select(inputTuple => inputTuple.TxHash + inputTuple.TxIndex);
