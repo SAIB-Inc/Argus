@@ -1,9 +1,7 @@
 using Chrysalis.Cbor;
-using System.Linq.Expressions;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Data.Models.Enums;
-using Argus.Sync.Extensions;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +12,7 @@ using JpgListing = Argus.Sync.Data.Models.Jpg.Listing;
 using Chrysalis.Cardano.Cbor;
 using Chrysalis.Cardano.Core;
 using Chrysalis.Utils;
+using System.Linq.Expressions;
 
 namespace Argus.Sync.Reducers;
 
