@@ -24,8 +24,8 @@
   ![Contributors](https://img.shields.io/github/contributors/SAIB-Inc/Argus.svg?label=Contributors)
   ![Issues](https://img.shields.io/github/issues/SAIB-Inc/Argus.svg?label=Open%20Issues)
   ![Issues Closed](https://img.shields.io/github/issues-closed/SAIB-Inc/Argus.svg?label=Closed%20Issues)
-  <a href="https://www.nuget.org/packages/SAIB.Cardano.Sync" style="display: inline-block; text-decoration: none; border: none;">
-      <img src="https://img.shields.io/nuget/v/SAIB.Cardano.Sync.svg" alt="NuGet">
+  <a href="https://www.nuget.org/packages/Argus.Sync" style="display: inline-block; text-decoration: none; border: none;">
+    <img src="https://img.shields.io/nuget/v/Argus.Sync.svg" alt="NuGet">
   </a>
 
 </div>
@@ -35,6 +35,8 @@
 Argus is a .NET library that simplifies interactions with the Cardano blockchain by providing an efficient and easy to use indexing framework.
 Initially supporting PostgreSQL as the database backend, it processes block data into structured, queryable formats.
 This tool is designed for robust enterprise integration, with plans to introduce additional database backends in the future to broaden its applicability and flexibility.
+
+🎥 For a detailed explanation, setup tutorial, and demo, be sure to check out [this video](https://x.com/clarkalesna/status/1859042521856532883)!
 
 ## Features :sparkles:
 
