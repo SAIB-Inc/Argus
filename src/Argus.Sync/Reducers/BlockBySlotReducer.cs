@@ -19,7 +19,7 @@ public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
 
         byte[] serializedBlock = CborSerializer.Serialize(block);
 
-        _dbContext.BlockBySlot.Add(new (slot, hash, serializedBlock));
+        _dbContext.BlockBySlot.Add(new(slot, hash, serializedBlock));
 
         await _dbContext.SaveChangesAsync();
         await _dbContext.DisposeAsync();
@@ -33,8 +33,15 @@ public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
         _dbContext.BlockBySlot.RemoveRange(
             _dbContext.BlockBySlot.AsNoTracking().Where(b => b.Slot >= slot)
         );
-        
+
         await _dbContext.SaveChangesAsync();
         await _dbContext.DisposeAsync();
+    }
+
+    public async Task<ulong> QueryTip()
+    {
+        using T dbContext = await dbContextFactory.CreateDbContextAsync();
+        ulong maxSlot = await dbContext.BlockBySlot.MaxAsync(x => (ulong?)x.Slot) ?? 0;
+        return maxSlot;
     }
 }

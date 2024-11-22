@@ -11,7 +11,8 @@ using Chrysalis.Utils;
 using Argus.Sync.Extensions.Chrysalis;
 
 namespace Argus.Sync.Reducers;
-//[ReducerDepends([typeof(OutputBySlotReducer<>)])]
+
+[ReducerDepends([typeof(OutputBySlotReducer<>)])]
 public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
     : IReducer<BalanceByAddress> where T : BalanceByAddressDbContext, IBalanceByAddressDbContext
 {
@@ -31,13 +32,8 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
 
         Expression<Func<BalanceByAddress, bool>> predicate = PredicateBuilder.False<BalanceByAddress>();
 
-        addresses.ForEach(addr =>
-        {
-            predicate = predicate.Or(ba => ba.Address == addr);
-        });
-
         List<BalanceByAddress> balanceAddressEntries = await dbContext.BalanceByAddress
-            .Where(predicate)
+            .Where(e => addresses.Contains(e.Address))
             .ToListAsync();
 
         foreach (TransactionOutputEntity output in rollbackEntries)
@@ -159,5 +155,12 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
                 }
             }
         }
+    }
+
+    public async Task<ulong> QueryTip()
+    {
+        using T dbContext = await dbContextFactory.CreateDbContextAsync();
+        ulong maxSlot = await dbContext.OutputBySlot.MaxAsync(x => (ulong?)x.Slot) ?? 0;
+        return maxSlot;
     }
 }

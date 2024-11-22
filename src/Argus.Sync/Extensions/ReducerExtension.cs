@@ -1,6 +1,7 @@
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
+using Argus.Sync.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,6 +13,35 @@ public static class ReducerExtensions
         where V : IReducerModel
     {
         optInList ??= [];
+
+        IEnumerable<string> reducerNames = optInList.Select(t => ArgusUtils.GetTypeNameWithoutGenerics(t));
+        IEnumerable<string> duplicateNames = reducerNames.GroupBy(x => x)
+                                       .Where(g => g.Count() > 1)
+                                       .Select(g => g.Key)
+                                       .ToList();
+
+        if (duplicateNames.Any())
+        {
+            throw new ArgumentException(
+                $"Duplicate reducer names found in optInList: {string.Join(", ", duplicateNames)}"
+            );
+        }
+
+        foreach (Type reducerType in optInList)
+        {
+            IEnumerable<Type> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducerType);
+
+            foreach (Type dependency in dependencies)
+            {
+                IEnumerable<Type> subDependencies = ReducerDependencyResolver.GetReducerDependencies(dependency);
+                if (subDependencies.Contains(reducerType))
+                {
+                    throw new ArgumentException(
+                        $"Circular dependency detected: {ArgusUtils.GetTypeNameWithoutGenerics(reducerType)} <-> {ArgusUtils.GetTypeNameWithoutGenerics(dependency)}"
+                    );
+                }
+            }
+        }
 
         IEnumerable<Type> reducerTypes = AppDomain.CurrentDomain.GetAssemblies()
                    .SelectMany(a => a.GetTypes())

@@ -47,7 +47,7 @@ public class OutputBySlotReducer<T>(
     {
         List<(string, ulong)> inputHashes = block.TransactionBodies()
             .SelectMany(
-                txBody => 
+                txBody =>
                     txBody.Inputs()
                         .Select(
                             input => (input.TransacationId(), input.Index())
@@ -108,5 +108,12 @@ public class OutputBySlotReducer<T>(
             .ToList()!;
 
         dbContext.OutputBySlot.AddRange(outputEntities);
+    }
+
+    public async Task<ulong> QueryTip()
+    {
+        using T dbContext = await dbContextFactory.CreateDbContextAsync();
+        ulong maxSlot = await dbContext.OutputBySlot.MaxAsync(x => (ulong?)x.Slot) ?? 0;
+        return maxSlot;
     }
 }

@@ -13,10 +13,11 @@ using Chrysalis.Cardano.Cbor;
 using Chrysalis.Cardano.Core;
 using Chrysalis.Utils;
 using System.Linq.Expressions;
+using Argus.Sync.Extensions;
 
 namespace Argus.Sync.Reducers;
 
-public class JpgPriceByTokenReducer<T>(
+public class JpgPriceBySubjectReducer<T>(
     IDbContextFactory<T> dbContextFactory,
     IConfiguration configuration
 ) : IReducer<PriceByToken> where T : JpgPriceByTokenDbContext, IJpgPriceByTokenDbContext
@@ -177,5 +178,12 @@ public class JpgPriceByTokenReducer<T>(
             .ToList();
 
         dbContext.PriceByToken.AddRange(jpgPriceBySubjects);
+    }
+
+    public async Task<ulong> QueryTip()
+    {
+        using T dbContext = await dbContextFactory.CreateDbContextAsync();
+        ulong maxSlot = await dbContext.PriceByToken.MaxAsync(x => (ulong?)x.Slot) ?? 0;
+        return maxSlot;
     }
 }

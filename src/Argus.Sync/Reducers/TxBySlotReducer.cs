@@ -50,4 +50,10 @@ public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
         await dbContext.DisposeAsync();
     }
 
+    public async Task<ulong> QueryTip()
+    {
+        using T dbContext = await dbContextFactory.CreateDbContextAsync();
+        ulong maxSlot = await dbContext.TxBySlot.MaxAsync(x => (ulong?)x.Slot) ?? 0;
+        return maxSlot;
+    }
 }

@@ -99,4 +99,11 @@ public partial class SplashPriceByTokenReducer<T>(
         await dbContext.SaveChangesAsync();
         await dbContext.DisposeAsync();
     }
+
+    public async Task<ulong> QueryTip()
+    {
+        using T dbContext = await dbContextFactory.CreateDbContextAsync();
+        ulong maxSlot = await dbContext.PriceByToken.MaxAsync(x => (ulong?)x.Slot) ?? 0;
+        return maxSlot;
+    }
 }

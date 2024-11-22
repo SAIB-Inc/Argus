@@ -7,4 +7,5 @@ public interface IReducer<out T> where T : IReducerModel
 {
     Task RollForwardAsync(Block block);
     Task RollBackwardAsync(ulong slot);
+    Task<ulong> QueryTip();
 }
