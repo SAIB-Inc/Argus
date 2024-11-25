@@ -1,0 +1,38 @@
+name: Publish to NuGet
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '9.0'
+
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Clean, build, and publish to NuGet
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      run: |
+        dotnet clean
+        dotnet build --configuration Release
+        dotnet pack --configuration Release
+
+        PACKAGE_FILE=$(find ./src/Argus.Sync/bin/Release -name "*.nupkg" | head -n 1)
+
+        if [ -z "$PACKAGE_FILE" ]; then
+            echo "No .nupkg file found."
+            exit 1
+        fi
+
+        dotnet nuget push "$PACKAGE_FILE" --api-key ${NUGET_API_KEY} --source https://api.nuget.org/v3/index.json
