@@ -1,6 +1,5 @@
 using System.Reflection;
 using Argus.Sync.Data;
-using Argus.Sync.Reducers;
 using Argus.Sync.Workers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -16,11 +15,13 @@ public static class ServiceCollectionExtensions
     {
         services.AddDbContextFactory<T>(options =>
         {
+            Assembly? contextAssembly = typeof(T).Assembly;
             options
             .UseNpgsql(
-                configuration!.GetConnectionString("CardanoContext"),
+                configuration.GetConnectionString("CardanoContext"),
                     x =>
                     {
+                        x.MigrationsAssembly(contextAssembly!.FullName);
                         x.CommandTimeout(commandTimout);
                         x.MigrationsHistoryTable(
                             "__EFMigrationsHistory",
