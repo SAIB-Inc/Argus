@@ -5,7 +5,7 @@ using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;

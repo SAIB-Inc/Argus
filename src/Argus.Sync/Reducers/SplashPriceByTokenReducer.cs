@@ -5,7 +5,8 @@ using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Chrysalis.Cardano.Core;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
+using Argus.Sync.Extensions.Chrysalis;
 
 namespace Argus.Sync.Reducers;
 
@@ -51,7 +52,7 @@ public partial class SplashPriceByTokenReducer<T>(
 
                 string txHash = tx.Id();
 
-                SplashLiquidityPool? liquidityPool = CborSerializer.Deserialize<SplashLiquidityPool>(output?.DatumInfo()!);
+                SplashLiquidityPool? liquidityPool = CborSerializer.Deserialize<SplashLiquidityPool>(output?.Datum()!);
                 //put ! because if null, it will throw an exception, stopping code
                 string tokenXPolicy = Convert.ToHexString(liquidityPool!.AssetX.PolicyId.Value).ToLowerInvariant();
                 string tokenXName = Convert.ToHexString(liquidityPool.AssetX.AssetName.Value).ToLowerInvariant();

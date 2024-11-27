@@ -1,9 +1,10 @@
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models.SundaeSwap;
+using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Chrysalis.Cardano.Core;
 using Chrysalis.Cbor;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Block = Chrysalis.Cardano.Core.Block;
@@ -50,7 +51,7 @@ public class SundaePriceByTokenReducer<T>(
                 }
 
 
-                SundaeSwapLiquidityPool? liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput.DatumInfo()!);
+                SundaeSwapLiquidityPool? liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput.Datum()!);
                 //put ! above and below, because if liquidityPool is null, it will throw and exception, stopping execution
                 AssetClassTuple assets = liquidityPool!.Assets;
 

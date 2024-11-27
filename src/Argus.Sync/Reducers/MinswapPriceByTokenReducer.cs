@@ -4,7 +4,7 @@ using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Chrysalis.Cardano.Core;
 using Chrysalis.Cbor;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -50,7 +50,7 @@ public class MinswapPriceByTokenReducer<T>(
                     continue;
                 }
 
-                MinswapLiquidityPool? liquidityPool = CborSerializer.Deserialize<MinswapLiquidityPool>(transactionOutput?.DatumInfo()!);
+                MinswapLiquidityPool? liquidityPool = CborSerializer.Deserialize<MinswapLiquidityPool>(transactionOutput?.Datum()!);
 
                 string tokenXPolicy = Convert.ToHexString(liquidityPool!.AssetX.PolicyId.Value).ToLowerInvariant();
                 string tokenXName = Convert.ToHexString(liquidityPool.AssetX.AssetName.Value).ToLowerInvariant();
@@ -59,7 +59,7 @@ public class MinswapPriceByTokenReducer<T>(
 
                 if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                 {
-                    ulong adaReserve = transactionOutput!.Amount()!.TransactionValueLovelace().Lovelace.Value;
+                    ulong adaReserve = (ulong)transactionOutput!.Amount()!.Coin()!;
 
                     // if reserve is less than 10k ada, skip 
                     if (adaReserve < 10_000) continue;

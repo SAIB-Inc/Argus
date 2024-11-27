@@ -1,8 +1,9 @@
 using Argus.Sync.Data.Models;
 using Chrysalis.Cbor;
-using PallasDotnet;
-using PallasNextResponse = PallasDotnet.Models.NextResponse;
+using PallasNextResponse = Pallas.NET.Models.NextResponse;
 using ChrysalisBlock = Chrysalis.Cardano.Core.Block;
+using Pallas.NET;
+using Pallas.NET.Models.Enums;
 
 namespace Argus.Sync.Providers;
 
@@ -10,13 +11,12 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
 {
     public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken = null)
     {
-        N2cClient client = new();
-        await client.ConnectAsync(NodeSocketPath, NetworkMagic);
+        Client client = new();
+        await client.ConnectAsync(NodeSocketPath, NetworkMagic, ClientType.N2C);
         await foreach (PallasNextResponse response in client.StartChainSyncAsync(
-            new PallasDotnet.Models.Point(
-                intersection.Slot,
-                intersection.Hash
-            )
+            [
+                new(intersection.Slot, intersection.Hash)
+            ]
         ))
         {
             if(stoppingToken.HasValue && stoppingToken.Value.IsCancellationRequested)
@@ -28,18 +28,18 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
             {
                 switch (response.Action)
                 {
-                    case PallasDotnet.Models.NextResponseAction.RollForward:
+                    case Pallas.NET.Models.Enums.NextResponseAction.RollForward:
                         ChrysalisBlock? block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
                         yield return new NextResponse(
-                            NextResponseAction.RollForward,
+                            Data.Models.NextResponseAction.RollForward,
                             null,
                              block!
                         );
                         break;
-                   case PallasDotnet.Models.NextResponseAction.RollBack:
+                   case Pallas.NET.Models.Enums.NextResponseAction.RollBack:
                         block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
                         yield return new NextResponse(
-                            NextResponseAction.RollBack,
+                            Data.Models.NextResponseAction.RollBack,
                             RollBackType.Exclusive,
                             block!
                         );

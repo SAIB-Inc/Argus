@@ -1,8 +1,9 @@
 using Argus.Sync.Data.Models.Enums;
-using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Data.Models;
 using Chrysalis.Cbor;
 using Chrysalis.Cardano.Core;
+using Chrysalis.Extensions;
+using Argus.Sync.Extensions.Chrysalis;
 
 namespace Argus.Sync.Utils;
 
@@ -10,7 +11,7 @@ public static class DataUtils
 {
     public static OutputBySlot? MapTransactionOutputEntity(string transactionId, uint outputIndex, ulong slot, TransactionOutput output, UtxoStatus status)
     {
-        string? address = output.AddressValue().ToBech32();
+        string? address = output.Address()!.ToBech32();
 
         if (address == null)
             return null;
