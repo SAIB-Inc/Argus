@@ -34,4 +34,11 @@ public static class TransactionExtension
             },
             _ => throw new NotImplementedException()
         };
+    
+    public static LovelaceWithMultiAsset TransactionValueLovelace(this Value value)
+        => value switch
+        {
+            LovelaceWithMultiAsset lovelaceWithMultiAsset => lovelaceWithMultiAsset,
+            _ => throw new NotImplementedException()
+        };
 }

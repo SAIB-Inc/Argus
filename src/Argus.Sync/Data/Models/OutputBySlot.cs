@@ -1,7 +1,7 @@
 using Argus.Sync.Data.Models.Enums;
 using Chrysalis.Cbor;
 using Chrysalis.Cardano.Core;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
 
 namespace Argus.Sync.Data.Models;
 

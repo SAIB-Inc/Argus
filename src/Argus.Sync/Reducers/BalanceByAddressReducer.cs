@@ -1,13 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
-using Argus.Sync.Utils;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions;
 using Block = Chrysalis.Cardano.Core.Block;
 using TransactionOutputEntity = Argus.Sync.Data.Models.OutputBySlot;
 using Chrysalis.Cardano.Core;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
 using Argus.Sync.Extensions.Chrysalis;
 
 namespace Argus.Sync.Reducers;
@@ -91,7 +90,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
         List<(string TxHash, ulong TxIndex)> inputsTuple = block.TransactionBodies()
             .SelectMany(
                 tx => tx.Inputs(),
-                (_, input) => (input.TransacationId(), input.Index())
+                (_, input) => (input.TransactionId(), input.Index())
             )
             .ToList();
 
@@ -121,7 +120,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
         foreach (TransactionInput input in tx.Inputs())
         {
             TransactionOutputEntity? utxo = existingOutputEntries
-                .FirstOrDefault(o => o.Id == input.TransacationId() && o.Index == input.Index());
+                .FirstOrDefault(o => o.Id == input.TransactionId() && o.Index == input.Index());
             if(utxo == null) continue;
 
             BalanceByAddress? address = existingAddresses

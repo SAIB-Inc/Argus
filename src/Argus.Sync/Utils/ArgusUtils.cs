@@ -29,18 +29,6 @@ public static class ArgusUtils
             _ => throw new NotImplementedException()
         };
     }
-    
-    public static string? ToBech32(this byte[] address)
-    {
-        try
-        {
-            return new CardanoSharpAddress(address).ToString();
-        }
-        catch
-        {
-            return null;
-        }
-    }
 
     public static byte[] ToBlake2b(this byte[] input)
     {

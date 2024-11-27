@@ -11,7 +11,7 @@ using Block = Chrysalis.Cardano.Core.Block;
 using JpgListing = Argus.Sync.Data.Models.Jpg.Listing;
 using Chrysalis.Cardano.Cbor;
 using Chrysalis.Cardano.Core;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
 using System.Linq.Expressions;
 using Argus.Sync.Extensions;
 
@@ -148,13 +148,14 @@ public class JpgPriceBySubjectReducer<T>(
                         if (listing is null) return null;
 
                         Value outputAmount = o.Amount()!;
-                        MultiAssetOutput? multiAssetOutput = outputAmount!.MultiAsset();
+                        MultiAssetOutput? multiAssetOutput = outputAmount!.MultiAssetOutput();
                         if (multiAssetOutput is null) return null;
 
                         ulong totalPayoutAmount = listing.Payouts.Value
                             .Aggregate(0UL,(acc, payout) => acc + payout.Amount.Value);
 
-                        string subject = multiAssetOutput.GetSubject().ToLowerInvariant();
+
+                        string subject = multiAssetOutput.Subjects().First().ToLowerInvariant();
 
                         double jpgFee = 0.02;
                         ulong jpgMinFee = 1000000;

@@ -2,7 +2,7 @@ using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Chrysalis.Cardano.Core;
 using Chrysalis.Cbor;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Block = Chrysalis.Cardano.Core.Block;
 

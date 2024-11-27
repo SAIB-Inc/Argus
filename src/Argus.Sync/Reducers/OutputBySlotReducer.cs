@@ -6,7 +6,7 @@ using Argus.Sync.Data.Models.Enums;
 using Argus.Sync.Extensions;
 using Argus.Sync.Utils;
 using Argus.Sync.Data.Models;
-using Chrysalis.Utils;
+using Chrysalis.Extensions;
 
 namespace Argus.Sync.Reducers;
 
@@ -50,7 +50,7 @@ public class OutputBySlotReducer<T>(
                 txBody =>
                     txBody.Inputs()
                         .Select(
-                            input => (input.TransacationId(), input.Index())
+                            input => (input.TransactionId(), input.Index())
                         )
             )
             .ToList();

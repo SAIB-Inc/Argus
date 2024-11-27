@@ -5,14 +5,6 @@ namespace Argus.Sync.Extensions.Chrysalis;
 
 public static class TransactionInputExtension
 {
-
-    public static byte[]? ScriptRef(this TransactionOutput transactionOutput)
-        => transactionOutput switch
-        {
-            BabbageTransactionOutput babbageTransactionOutput => babbageTransactionOutput?.ScriptRef?.Value,
-            _ => null
-        };
-
     public static DatumOption? DatumOption(this TransactionOutput transactionOutput)
         => transactionOutput switch
         {
