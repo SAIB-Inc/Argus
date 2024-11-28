@@ -27,8 +27,7 @@ public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
 
     public async Task RollBackwardAsync(ulong slot)
     {
-        T _dbContext = dbContextFactory.CreateDbContext();
-        _dbContext = dbContextFactory.CreateDbContext();
+        await using T _dbContext = dbContextFactory.CreateDbContext();
 
         _dbContext.BlockBySlot.RemoveRange(
             _dbContext.BlockBySlot.AsNoTracking().Where(b => b.Slot >= slot)
