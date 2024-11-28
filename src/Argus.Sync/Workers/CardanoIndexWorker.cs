@@ -24,6 +24,7 @@ public class CardanoIndexWorker<T>(
 ) : BackgroundService where T : CardanoDbContext
 {
     private static Dictionary<string, bool> reducerRollbackStatus = [];
+    private static Dictionary<string, (ulong CurrentSlot,bool IsComplete)> reducerRollforwardStatus = [];
     private static Dictionary<string, HashSet<string>> dependentReducers = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -80,15 +81,28 @@ public class CardanoIndexWorker<T>(
         ulong slot = response.Block.Slot();
         string blockHash = response.Block.Hash();
 
+        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+        
         // Log the new chain event rollforward
         Logger.Log(
             LogLevel.Information,
             "[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}",
-            ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
+            reducerName,
             slot,
             response.Block.Number()
         );
+        
 
+        
+        if (reducerRollforwardStatus.TryGetValue(reducerName, out var reducerState))
+        {
+            reducerRollforwardStatus[reducerName] = (slot, IsComplete: false);
+        }
+        else
+        {
+            reducerRollforwardStatus.Add(reducerName, (slot, false));
+        }
+        
         // Await reducer dependencies
         await AwaitReducerDependenciesRollForwardAsync(slot, reducer, stoppingToken);
 
@@ -113,6 +127,9 @@ public class CardanoIndexWorker<T>(
         }, stoppingToken).Wait(stoppingToken);
 
         transaction.Complete();
+
+        reducerRollforwardStatus[reducerName] = (slot, true);
+        
         stopwatch.Stop();
 
         Logger.Log(
@@ -249,9 +266,13 @@ public class CardanoIndexWorker<T>(
                     .Where(rs => rs.Slot < slot)
                     .ToList();
 
+                var hasCurrentlyProcessingDependency = reducerRollforwardStatus.ToList()
+                    .Where(rs => dependencyNames.Contains(rs.Key))
+                    .Any(rs => rs.Value.CurrentSlot == slot && !rs.Value.IsComplete);
+
                 await dbContext.DisposeAsync();
 
-                if (!missingDependencies.Any() && !outdatedDependencies.Any())
+                if (!missingDependencies.Any() && !outdatedDependencies.Any() && !hasCurrentlyProcessingDependency)
                 {
                     return;
                 }
