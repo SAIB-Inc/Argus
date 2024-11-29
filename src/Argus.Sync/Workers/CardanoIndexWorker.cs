@@ -16,6 +16,13 @@ namespace Argus.Sync.Workers;
 
 public class CriticalNodeException(string message) : Exception(message) { }
 
+public enum ActionType
+{
+    RollForward,
+    RollBack,
+    Standby
+}
+
 public class CardanoIndexWorker<T>(
     IConfiguration Configuration,
     ILogger<CardanoIndexWorker<T>> Logger,
@@ -23,54 +30,74 @@ public class CardanoIndexWorker<T>(
     IEnumerable<IReducer<IReducerModel>> Reducers
 ) : BackgroundService where T : CardanoDbContext
 {
-    private static Dictionary<string, bool> reducerRollbackStatus = [];
-    private static Dictionary<string, (ulong CurrentSlot,bool IsComplete)> reducerRollforwardStatus = [];
-    private static Dictionary<string, HashSet<string>> dependentReducers = [];
+    private static readonly Dictionary<string, (ulong CurrentSlot, List<string> Dependencies, ActionType ActionType)> _reducerStates = [];
+    private readonly ulong _maxRollbackSlots = Configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000UL);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        foreach (IReducer<IReducerModel> reducer in Reducers)
+        // Pre-populate ReducerStates with registered reducers
+        // and their dependencies
+        Reducers.ToList().ForEach(reducer =>
         {
             string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-
-            reducerRollbackStatus.TryAdd(reducerName, true);
-
             List<string> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType())
                 .Select(ArgusUtils.GetTypeNameWithoutGenerics)
                 .ToList();
+            _reducerStates.Add(reducerName, (0, dependencies, ActionType.Standby));
+        });
 
-            foreach (string dependency in dependencies)
-            {
-                if (!dependentReducers.ContainsKey(dependency))
-                {
-                    dependentReducers[dependency] = [];
-                }
-                dependentReducers[dependency].Add(reducerName);
-            }
-        }
+        // Get all registered reducers to fetch their currently saved slots
+        // in the database
+        IEnumerable<string> registeredReducers = _reducerStates.Select(e => e.Key);
 
-        await Task.WhenAll(
+        // Fetch current slots from database, we do this so we only need to fetch the slots once on sync start
+        // the rest of the states we can update in-memory
+        using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+        Dictionary<string, ulong> lastRecordedReducerStates = await dbContext.ReducerStates
+            .Where(rs => registeredReducers.Contains(rs.Name))
+            .ToDictionaryAsync(rs => rs.Name, rs => rs.Slot, stoppingToken);
+        await dbContext.DisposeAsync();
+
+        // Update ReducerStates with the current slots
+        _reducerStates.ToList().ForEach(reducerState =>
+        {
+            ulong lastRecordedSlot = lastRecordedReducerStates.GetValueOrDefault<string, ulong>(reducerState.Key, 0);
+            _reducerStates[reducerState.Key] = (lastRecordedSlot, reducerState.Value.Dependencies, ActionType.Standby);
+        });
+
+        // Execute reducers
+        await Task.WhenAny(
             Reducers.Select(
                 reducer => StartReducerChainSyncAsync(reducer, stoppingToken)
             )
         );
+
+        Environment.Exit(1);
     }
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
-        ICardanoChainProvider chainProvider = GetCardanoChainProvider();
-        Point intersection = await GetReducerStartPoint(reducer, stoppingToken);
-
-        await foreach (NextResponse response in chainProvider.StartChainSyncAsync(intersection, stoppingToken))
+        try
         {
-            Task responseTask = response.Action switch
-            {
-                NextResponseAction.RollForward => ProcessRollForwardAsync(response, reducer, stoppingToken),
-                NextResponseAction.RollBack => ProcessRollBackAsync(response, reducer, stoppingToken),
-                _ => throw new CriticalNodeException("Next response error received."),
-            };
+            ICardanoChainProvider chainProvider = GetCardanoChainProvider();
+            Point intersection = await GetReducerStartPoint(reducer, stoppingToken);
 
-            await responseTask;
+            await foreach (NextResponse response in chainProvider.StartChainSyncAsync(intersection, stoppingToken))
+            {
+                Task responseTask = response.Action switch
+                {
+                    NextResponseAction.RollForward => ProcessRollForwardAsync(response, reducer, stoppingToken),
+                    NextResponseAction.RollBack => ProcessRollBackAsync(response, reducer, stoppingToken),
+                    _ => throw new CriticalNodeException("Next response error received."),
+                };
+
+                await responseTask;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Something went wrong");
+            throw new CriticalNodeException("Critical Error, Aborting");
         }
     }
 
@@ -78,66 +105,69 @@ public class CardanoIndexWorker<T>(
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        ulong slot = response.Block.Slot();
-        string blockHash = response.Block.Hash();
-
+        ulong currentSlot = response.Block.Slot();
+        ulong currentBlockNumber = response.Block.Number();
+        string currentBlockHash = response.Block.Hash();
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-        
+
+        // Tag reducer as standby
+        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
+
+        // Let's check if the reducer can move forward
+        while (true)
+        {
+            // Check for dependencies
+            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => _reducerStates[e].CurrentSlot <= response.Block.Slot());
+
+            // If this reducer can move forward, we break out of this loop
+            if (canRollForward) break;
+
+            // Otherwise we add a slight delay to recheck if the dependencies have moved forward
+            Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward", reducerName);
+            await Task.Delay(100, stoppingToken);
+        }
+
+        // Now that we're sure we can roll forward, we update the reducer state
+        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies, ActionType.RollForward);
+
         // Log the new chain event rollforward
-        Logger.Log(
-            LogLevel.Information,
-            "[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}",
-            reducerName,
-            slot,
-            response.Block.Number()
-        );
-        
+        Logger.LogInformation("[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}", reducerName, currentSlot, currentBlockNumber);
 
-        
-        if (reducerRollforwardStatus.TryGetValue(reducerName, out var reducerState))
-        {
-            reducerRollforwardStatus[reducerName] = (slot, IsComplete: false);
-        }
-        else
-        {
-            reducerRollforwardStatus.Add(reducerName, (slot, false));
-        }
-        
-        // Await reducer dependencies
-        await AwaitReducerDependenciesRollForwardAsync(slot, reducer, stoppingToken);
-
-        using var transaction = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled);
-
-        // Process the rollforward
+        // Execute the rollforward logic of this reducer
         Stopwatch reducerStopwatch = Stopwatch.StartNew();
+
+        // Start a new transaction scope
+        // Existing code inside ProcessRollForwardAsync
+        using TransactionScope transaction = new(
+            TransactionScopeOption.Required,
+            new TransactionOptions
+            {
+                IsolationLevel = IsolationLevel.ReadCommitted,
+                Timeout = TransactionManager.DefaultTimeout
+            },
+            TransactionScopeAsyncFlowOption.Enabled
+        );
         await reducer.RollForwardAsync(response.Block);
+        await UpdateReducerStateAsync(reducerName, currentSlot, currentBlockHash, stoppingToken);
+        transaction.Complete();
+
+        // Stop the timer
         reducerStopwatch.Stop();
 
         // Log the time taken to process the rollforward
-        Logger.Log(
-            LogLevel.Information,
-            "Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms",
-            ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
-            reducerStopwatch.ElapsedMilliseconds
-        );
+        Logger.LogInformation("Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
 
-        Task.Run(async () =>
-        {
-            await UpdateReducerStateAsync(reducer, slot, blockHash, stoppingToken);
-        }, stoppingToken).Wait(stoppingToken);
+        // Tag as standby again after processing rollforward
+        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
 
-        transaction.Complete();
-
-        reducerRollforwardStatus[reducerName] = (slot, true);
-        
+        // Stop the timer
         stopwatch.Stop();
 
-        Logger.Log(
-            LogLevel.Information,
+        Logger.LogInformation(
             "[{Reducer}]: Processed Chain Event RollForward: Slot {Slot} Block: {Block} in {ElapsedMilliseconds} ms, Mem: {MemoryUsage} MB",
-            ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
-            slot,
-            response.Block.Number(),
+            reducerName,
+            currentSlot,
+            currentBlockNumber,
             stopwatch.ElapsedMilliseconds,
             Math.Round(GetCurrentMemoryUsageInMB(), 2)
         );
@@ -145,253 +175,107 @@ public class CardanoIndexWorker<T>(
 
     private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
-        await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-
-        Logger.Log(
-            LogLevel.Information,
-            "[{Reducer}]: New Chain Event RollBack: Slot {response.Block.Slot()}",
-            ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
-            response.Block?.Slot()
-        );
-
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-        ulong currentSlot = await dbContext.ReducerStates
-            .AsNoTracking()
-            .Where(rs => rs.Name == reducerName)
-            .Select(rs => rs.Slot)
-            .FirstOrDefaultAsync(stoppingToken);
+        Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {response.Block.Slot()}", reducerName, response.Block?.Slot());
 
-        reducerRollbackStatus[reducerName] = true;
+        // Tag it as rollback immediately so reducers that needs context of the state of this reducer
+        // will know
+        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.RollBack);
 
+        // Get the currently saved state, this could be zero if it has not been updated
+        // yet in the database
+        ulong currentSlot = _reducerStates[reducerName].CurrentSlot;
+
+        // if it's zero, we do not need to rollback
         if (currentSlot == 0)
         {
-            reducerRollbackStatus[reducerName] = false;
+            // Tag as standby as it is currently not processing anything
+            _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
+
+            // Then return early because no further processing is needed
             return;
         }
 
-        await PreventMassrollbackAsync(reducer, response.Block!.Slot(), Logger);
-        await AwaitReducerDependenciesRollbackAsync(currentSlot, response.Block!.Slot(), reducer, stoppingToken);
-
-        ulong requestedRollbackSlot = response.Block!.Slot();
-        ulong rollBackSlot = 0;
-
-        if (response.RollBackType == RollBackType.Exclusive)
+        // Check if the reducer is allowed to rollback, if not we throw a critical error
+        ulong rollbackSlot = response.Block!.Slot();
+        if (!CanRollback(currentSlot, rollbackSlot))
         {
-            rollBackSlot = requestedRollbackSlot + 1;
+            Logger.LogError(
+                "PreventMassrollbackAsync[{Reducer}] Requested RollBack Slot {RequestedSlot} is more than {MaxRollback} slots behind current slot {CurrentSlot}.",
+                reducerName,
+                rollbackSlot,
+                _maxRollbackSlots,
+                currentSlot
+            );
+
+            // We need to force the app to crash, there is something wrong if we're rolling back
+            // too far than expected
+            throw new CriticalNodeException("Rollback, Critical Error, Aborting");
         }
-        else if (response.RollBackType == RollBackType.Inclusive)
+
+        // Check if the reducer has dependencies that needs to rollback first
+        while (true)
         {
-            rollBackSlot = requestedRollbackSlot;
+            // Let's check if anything depends on this reducer, that means we need them to finish rollback first
+            bool isDependentsRollingBack = _reducerStates
+                .Where(e => e.Value.Dependencies.Contains(reducerName))
+                .Any(e => e.Value.ActionType == ActionType.RollBack);
+
+            // If no dependents are rolling back, we can break out of this loop
+            if (!isDependentsRollingBack) break;
+
+            // Otherwise we wait
+            Logger.LogInformation("Reducer {Reducer} is waiting for dependents to finish rollback", reducerName);
+            await Task.Delay(100, stoppingToken);
         }
+
+        // Once we're sure we can rollback, we can proceed executing the rollback function
+        rollbackSlot = response.RollBackType switch
+        {
+            RollBackType.Exclusive => rollbackSlot + 1,
+            RollBackType.Inclusive => rollbackSlot,
+            _ => 0
+        };
 
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
-        if (rollBackSlot != 0)
-        {
-            await reducer.RollBackwardAsync(rollBackSlot);
-        }
+
+        if (rollbackSlot > 0) await reducer.RollBackwardAsync(rollbackSlot);
+
         reducerStopwatch.Stop();
-        reducerRollbackStatus[reducerName] = false;
+
+        // Update action type to standby
+        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
 
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
     }
 
-    private async Task UpdateReducerStateAsync(IReducer<IReducerModel> reducer, ulong slot, string hash, CancellationToken stoppingToken)
+    private bool CanRollback(ulong currentSlot, ulong rollbackSlot)
     {
-        try
-        {
-            await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-            string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-            var reducerState = await dbContext.ReducerStates
-                .FirstOrDefaultAsync(rs => rs.Name == reducerName, stoppingToken);
-
-            if (reducerState == null)
-            {
-                reducerState = new ReducerState
-                {
-                    Name = reducerName,
-                    Slot = slot,
-                    Hash = hash
-                };
-                dbContext.ReducerStates.Add(reducerState);
-            }
-            else
-            {
-                reducerState.Slot = slot;
-                reducerState.Hash = hash;
-            }
-
-            await dbContext.SaveChangesAsync(stoppingToken);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error updating ReducerState for {Reducer}", ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()));
-        }
+        long slotDifference = (long)currentSlot - (long)rollbackSlot;
+        return currentSlot == 0 || rollbackSlot > currentSlot || slotDifference <= (long)_maxRollbackSlots;
     }
 
-    private async Task AwaitReducerDependenciesRollForwardAsync(
-        ulong slot,
-        IReducer<IReducerModel> reducer,
-        CancellationToken cancellationToken
-    )
+    private async Task UpdateReducerStateAsync(string reducerName, ulong slot, string hash, CancellationToken stoppingToken)
     {
-        var dependencyTypes = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType());
-        var dependencyNames = dependencyTypes
-            .Select(ArgusUtils.GetTypeNameWithoutGenerics)
-            .ToList();
+        await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
 
-        if (!dependencyNames.Any())
+        ReducerState? reducerState = await dbContext.ReducerStates
+            .FirstOrDefaultAsync(rs => rs.Name == reducerName, stoppingToken);
+
+        if (reducerState == null)
         {
-            return;
+            reducerState = new ReducerState { Name = reducerName, Slot = slot, Hash = hash };
+            dbContext.ReducerStates.Add(reducerState);
+        }
+        else
+        {
+            reducerState.Slot = slot;
+            reducerState.Hash = hash;
         }
 
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            bool anyDependencyRollingBack = dependencyNames
-                .Any(depName => reducerRollbackStatus.TryGetValue(depName, out bool status) && status);
-
-            if (!anyDependencyRollingBack)
-            {
-                await using T dbContext = await DbContextFactory.CreateDbContextAsync(cancellationToken);
-                var currentStates = await dbContext.ReducerStates
-                    .AsNoTracking()
-                    .Where(rs => dependencyNames.Contains(rs.Name))
-                    .ToListAsync(cancellationToken);
-
-                var missingDependencies = dependencyNames
-                    .Except(currentStates.Select(rs => rs.Name))
-                    .ToList();
-
-                var outdatedDependencies = currentStates
-                    .Where(rs => rs.Slot < slot)
-                    .ToList();
-
-                var hasCurrentlyProcessingDependency = reducerRollforwardStatus.ToList()
-                    .Where(rs => dependencyNames.Contains(rs.Key))
-                    .Any(rs => rs.Value.CurrentSlot == slot && !rs.Value.IsComplete);
-
-                await dbContext.DisposeAsync();
-
-                if (!missingDependencies.Any() && !outdatedDependencies.Any() && !hasCurrentlyProcessingDependency)
-                {
-                    return;
-                }
-
-                missingDependencies.ForEach(missing =>
-                {
-                    Logger.Log(
-                        LogLevel.Information,
-                        "[{Reducer}]: Waiting for missing dependency {Dependency} to reach Slot {RequiredSlot}",
-                        ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
-                        missing,
-                        slot);
-                });
-
-                outdatedDependencies.ForEach(outdated =>
-                {
-                    Logger.Log(
-                        LogLevel.Information,
-                        "[{Reducer}]: Waiting for dependency {Dependency} to reach Slot {RequiredSlot} (current: {CurrentSlot})",
-                        ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()),
-                        outdated.Name,
-                        slot,
-                        outdated.Slot);
-                });
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-        }
-    }
-
-    private async Task AwaitReducerDependenciesRollbackAsync(
-        ulong currentSlot,
-        ulong rollBackSlot,
-        IReducer<IReducerModel> reducer,
-        CancellationToken cancellationToken
-    )
-    {
-        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-
-        if (dependentReducers.TryGetValue(reducerName, out var dependents) && dependents.Any())
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await using T dbContext = await DbContextFactory.CreateDbContextAsync(cancellationToken);
-                var dependentStates = await dbContext.ReducerStates
-                    .AsNoTracking()
-                    .Where(rs => dependents.Contains(rs.Name))
-                    .ToListAsync(cancellationToken);
-
-                var dependentsNotRolledBack = dependentStates
-                    .Where(rs => rs.Slot > rollBackSlot)
-                    .ToList();
-
-                if (!dependentsNotRolledBack.Any())
-                {
-                    Logger.Log(
-                        LogLevel.Information,
-                        "[{Reducer}]: All dependent reducers have rolled back successfully",
-                        reducerName
-                    );
-                    break;
-                }
-
-                foreach (var dependent in dependentsNotRolledBack)
-                {
-                    Logger.Log(
-                        LogLevel.Information,
-                        "[{Reducer}]: Waiting for {Dependent} to roll back to Slot {RequiredSlot} (current: {CurrentSlot})",
-                        reducerName,
-                        dependent.Name,
-                        rollBackSlot,
-                        dependent.Slot
-                    );
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-            }
-        }
-    }
-
-    public async Task PreventMassrollbackAsync(
-        IReducer<IReducerModel> reducer,
-        ulong requestedRollBackSlot,
-        ILogger logger
-    )
-    {
-        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-
-        // Create DbContext
-        await using T dbContext = await DbContextFactory.CreateDbContextAsync();
-
-        ulong reducerCurrentSlot = await reducer.QueryTip();
-
-        // Only execute mass rollback prevention logic if the reducer has processed at least one block
-        if (reducerCurrentSlot > 0)
-        {
-            ulong maxAdditionalRollbackSlots = Configuration.GetValue<ulong?>("CardanoNodeConnection:MaxRollbackSlots")
-                ?? throw new InvalidOperationException("MaxRollbackSlots is not specified in the configuration.");
-
-            if (requestedRollBackSlot > reducerCurrentSlot)
-            {
-                return;
-            }
-
-            if (reducerCurrentSlot - requestedRollBackSlot > maxAdditionalRollbackSlots)
-            {
-                logger.Log(
-                    LogLevel.Error,
-                    "PreventMassrollbackAsync[{Reducer}] Requested RollBack Slot {RequestedSlot} is more than {MaxRollback} slots behind current slot {CurrentSlot}.",
-                    reducerName,
-                    requestedRollBackSlot,
-                    maxAdditionalRollbackSlots,
-                    reducerCurrentSlot
-                );
-                throw new CriticalNodeException("Rollback, Critical Error, Aborting");
-            }
-        }
-
-        await dbContext.DisposeAsync();
+        await dbContext.SaveChangesAsync(stoppingToken);
+        _reducerStates[reducerName] = (slot, _reducerStates[reducerName].Dependencies, _reducerStates[reducerName].ActionType);
     }
 
     private async Task<Point> GetReducerStartPoint(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
@@ -405,7 +289,7 @@ public class CardanoIndexWorker<T>(
             ?? throw new InvalidOperationException("Default StartHash is not specified in the configuration.");
 
         // Get the configuration section for the specific reducer
-        var reducerSection = Configuration.GetSection($"CardanoIndexReducers:{reducerName}");
+        IConfigurationSection reducerSection = Configuration.GetSection($"CardanoIndexReducers:{reducerName}");
 
         // Retrieve the StartSlot and StartHash for the reducer, or use defaults if not specified
         ulong configStartSlot = reducerSection.GetValue<ulong?>("StartSlot") ?? defaultStartSlot;
@@ -427,10 +311,10 @@ public class CardanoIndexWorker<T>(
 
     private ICardanoChainProvider GetCardanoChainProvider()
     {
-        var config = Configuration.GetSection("CardanoNodeConnection");
-        var connectionType = config.GetValue<string>("ConnectionType")
+        IConfigurationSection config = Configuration.GetSection("CardanoNodeConnection");
+        string connectionType = config.GetValue<string>("ConnectionType")
             ?? throw new InvalidOperationException("ConnectionType is not specified in the configuration.");
-        var networkMagic = config.GetValue<ulong?>("NetworkMagic")
+        ulong networkMagic = config.GetValue<ulong?>("NetworkMagic")
             ?? throw new InvalidOperationException("NetworkMagic is not specified in the configuration.");
 
         return connectionType switch

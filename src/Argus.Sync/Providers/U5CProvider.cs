@@ -84,7 +84,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
-                            RollBackType.Exclusive,
+                            RollBackType.Inclusive,
                             block
                         );
                         break;
