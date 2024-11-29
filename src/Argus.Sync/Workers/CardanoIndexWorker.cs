@@ -111,13 +111,13 @@ public class CardanoIndexWorker<T>(
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
         // Tag reducer as standby
-        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
+        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
 
         // Let's check if the reducer can move forward
         while (true)
         {
             // Check for dependencies
-            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => _reducerStates[e].CurrentSlot <= response.Block.Slot());
+            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => _reducerStates[e].CurrentSlot < response.Block.Slot());
 
             // If this reducer can move forward, we break out of this loop
             if (canRollForward) break;
@@ -128,7 +128,7 @@ public class CardanoIndexWorker<T>(
         }
 
         // Now that we're sure we can roll forward, we update the reducer state
-        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies, ActionType.RollForward);
+        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.RollForward);
 
         // Log the new chain event rollforward
         Logger.LogInformation("[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}", reducerName, currentSlot, currentBlockNumber);
@@ -275,7 +275,7 @@ public class CardanoIndexWorker<T>(
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
-        _reducerStates[reducerName] = (slot, _reducerStates[reducerName].Dependencies, _reducerStates[reducerName].ActionType);
+        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, _reducerStates[reducerName].ActionType);
     }
 
     private async Task<Point> GetReducerStartPoint(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
