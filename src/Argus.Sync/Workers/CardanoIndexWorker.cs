@@ -138,18 +138,8 @@ public class CardanoIndexWorker<T>(
 
         // Start a new transaction scope
         // Existing code inside ProcessRollForwardAsync
-        using TransactionScope transaction = new(
-            TransactionScopeOption.Required,
-            new TransactionOptions
-            {
-                IsolationLevel = IsolationLevel.ReadCommitted,
-                Timeout = TransactionManager.DefaultTimeout
-            },
-            TransactionScopeAsyncFlowOption.Enabled
-        );
         await reducer.RollForwardAsync(response.Block);
         await UpdateReducerStateAsync(reducerName, currentSlot, currentBlockHash, stoppingToken);
-        transaction.Complete();
 
         // Stop the timer
         reducerStopwatch.Stop();
