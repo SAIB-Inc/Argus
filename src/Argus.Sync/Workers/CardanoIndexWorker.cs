@@ -98,7 +98,11 @@ public class CardanoIndexWorker<T>(
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Something went wrong. Current response: {@Response} with cbor {@Cbor}", currentResponse?.Block.Hash(), Convert.ToHexString(currentResponse?.Block?.Raw!).ToLowerInvariant());
+            Logger.LogError(
+                ex,
+                "Something went wrong. Current response: {@Response} with cbor {@Cbor}",
+                currentResponse?.Block.Hash(), Convert.ToHexString(currentResponse?.Block?.Raw!).ToLowerInvariant()
+            );
             throw new CriticalNodeException($"Critical Error, Aborting");
         }
     }
