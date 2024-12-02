@@ -10,18 +10,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Transactions;
 
 namespace Argus.Sync.Workers;
 
 public class CriticalNodeException(string message) : Exception(message) { }
-
-public enum ActionType
-{
-    RollForward,
-    RollBack,
-    Standby
-}
 
 public class CardanoIndexWorker<T>(
     IConfiguration Configuration,
@@ -30,7 +22,7 @@ public class CardanoIndexWorker<T>(
     IEnumerable<IReducer<IReducerModel>> Reducers
 ) : BackgroundService where T : CardanoDbContext
 {
-    private static readonly Dictionary<string, (ulong CurrentSlot, List<string> Dependencies, ActionType ActionType)> _reducerStates = [];
+    private static readonly Dictionary<string, (ulong CurrentSlot, List<string> Dependencies)> _reducerStates = [];
     private readonly ulong _maxRollbackSlots = Configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000UL);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -43,7 +35,7 @@ public class CardanoIndexWorker<T>(
             List<string> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType())
                 .Select(ArgusUtils.GetTypeNameWithoutGenerics)
                 .ToList();
-            _reducerStates.Add(reducerName, (0, dependencies, ActionType.Standby));
+            _reducerStates.Add(reducerName, (0, dependencies));
         });
 
         // Get all registered reducers to fetch their currently saved slots
@@ -62,7 +54,7 @@ public class CardanoIndexWorker<T>(
         _reducerStates.ToList().ForEach(reducerState =>
         {
             ulong lastRecordedSlot = lastRecordedReducerStates.GetValueOrDefault<string, ulong>(reducerState.Key, 0);
-            _reducerStates[reducerState.Key] = (lastRecordedSlot, reducerState.Value.Dependencies, ActionType.Standby);
+            _reducerStates[reducerState.Key] = (lastRecordedSlot, reducerState.Value.Dependencies);
         });
 
         // Execute reducers
@@ -130,9 +122,6 @@ public class CardanoIndexWorker<T>(
             await Task.Delay(100, stoppingToken);
         }
 
-        // Now that we're sure we can roll forward, we update the reducer state
-        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.RollForward);
-
         // Log the new chain event rollforward
         Logger.LogInformation("[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}", reducerName, currentSlot, currentBlockNumber);
 
@@ -142,7 +131,7 @@ public class CardanoIndexWorker<T>(
         // Run the reducer's rollforward logic
         await reducer.RollForwardAsync(response.Block);
 
-        // Update in-memory and database states
+        // Update database state
         await UpdateReducerStateAsync(reducerName, currentSlot, currentBlockHash, stoppingToken);
 
         // Stop the timer
@@ -152,7 +141,7 @@ public class CardanoIndexWorker<T>(
         Logger.LogInformation("Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
 
         // Tag as standby again after processing rollforward
-        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
+        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies);
 
         // Stop the timer
         stopwatch.Stop();
@@ -172,26 +161,21 @@ public class CardanoIndexWorker<T>(
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
         Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {response.Block.Slot()}", reducerName, response.Block?.Slot());
 
-        // Tag it as rollback immediately so reducers that needs context of the state of this reducer
-        // will know
-        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.RollBack);
-
         // Get the currently saved state, this could be zero if it has not been updated
         // yet in the database
         ulong currentSlot = _reducerStates[reducerName].CurrentSlot;
 
         // if it's zero, we do not need to rollback
-        if (currentSlot == 0)
+        if (currentSlot == 0) return;
+
+        // Once we're sure we can rollback, we can proceed executing the rollback function
+        ulong rollbackSlot = response.RollBackType switch
         {
-            // Tag as standby as it is currently not processing anything
-            _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
+            RollBackType.Exclusive => response.Block!.Slot() + 1,
+            RollBackType.Inclusive => response.Block!.Slot(),
+            _ => 0
+        };
 
-            // Then return early because no further processing is needed
-            return;
-        }
-
-        // Check if the reducer is allowed to rollback, if not we throw a critical error
-        ulong rollbackSlot = response.Block!.Slot();
         if (!CanRollback(currentSlot, rollbackSlot))
         {
             Logger.LogError(
@@ -211,9 +195,10 @@ public class CardanoIndexWorker<T>(
         while (true)
         {
             // Let's check if anything depends on this reducer, that means we need them to finish rollback first
+            // @TODO: recheck logic
             bool isDependentsRollingBack = _reducerStates
                 .Where(e => e.Value.Dependencies.Contains(reducerName))
-                .Any(e => e.Value.ActionType == ActionType.RollBack);
+                .Any(e => e.Value.CurrentSlot >= rollbackSlot);
 
             // If no dependents are rolling back, we can break out of this loop
             if (!isDependentsRollingBack) break;
@@ -223,23 +208,17 @@ public class CardanoIndexWorker<T>(
             await Task.Delay(100, stoppingToken);
         }
 
-        // Once we're sure we can rollback, we can proceed executing the rollback function
-        rollbackSlot = response.RollBackType switch
-        {
-            RollBackType.Exclusive => rollbackSlot + 1,
-            RollBackType.Inclusive => rollbackSlot,
-            _ => 0
-        };
-
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
 
         if (rollbackSlot > 0) await reducer.RollBackwardAsync(rollbackSlot);
 
+        // Update database state
+        await UpdateReducerStateAsync(reducerName, rollbackSlot, string.Empty, stoppingToken);
+
         reducerStopwatch.Stop();
 
-        // Update action type to standby
-        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
+        _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies);
 
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
     }
@@ -269,7 +248,6 @@ public class CardanoIndexWorker<T>(
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
-        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, _reducerStates[reducerName].ActionType);
     }
 
     private async Task<Point> GetReducerStartPoint(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
