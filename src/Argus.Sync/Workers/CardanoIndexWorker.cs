@@ -159,7 +159,6 @@ public class CardanoIndexWorker<T>(
     private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-        Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {response.Block.Slot()}", reducerName, response.Block?.Slot());
 
         // Get the currently saved state, this could be zero if it has not been updated
         // yet in the database
@@ -175,6 +174,8 @@ public class CardanoIndexWorker<T>(
             RollBackType.Inclusive => response.Block!.Slot(),
             _ => 0
         };
+
+        Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {response.Block.Slot()}", reducerName, rollbackSlot);
 
         if (!CanRollback(currentSlot, rollbackSlot))
         {
