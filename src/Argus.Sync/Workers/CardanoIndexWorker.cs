@@ -139,9 +139,10 @@ public class CardanoIndexWorker<T>(
         // Execute the rollforward logic of this reducer
         Stopwatch reducerStopwatch = Stopwatch.StartNew();
 
-        // Start a new transaction scope
-        // Existing code inside ProcessRollForwardAsync
+        // Run the reducer's rollforward logic
         await reducer.RollForwardAsync(response.Block);
+
+        // Update in-memory and database states
         await UpdateReducerStateAsync(reducerName, currentSlot, currentBlockHash, stoppingToken);
 
         // Stop the timer
