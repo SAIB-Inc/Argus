@@ -77,6 +77,7 @@ public class CardanoIndexWorker<T>(
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
+        NextResponse? currentResponse = null;
         try
         {
             ICardanoChainProvider chainProvider = GetCardanoChainProvider();
@@ -84,11 +85,12 @@ public class CardanoIndexWorker<T>(
 
             await foreach (NextResponse response in chainProvider.StartChainSyncAsync(intersection, stoppingToken))
             {
+                currentResponse = response;  // Store the current response
                 Task responseTask = response.Action switch
                 {
                     NextResponseAction.RollForward => ProcessRollForwardAsync(response, reducer, stoppingToken),
                     NextResponseAction.RollBack => ProcessRollBackAsync(response, reducer, stoppingToken),
-                    _ => throw new CriticalNodeException("Next response error received."),
+                    _ => throw new CriticalNodeException($"Next response error received. {response}"),
                 };
 
                 await responseTask;
@@ -96,8 +98,8 @@ public class CardanoIndexWorker<T>(
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Something went wrong");
-            throw new CriticalNodeException("Critical Error, Aborting");
+            Logger.LogError(ex, "Something went wrong. Current response: {@Response} with cbor {@Cbor}", currentResponse?.Block.Hash(), Convert.ToHexString(currentResponse?.Block?.Raw!).ToLowerInvariant());
+            throw new CriticalNodeException($"Critical Error, Aborting");
         }
     }
 
@@ -110,14 +112,11 @@ public class CardanoIndexWorker<T>(
         string currentBlockHash = response.Block.Hash();
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
-        // Tag reducer as standby
-        _reducerStates[reducerName] = (_reducerStates[reducerName].CurrentSlot, _reducerStates[reducerName].Dependencies, ActionType.Standby);
-
         // Let's check if the reducer can move forward
         while (true)
         {
             // Check for dependencies
-            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => _reducerStates[e].CurrentSlot < response.Block.Slot());
+            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => _reducerStates[e].CurrentSlot < currentSlot);
 
             // If this reducer can move forward, we break out of this loop
             if (canRollForward) break;
