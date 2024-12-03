@@ -215,7 +215,7 @@ public class CardanoIndexWorker<T>(
         if (rollbackSlot > 0) await reducer.RollBackwardAsync(rollbackSlot);
 
         // Update database state
-        await UpdateReducerStateAsync(reducerName, rollbackSlot, string.Empty, stoppingToken);
+        // await UpdateReducerStateAsync(reducerName, rollbackSlot, string.Empty, stoppingToken);
 
         reducerStopwatch.Stop();
 
