@@ -37,7 +37,7 @@ public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
         await _dbContext.DisposeAsync();
     }
 
-    public async Task<ulong> QueryTip()
+    public async Task<ulong?> QueryTip()
     {
         using T dbContext = await dbContextFactory.CreateDbContextAsync();
         ulong maxSlot = await dbContext.BlockBySlot.MaxAsync(x => (ulong?)x.Slot) ?? 0;

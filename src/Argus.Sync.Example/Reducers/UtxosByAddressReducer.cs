@@ -56,7 +56,7 @@ public class UtxosByAddressReducer(IDbContextFactory<TestDbContext> dbContextFac
         await dbContext.SaveChangesAsync();
     }
 
-    public async Task<ulong> QueryTip()
+    public async Task<ulong?> QueryTip()
     {
         await using TestDbContext dbContext = await dbContextFactory.CreateDbContextAsync();
         return await dbContext.UtxosByAddress.Select(e => e.Slot).FirstOrDefaultAsync();

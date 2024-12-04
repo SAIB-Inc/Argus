@@ -9,7 +9,7 @@ namespace Argus.Sync.Example.Reducers;
 [ReducerDepends(typeof(UtxosByAddressReducer))]
 public class TestDependencyReducer(IDbContextFactory<TestDbContext> dbContextFactory) : IReducer<TestDependency>
 {
-    public async Task<ulong> QueryTip()
+    public async Task<ulong?> QueryTip()
     {
         await using var dbContext = await dbContextFactory.CreateDbContextAsync();
         return await dbContext.TestDependencies.Select(td => td.Slot).FirstOrDefaultAsync();

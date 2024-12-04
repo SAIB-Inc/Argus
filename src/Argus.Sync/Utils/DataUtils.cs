@@ -11,7 +11,7 @@ public static class DataUtils
 {
     public static OutputBySlot? MapTransactionOutputEntity(string transactionId, uint outputIndex, ulong slot, TransactionOutput output, UtxoStatus status)
     {
-        string? address = output.Address()!.ToBech32();
+        string? address = output.Address()!.Value.ToBech32();
 
         if (address == null)
             return null;

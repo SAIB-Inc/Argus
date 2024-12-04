@@ -22,40 +22,12 @@ public class CardanoIndexWorker<T>(
     IEnumerable<IReducer<IReducerModel>> Reducers
 ) : BackgroundService where T : CardanoDbContext
 {
-    private static readonly Dictionary<string, (ulong CurrentSlot, List<string> Dependencies)> _reducerStates = [];
+    private static readonly Dictionary<string, (ulong CurrentSlot, List<string> Dependencies, List<(ulong Slot, string Hash)> Points)> _reducerStates = [];
     private readonly ulong _maxRollbackSlots = Configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000UL);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Pre-populate ReducerStates with registered reducers
-        // and their dependencies
-        Reducers.ToList().ForEach(reducer =>
-        {
-            string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-            List<string> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType())
-                .Select(ArgusUtils.GetTypeNameWithoutGenerics)
-                .ToList();
-            _reducerStates.Add(reducerName, (0, dependencies));
-        });
-
-        // Get all registered reducers to fetch their currently saved slots
-        // in the database
-        IEnumerable<string> registeredReducers = _reducerStates.Select(e => e.Key);
-
-        // Fetch current slots from database, we do this so we only need to fetch the slots once on sync start
-        // the rest of the states we can update in-memory
-        using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-        Dictionary<string, ulong> lastRecordedReducerStates = await dbContext.ReducerStates
-            .Where(rs => registeredReducers.Contains(rs.Name))
-            .ToDictionaryAsync(rs => rs.Name, rs => rs.Slot, stoppingToken);
-        await dbContext.DisposeAsync();
-
-        // Update ReducerStates with the current slots
-        _reducerStates.ToList().ForEach(reducerState =>
-        {
-            ulong lastRecordedSlot = lastRecordedReducerStates.GetValueOrDefault<string, ulong>(reducerState.Key, 0);
-            _reducerStates[reducerState.Key] = (lastRecordedSlot, reducerState.Value.Dependencies);
-        });
+        await PrepopulateReducerStatesAsync(stoppingToken);
 
         // Execute reducers
         await Task.WhenAny(
@@ -65,6 +37,55 @@ public class CardanoIndexWorker<T>(
         );
 
         Environment.Exit(1);
+    }
+
+    private async Task PrepopulateReducerStatesAsync(CancellationToken stoppingToken)
+    {
+        // Pre-populate ReducerStates with registered reducers
+        // and their dependencies
+        Reducers.ToList().ForEach(reducer =>
+        {
+            string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+            List<string> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType())
+                .Select(ArgusUtils.GetTypeNameWithoutGenerics)
+                .ToList();
+            _reducerStates.Add(reducerName, (0UL, dependencies, []));
+        });
+
+        // Get all registered reducers to fetch their currently saved slots
+        // in the database
+        IEnumerable<string> registeredReducers = _reducerStates.Select(e => e.Key);
+
+        // Fetch current slots from database, we do this so we only need to fetch the slots once on sync start
+        // the rest of the states we can update in-memory
+        using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+
+        var allStates = await dbContext.ReducerStates.ToListAsync(stoppingToken);
+
+        var lastRecordedReducerStates = allStates
+            .Where(rs => registeredReducers.Contains(rs.Name))
+            .GroupBy(rs => rs.Name)
+            .ToDictionary(
+                g => g.Key,
+                g => (
+                    g.Max(rs => rs.Slot),
+                    g.OrderByDescending(rs => rs.Slot)
+                        .Select(rs => (rs.Slot, rs.Hash))
+                        .ToList()
+                )
+            );
+
+        await dbContext.DisposeAsync();
+
+        // Update ReducerStates with the current slots and intersection points
+        _reducerStates.ToList().ForEach(reducerState =>
+        {
+            var (slot, points) = lastRecordedReducerStates.GetValueOrDefault(
+                reducerState.Key,
+                (0UL, [])
+            );
+            _reducerStates[reducerState.Key] = (slot, reducerState.Value.Dependencies, points);
+        });
     }
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
@@ -109,18 +130,7 @@ public class CardanoIndexWorker<T>(
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
         // Let's check if the reducer can move forward
-        while (true)
-        {
-            // Check for dependencies
-            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => _reducerStates[e].CurrentSlot < currentSlot);
-
-            // If this reducer can move forward, we break out of this loop
-            if (canRollForward) break;
-
-            // Otherwise we add a slight delay to recheck if the dependencies have moved forward
-            Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward", reducerName);
-            await Task.Delay(100, stoppingToken);
-        }
+        await AwaitReducerDependenciesRollForwardAsync(reducerName, currentSlot, stoppingToken);
 
         // Log the new chain event rollforward
         Logger.LogInformation("[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}", reducerName, currentSlot, currentBlockNumber);
@@ -130,6 +140,16 @@ public class CardanoIndexWorker<T>(
 
         // Run the reducer's rollforward logic
         await reducer.RollForwardAsync(response.Block);
+
+        var recentPoints = _reducerStates[reducerName].Points;
+        recentPoints.Add((currentSlot, currentBlockHash));
+
+        // Keeps the window size of the recent points
+        int rollbackBuffer = GetRollbackBuffer(reducerName);
+        if (recentPoints.Count > rollbackBuffer)
+        {
+            recentPoints.RemoveRange(0, recentPoints.Count - rollbackBuffer);
+        }
 
         // Update database state
         await UpdateReducerStateAsync(reducerName, currentSlot, currentBlockHash, stoppingToken);
@@ -141,7 +161,7 @@ public class CardanoIndexWorker<T>(
         Logger.LogInformation("Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
 
         // Tag as standby again after processing rollforward
-        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies);
+        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies, recentPoints);
 
         // Stop the timer
         stopwatch.Stop();
@@ -160,9 +180,7 @@ public class CardanoIndexWorker<T>(
     {
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
-        // Get the currently saved state, this could be zero if it has not been updated
-        // yet in the database
-        ulong currentSlot = _reducerStates[reducerName].CurrentSlot;
+        ulong currentSlot = await reducer.QueryTip() ?? 0UL;
 
         // if it's zero, we do not need to rollback
         if (currentSlot == 0) return;
@@ -175,23 +193,89 @@ public class CardanoIndexWorker<T>(
             _ => 0
         };
 
-        Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {response.Block.Slot()}", reducerName, rollbackSlot);
+        PreventMassRollback(currentSlot, rollbackSlot, reducerName, stoppingToken);
 
-        if (!CanRollback(currentSlot, rollbackSlot))
+        // Wait for dependencies to rollback
+        await AwaitReducerDependenciesRollbackAsync(reducerName, rollbackSlot, stoppingToken);
+
+        Stopwatch reducerStopwatch = new();
+        reducerStopwatch.Start();
+
+        // Find the closest valid point from recent points
+        var recentPoints = _reducerStates[reducerName].Points;
+        var closestPoint = recentPoints
+            .Where(p => p.Slot <= rollbackSlot)
+            .OrderByDescending(p => p.Slot)
+            .FirstOrDefault();
+
+        Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {Slot}", reducerName, closestPoint.Slot);
+        await reducer.RollBackwardAsync(closestPoint.Slot);
+
+        // Update the recent points list to remove any points after the rollback
+        recentPoints.RemoveAll(p => p.Slot > closestPoint.Slot);
+
+        // Update database state
+        await UpdateReducerStateAsync(reducerName, closestPoint.Slot, closestPoint.Hash, stoppingToken);
+
+        reducerStopwatch.Stop();
+
+        _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
+
+        Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
+    }
+
+    private async Task UpdateReducerStateAsync(string reducerName, ulong slot, string hash, CancellationToken stoppingToken)
+    {
+        await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+
+        int rollbackBuffer = GetRollbackBuffer(reducerName);
+
+        ReducerState? stateExisting = await dbContext.ReducerStates
+            .FirstOrDefaultAsync(rs => rs.Name == reducerName && rs.Slot == slot, stoppingToken);
+
+        if (stateExisting == null) 
         {
-            Logger.LogError(
-                "PreventMassrollbackAsync[{Reducer}] Requested RollBack Slot {RequestedSlot} is more than {MaxRollback} slots behind current slot {CurrentSlot}.",
-                reducerName,
-                rollbackSlot,
-                _maxRollbackSlots,
-                currentSlot
-            );
-
-            // We need to force the app to crash, there is something wrong if we're rolling back
-            // too far than expected
-            throw new CriticalNodeException("Rollback, Critical Error, Aborting");
+            ReducerState newState = new()
+            {
+                Name = reducerName,
+                Slot = slot,
+                Hash = hash
+            };
+            dbContext.ReducerStates.Add(newState);
         }
 
+        List<ReducerState> existingStates = await dbContext.ReducerStates
+            .Where(rs => rs.Name == reducerName)
+            .OrderByDescending(rs => rs.Slot)
+            .ToListAsync(stoppingToken);
+
+        if (existingStates.Count >= rollbackBuffer)
+        {
+            IEnumerable<ReducerState> statesToRemove = existingStates.Skip(rollbackBuffer - 1);
+            dbContext.ReducerStates.RemoveRange(statesToRemove);
+        }
+
+        await dbContext.SaveChangesAsync(stoppingToken);
+    }
+
+    private async Task AwaitReducerDependenciesRollForwardAsync(string reducerName, ulong currentSlot, CancellationToken stoppingToken)
+    {
+        while (true)
+        {
+            // Check for dependencies
+            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => _reducerStates[e].CurrentSlot < currentSlot);
+
+            // If this reducer can move forward, we break out of this loop
+            if (canRollForward) break;
+
+            // Otherwise we add a slight delay to recheck if the dependencies have moved forward
+            Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward", reducerName);
+            await Task.Delay(100, stoppingToken);
+        }
+    }
+
+    private async Task AwaitReducerDependenciesRollbackAsync(string reducerName, ulong rollbackSlot, CancellationToken stoppingToken)
+    {
         // Check if the reducer has dependencies that needs to rollback first
         while (true)
         {
@@ -208,47 +292,30 @@ public class CardanoIndexWorker<T>(
             Logger.LogInformation("Reducer {Reducer} is waiting for dependents to finish rollback", reducerName);
             await Task.Delay(100, stoppingToken);
         }
+    }
 
-        Stopwatch reducerStopwatch = new();
-        reducerStopwatch.Start();
+    private void PreventMassRollback(ulong currentSlot, ulong rollbackSlot, string reducerName, CancellationToken stoppingToken)
+    {
+        if (!CanRollback(currentSlot, rollbackSlot))
+        {
+            Logger.LogError(
+                "PreventMassrollbackAsync[{Reducer}] Requested RollBack Slot {RequestedSlot} is more than {MaxRollback} slots behind current slot {CurrentSlot}.",
+                reducerName,
+                rollbackSlot,
+                _maxRollbackSlots,
+                currentSlot
+            );
 
-        if (rollbackSlot > 0) await reducer.RollBackwardAsync(rollbackSlot);
-
-        // Update database state
-        await UpdateReducerStateAsync(reducerName, rollbackSlot, string.Empty, stoppingToken);
-
-        reducerStopwatch.Stop();
-
-        _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies);
-
-        Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
+            // We need to force the app to crash, there is something wrong if we're rolling back
+            // too far than expected
+            throw new CriticalNodeException("Rollback, Critical Error, Aborting");
+        }
     }
 
     private bool CanRollback(ulong currentSlot, ulong rollbackSlot)
     {
         long slotDifference = (long)currentSlot - (long)rollbackSlot;
         return currentSlot == 0 || rollbackSlot > currentSlot || slotDifference <= (long)_maxRollbackSlots;
-    }
-
-    private async Task UpdateReducerStateAsync(string reducerName, ulong slot, string hash, CancellationToken stoppingToken)
-    {
-        await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-
-        ReducerState? reducerState = await dbContext.ReducerStates
-            .FirstOrDefaultAsync(rs => rs.Name == reducerName, stoppingToken);
-
-        if (reducerState == null)
-        {
-            reducerState = new ReducerState { Name = reducerName, Slot = slot, Hash = hash };
-            dbContext.ReducerStates.Add(reducerState);
-        }
-        else
-        {
-            reducerState.Slot = slot;
-            reducerState.Hash = hash;
-        }
-
-        await dbContext.SaveChangesAsync(stoppingToken);
     }
 
     private async Task<Point> GetReducerStartPoint(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
@@ -269,13 +336,15 @@ public class CardanoIndexWorker<T>(
         string configStartHash = reducerSection.GetValue<string>("StartHash") ?? defaultStartHash;
 
         await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-        ReducerState? reducerState = await dbContext.ReducerStates
-                  .FirstOrDefaultAsync(rs => rs.Name == ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType()), stoppingToken);
+        ReducerState? latestState = await dbContext.ReducerStates
+            .Where(rs => rs.Name == reducerName)
+            .OrderByDescending(rs => rs.Slot)
+            .FirstOrDefaultAsync(stoppingToken);
 
-        if (reducerState is not null)
+        if (latestState is not null)
         {
-            configStartSlot = reducerState.Slot;
-            configStartHash = reducerState.Hash;
+            configStartSlot = latestState.Slot;
+            configStartHash = latestState.Hash;
         }
 
         await dbContext.DisposeAsync();
@@ -327,5 +396,11 @@ public class CardanoIndexWorker<T>(
         double memoryUsedMb = memoryUsed / 1024.0 / 1024.0;
 
         return memoryUsedMb;
+    }
+
+    private int GetRollbackBuffer(string reducerName)
+    {
+        IConfigurationSection reducerSection = Configuration.GetSection($"CardanoIndexReducers:{reducerName}");
+        return reducerSection.GetValue<int>("RollbackBuffer", 10);
     }
 }

@@ -110,7 +110,7 @@ public class OutputBySlotReducer<T>(
         dbContext.OutputBySlot.AddRange(outputEntities);
     }
 
-    public async Task<ulong> QueryTip()
+    public async Task<ulong?> QueryTip()
     {
         using T dbContext = await dbContextFactory.CreateDbContextAsync();
         ulong maxSlot = await dbContext.OutputBySlot.MaxAsync(x => (ulong?)x.Slot) ?? 0;

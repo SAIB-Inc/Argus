@@ -29,8 +29,6 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
             .Distinct()
             .ToList();
 
-        Expression<Func<BalanceByAddress, bool>> predicate = PredicateBuilder.False<BalanceByAddress>();
-
         List<BalanceByAddress> balanceAddressEntries = await dbContext.BalanceByAddress
             .Where(e => addresses.Contains(e.Address))
             .ToListAsync();
@@ -71,15 +69,8 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
             .Distinct()
             .ToList();
 
-        Expression<Func<BalanceByAddress, bool>> predicate = PredicateBuilder.False<BalanceByAddress>();
-
-        blockAddresses.ForEach(addr =>
-        {
-            predicate = predicate.Or(ba => ba.Address == addr);
-        });
-
         List<BalanceByAddress> existingAddresses = await dbContext.BalanceByAddress
-            .Where(predicate)
+            .Where(ea => blockAddresses.Contains(ea.Address))
             .ToListAsync();
 
         foreach (TransactionBody tx in block.TransactionBodies())
@@ -156,7 +147,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
         }
     }
 
-    public async Task<ulong> QueryTip()
+    public async Task<ulong?> QueryTip()
     {
         using T dbContext = await dbContextFactory.CreateDbContextAsync();
         ulong maxSlot = await dbContext.OutputBySlot.MaxAsync(x => (ulong?)x.Slot) ?? 0;
