@@ -96,7 +96,7 @@ public class MinswapPriceByTokenReducer<T>(
         await dbContext.DisposeAsync();
     }
 
-    public async Task<ulong> QueryTip()
+    public async Task<ulong?> QueryTip()
     {
         using T dbContext = await dbContextFactory.CreateDbContextAsync();
         ulong maxSlot = await dbContext.PriceByToken.MaxAsync(x => (ulong?)x.Slot) ?? 0;
