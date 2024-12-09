@@ -1,11 +1,10 @@
 using System.Diagnostics;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
-using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
-using Chrysalis.Extensions;
+using Chrysalis.Cardano.Core.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -233,7 +232,7 @@ public class CardanoIndexWorker<T>(
         ReducerState? stateExisting = await dbContext.ReducerStates
             .FirstOrDefaultAsync(rs => rs.Name == reducerName && rs.Slot == slot, stoppingToken);
 
-        if (stateExisting == null) 
+        if (stateExisting == null)
         {
             ReducerState newState = new()
             {

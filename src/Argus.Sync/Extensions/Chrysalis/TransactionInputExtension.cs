@@ -1,5 +1,6 @@
 using Argus.Sync.Data.Models;
 using Chrysalis.Cardano.Core;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 

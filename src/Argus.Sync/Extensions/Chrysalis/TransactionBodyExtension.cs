@@ -1,6 +1,7 @@
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Cbor;
 using Chrysalis.Cardano.Core;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
 using Chrysalis.Cbor;
 
 namespace Argus.Sync.Extensions.Chrysalis;
@@ -23,6 +24,6 @@ public static class TransactionBodyExtension
         AlonzoTransactionOutput alonzoTransactionOutput => alonzoTransactionOutput.Address.Value,
         MaryTransactionOutput maryTransactionOutput => maryTransactionOutput.Address.Value,
         ShellyTransactionOutput shellyTransactionOutput => shellyTransactionOutput.Address.Value,
-        _=> throw new NotImplementedException()
+        _ => throw new NotImplementedException()
     };
 }

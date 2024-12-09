@@ -1,4 +1,5 @@
 using Chrysalis.Cardano.Core;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
 
 namespace Argus.Sync.Extensions.Chrysalis;
 
@@ -34,7 +35,7 @@ public static class TransactionExtension
             },
             _ => throw new NotImplementedException()
         };
-    
+
     public static LovelaceWithMultiAsset TransactionValueLovelace(this Value value)
         => value switch
         {

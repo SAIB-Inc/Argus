@@ -1,8 +1,7 @@
 using CardanoSharp.Wallet.Enums;
-using CardanoSharpAddress = CardanoSharp.Wallet.Models.Addresses.Address;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
 using Microsoft.Extensions.Configuration;
 using NSec.Cryptography;
-using Chrysalis.Cardano.Core;
 
 namespace Argus.Sync.Utils;
 
@@ -18,7 +17,7 @@ public static class ArgusUtils
         }
         return typeName;
     }
-    
+
     public static NetworkType GetNetworkType(IConfiguration configuration)
     {
         return configuration.GetValue<int>("CardanoNetworkMagic") switch
@@ -35,7 +34,7 @@ public static class ArgusUtils
         Blake2b algorithm = HashAlgorithm.Blake2b_256;
         return algorithm.Hash(input);
     }
-    
+
     public static byte[] GetPublicKeyHash(this Address address)
     {
         byte[] dst = new byte[28];

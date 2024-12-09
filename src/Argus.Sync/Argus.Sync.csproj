@@ -13,7 +13,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Chrysalis" Version="0.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.1" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
@@ -22,6 +21,10 @@
     <PackageReference Include="SAIB.CardanoSharp.Wallet" Version="7.1.0" />
     <PackageReference Include="Utxorpc.Sdk" Version="1.1.0-alpha" />
     <PackageReference Include="NSec.Cryptography" Version="24.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\chrysalis\Chrysalis\src\Chrysalis\Chrysalis.csproj" />
   </ItemGroup>
 
 </Project>

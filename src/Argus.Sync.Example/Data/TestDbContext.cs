@@ -8,22 +8,16 @@ public class TestDbContext
     IConfiguration configuration
 ) : CardanoDbContext(options, configuration)
 {
-    public DbSet<UtxosByAddress> UtxosByAddress => Set<UtxosByAddress>();
-    public DbSet<TestDependency> TestDependencies => Set<TestDependency>();
+    public DbSet<BlockTest> BlockTests => Set<BlockTest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
 
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<UtxosByAddress>(entity =>
+        modelBuilder.Entity<BlockTest>(entity =>
         {
-            entity.HasKey(e => new { e.TxHash, e.TxIndex });
-        });
-
-        modelBuilder.Entity<TestDependency>(entity =>
-        {
-            entity.HasKey(e => e.TxHash);
+            entity.HasKey(e => e.BlockHash);
         });
     }
 }

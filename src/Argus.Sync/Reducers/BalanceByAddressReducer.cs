@@ -3,11 +3,14 @@ using System.Linq.Expressions;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions;
-using Block = Chrysalis.Cardano.Core.Block;
+using Block = Chrysalis.Cardano.Core.Types.Block.Block;
 using TransactionOutputEntity = Argus.Sync.Data.Models.OutputBySlot;
 using Chrysalis.Cardano.Core;
-using Chrysalis.Extensions;
 using Argus.Sync.Extensions.Chrysalis;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
+using Chrysalis.Cardano.Core.Extensions;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Input;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
 
 namespace Argus.Sync.Reducers;
 
@@ -38,7 +41,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
             BalanceByAddress? address = balanceAddressEntries
                 .FirstOrDefault(ba => ba.Address == output.Address);
 
-            if(address is not null)
+            if (address is not null)
             {
                 if (output.SpentSlot != null)
                 {
@@ -62,7 +65,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
         List<string> blockAddresses = block.TransactionBodies()
             .SelectMany(
                 tx => tx.Outputs(),
-                (_, output) => output.AddressValue().ToBech32()
+                (_, output) => output.Address()?.ToBech32()
             )
             .Where(addr => !string.IsNullOrEmpty(addr))
             .Select(addr => addr!)
@@ -112,11 +115,11 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
         {
             TransactionOutputEntity? utxo = existingOutputEntries
                 .FirstOrDefault(o => o.Id == input.TransactionId() && o.Index == input.Index());
-            if(utxo == null) continue;
+            if (utxo == null) continue;
 
             BalanceByAddress? address = existingAddresses
                 .FirstOrDefault(ba => ba.Address == utxo.Address);
-            if(address == null) continue;
+            if (address == null) continue;
 
             address.Balance -= utxo.Amount.Lovelace();
         }
@@ -126,7 +129,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
     {
         foreach (TransactionOutput output in tx.Outputs())
         {
-            string? addr = output.AddressValue().ToBech32();
+            string? addr = output.Address()?.ToBech32();
 
             if (addr is not null && addr.StartsWith("addr"))
             {
