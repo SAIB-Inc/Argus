@@ -2,12 +2,15 @@ using Argus.Sync.Data;
 using Argus.Sync.Data.Models.SundaeSwap;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Core;
-using Chrysalis.Cbor;
-using Chrysalis.Extensions;
+using Chrysalis.Cardano.Core.Extensions;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
+using Chrysalis.Cardano.Sundae.Types.Common;
+using Chrysalis.Cardano.Sundae.Types.Datums;
+using Chrysalis.Cbor.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Block = Chrysalis.Cardano.Core.Block;
+using Block = Chrysalis.Cardano.Core.Types.Block.Block;
 
 namespace Argus.Sync.Reducers;
 
@@ -37,7 +40,7 @@ public class SundaePriceByTokenReducer<T>(
             string txHash = transaction.Id();
             foreach (TransactionOutput transactionOutput in transaction.Outputs())
             {
-                string? outputBech32Addr = transactionOutput!.Address()!.Value.ToBech32();
+                string? outputBech32Addr = transactionOutput!.Address()?.ToBech32();
 
 
                 if (string.IsNullOrEmpty(outputBech32Addr) || !outputBech32Addr.StartsWith("addr")) continue;
@@ -52,7 +55,6 @@ public class SundaePriceByTokenReducer<T>(
 
 
                 SundaeSwapLiquidityPool? liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(transactionOutput.Datum()!);
-                //put ! above and below, because if liquidityPool is null, it will throw and exception, stopping execution
                 AssetClassTuple assets = liquidityPool!.Assets;
 
                 string tokenXPolicy = Convert.ToHexString(assets.Value()[0].Value()[0].Value).ToLowerInvariant();

@@ -10,7 +10,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    [Migration("20241129002014_AddInitialMigration")]
+    [Migration("20241209205840_AddInitialMigration")]
     partial class AddInitialMigration
     {
         /// <inheritdoc />
@@ -29,52 +29,32 @@ namespace Argus.Sync.Example.Migrations
                     b.Property<string>("Name")
                         .HasColumnType("text");
 
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
                     b.Property<string>("Hash")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("Name");
+                    b.HasKey("Name", "Slot");
 
                     b.ToTable("ReducerStates", "public");
                 });
 
-            modelBuilder.Entity("Argus.Sync.Example.Models.TestDependency", b =>
+            modelBuilder.Entity("Argus.Sync.Example.Models.BlockTest", b =>
                 {
-                    b.Property<string>("TxHash")
+                    b.Property<string>("BlockHash")
                         .HasColumnType("text");
 
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("TxHash");
-
-                    b.ToTable("TestDependencies", "public");
-                });
-
-            modelBuilder.Entity("Argus.Sync.Example.Models.UtxosByAddress", b =>
-                {
-                    b.Property<string>("TxHash")
-                        .HasColumnType("text");
-
-                    b.Property<int>("TxIndex")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Address")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("Amount")
+                    b.Property<decimal>("BlockNumber")
                         .HasColumnType("numeric(20,0)");
 
                     b.Property<decimal>("Slot")
                         .HasColumnType("numeric(20,0)");
 
-                    b.HasKey("TxHash", "TxIndex");
+                    b.HasKey("BlockHash");
 
-                    b.ToTable("UtxosByAddress", "public");
+                    b.ToTable("BlockTests", "public");
                 });
 #pragma warning restore 612, 618
         }

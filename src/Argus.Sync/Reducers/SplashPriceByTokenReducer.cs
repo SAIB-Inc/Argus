@@ -1,12 +1,16 @@
 using Argus.Sync.Data;
 using Argus.Sync.Utils;
 using Argus.Sync.Data.Models.Splash;
-using Chrysalis.Cbor;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Chrysalis.Cardano.Core;
-using Chrysalis.Extensions;
+using Chrysalis.Cardano.Core.Types.Block;
+
 using Argus.Sync.Extensions.Chrysalis;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
+using Chrysalis.Cardano.Core.Extensions;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
+using Chrysalis.Cardano.Splash.Types.Datums;
+using Chrysalis.Cbor.Converters;
 
 namespace Argus.Sync.Reducers;
 
@@ -37,7 +41,7 @@ public partial class SplashPriceByTokenReducer<T>(
             foreach (TransactionOutput output in transactionOutputs)
             {
 
-                string? address = output?.Address()?.Value.ToBech32();
+                string? address = output?.Address()?.ToBech32();
 
                 if (string.IsNullOrEmpty(address) || !address!.StartsWith("addr")) continue;
 

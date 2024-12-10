@@ -2,12 +2,14 @@ using Argus.Sync.Data;
 using Argus.Sync.Data.Models.Minswap;
 using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Core;
-using Chrysalis.Cbor;
-using Chrysalis.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-
+using Chrysalis.Cardano.Core.Types.Block;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
+using Chrysalis.Cardano.Core.Extensions;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
+using Chrysalis.Cardano.Minswap.Types.Datums;
+using Chrysalis.Cbor.Converters;
 
 namespace Argus.Sync.Reducers;
 
@@ -38,7 +40,7 @@ public class MinswapPriceByTokenReducer<T>(
             foreach (TransactionOutput transactionOutput in transaction.Outputs())
             {
 
-                string? outputBech32Addr = transactionOutput.AddressValue().ToBech32();
+                string? outputBech32Addr = transactionOutput.Address()?.ToBech32();
 
                 if (string.IsNullOrEmpty(outputBech32Addr) || !outputBech32Addr.StartsWith("addr")) continue;
 
@@ -103,4 +105,3 @@ public class MinswapPriceByTokenReducer<T>(
         return maxSlot;
     }
 }
-

@@ -1,10 +1,10 @@
-using Argus.Sync.Data.Models.SundaeSwap;
-using Chrysalis.Cardano.Cbor;
+using Chrysalis.Cardano.Sundae.Types.Common;
+using Chrysalis.Cbor.Types.Primitives;
 
 
 public static class SundaeSwapExtension
 {
-    public static CborBytes[] Value(this AssetClass asset)
+    public static List<CborBytes> Value(this AssetClass asset)
         => asset switch
         {
             AssetClassIndefinite indefAsset => indefAsset.Value,
@@ -12,7 +12,7 @@ public static class SundaeSwapExtension
             _ => throw new NotImplementedException()
         };
 
-    public static AssetClass[] Value(this AssetClassTuple asset)
+    public static List<AssetClass> Value(this AssetClassTuple asset)
         => asset switch
         {
             AssetClassTupleIndef indefTuple => indefTuple.Value,

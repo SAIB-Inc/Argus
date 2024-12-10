@@ -1,12 +1,16 @@
 using Argus.Sync.Data.Models;
-using Chrysalis.Cardano.Cbor;
-using Chrysalis.Cardano.Core;
-using Chrysalis.Cbor;
 using Utxorpc.Sdk;
-using ChrysalisBlock = Chrysalis.Cardano.Core.Block;
-using CborBytes = Chrysalis.Cardano.Cbor.CborBytes;
-
+using ChrysalisBlock = Chrysalis.Cardano.Core.Types.Block.Block;
+using CborBytes = Chrysalis.Cbor.Types.Primitives.CborBytes;
 using U5CNextResponse = Utxorpc.Sdk.Models.NextResponse;
+using Chrysalis.Cardano.Core.Types.Block;
+using Chrysalis.Cbor.Converters;
+using Chrysalis.Cardano.Core.Types.Block.Header;
+using Chrysalis.Cardano.Core.Types.Block.Header.Body;
+using Chrysalis.Cbor.Types.Primitives;
+using Chrysalis.Cbor.Types.Collections;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.WitnessSet;
 namespace Argus.Sync.Providers;
 
 public class U5CProvider(string url, Dictionary<string, string> header) : ICardanoChainProvider
@@ -35,7 +39,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                 switch (response.Action)
                 {
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Apply:
-                        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra?>(response.AppliedBlock!.NativeBytes);
+                        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.AppliedBlock!.NativeBytes);
                         ChrysalisBlock? block = blockWithEra?.Block;
                         Console.WriteLine($"Deserialized block: Slot {response.AppliedBlock.NativeBytes}");
                         yield return new NextResponse(
@@ -45,7 +49,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Undo:
-                        blockWithEra = CborSerializer.Deserialize<BlockWithEra?>(response.UndoneBlock!.NativeBytes);
+                        blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.UndoneBlock!.NativeBytes);
                         block = blockWithEra?.Block;
                         Console.WriteLine($"Deserialized block: Slot {response.UndoneBlock.NativeBytes}");
                         yield return new NextResponse(
@@ -55,8 +59,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Reset:
-
-                        block = new ChrysalisBlock(
+                        block = new PostAlonzoBlock(
                             new BlockHeader(
                                 new AlonzoHeaderBody(
                                     new CborUlong(0),
@@ -77,10 +80,10 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                                 ),
                             new CborBytes([])
                             ),
-                            new CborDefiniteList<TransactionBody>([]),
-                            new CborDefiniteList<TransactionWitnessSet>([]),
+                            new CborDefList<TransactionBody>([]),
+                            new CborDefList<TransactionWitnessSet>([]),
                             new AuxiliaryDataSet([]),
-                            new CborDefiniteList<CborInt>([])
+                            new CborDefList<CborInt>([])
                         );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,

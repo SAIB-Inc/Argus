@@ -1,7 +1,9 @@
 using System.Text;
 using Argus.Sync.Extensions.Chrysalis;
-using Chrysalis.Cardano.Cbor;
-using Chrysalis.Cardano.Core;
+using Chrysalis.Cardano.Core.Types.Block.Transaction;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.WitnessSet;
+using Chrysalis.Cbor.Types.Primitives;
+
 
 namespace Argus.Sync.Utils;
 
@@ -36,4 +38,3 @@ public static class JpgUtils
     }
 
 }
-

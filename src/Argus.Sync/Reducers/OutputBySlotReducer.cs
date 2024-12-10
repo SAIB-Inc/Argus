@@ -1,12 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 using Argus.Sync.Data;
-using Block = Chrysalis.Cardano.Core.Block;
+using Block = Chrysalis.Cardano.Core.Types.Block.Block;
 using Argus.Sync.Data.Models.Enums;
 using Argus.Sync.Extensions;
 using Argus.Sync.Utils;
 using Argus.Sync.Data.Models;
-using Chrysalis.Extensions;
+using Chrysalis.Cardano.Core.Extensions;
 
 namespace Argus.Sync.Reducers;
 

@@ -1,9 +1,9 @@
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
-using Chrysalis.Cbor;
-using Chrysalis.Extensions;
+using Chrysalis.Cardano.Core.Extensions;
+using Chrysalis.Cbor.Converters;
 using Microsoft.EntityFrameworkCore;
-using Block = Chrysalis.Cardano.Core.Block;
+using Block = Chrysalis.Cardano.Core.Types.Block.Block;
 
 namespace Argus.Sync.Reducers;
 

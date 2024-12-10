@@ -1,9 +1,10 @@
 using Argus.Sync.Data.Models;
 using Chrysalis.Cbor;
 using PallasNextResponse = Pallas.NET.Models.NextResponse;
-using ChrysalisBlock = Chrysalis.Cardano.Core.Block;
+using ChrysalisBlock = Chrysalis.Cardano.Core.Types.Block.Block;
 using Pallas.NET;
 using Pallas.NET.Models.Enums;
+using Chrysalis.Cbor.Converters;
 
 namespace Argus.Sync.Providers;
 
@@ -19,7 +20,7 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
             ]
         ))
         {
-            if(stoppingToken.HasValue && stoppingToken.Value.IsCancellationRequested)
+            if (stoppingToken.HasValue && stoppingToken.Value.IsCancellationRequested)
             {
                 await client.DisconnectAsync();
                 yield break;
@@ -36,7 +37,7 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                              block!
                         );
                         break;
-                   case Pallas.NET.Models.Enums.NextResponseAction.RollBack:
+                    case Pallas.NET.Models.Enums.NextResponseAction.RollBack:
                         block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
                         yield return new NextResponse(
                             Data.Models.NextResponseAction.RollBack,

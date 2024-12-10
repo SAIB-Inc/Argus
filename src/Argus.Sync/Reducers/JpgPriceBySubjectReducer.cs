@@ -1,4 +1,4 @@
-using Chrysalis.Cbor;
+using Chrysalis.Cardano.Core.Types.Block;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Data.Models.Enums;
@@ -7,13 +7,14 @@ using Argus.Sync.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Argus.Sync.Data.Models.Jpg;
-using Block = Chrysalis.Cardano.Core.Block;
-using JpgListing = Argus.Sync.Data.Models.Jpg.Listing;
-using Chrysalis.Cardano.Cbor;
-using Chrysalis.Cardano.Core;
-using Chrysalis.Extensions;
+using Block = Chrysalis.Cardano.Core.Types.Block.Block;
+using JpgListing = Chrysalis.Cardano.Jpg.Types.Datums.Listing;
+using Chrysalis.Cardano.Core.Extensions;
 using System.Linq.Expressions;
 using Argus.Sync.Extensions;
+using Chrysalis.Cbor.Types.Primitives;
+using Chrysalis.Cbor.Converters;
+using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
 
 namespace Argus.Sync.Reducers;
 
@@ -112,12 +113,13 @@ public class JpgPriceBySubjectReducer<T>(
 
                 if (!txHasJpgOutput) return [];
 
-                CborInt? cborTxIndexInBlock = block.AuxiliaryDataSet.Value.Keys
-                    .FirstOrDefault(key => key.Value == txIndexInBlock);
+                int? cborTxIndexInBlock = block.AuxiliaryDataSet()
+                    .Keys
+                    .FirstOrDefault(key => key == txIndexInBlock);
 
                 Dictionary<string, byte[]> metadata =
                     cborTxIndexInBlock is not null
-                        ? JpgUtils.MapMetadataToDatumDictionary(block.AuxiliaryDataSet.Value[cborTxIndexInBlock])
+                        ? JpgUtils.MapMetadataToDatumDictionary(block.AuxiliaryDataSet()[cborTxIndexInBlock.Value])
                         : [];
 
                 return tx.Outputs()
