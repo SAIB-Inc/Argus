@@ -192,6 +192,10 @@ public class CardanoIndexWorker<T>(
             _ => 0
         };
 
+        var recentPoints = _reducerStates[reducerName].Points;
+
+        _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
+
         PreventMassRollback(currentSlot, rollbackSlot, reducerName, stoppingToken);
 
         // Wait for dependencies to rollback
@@ -200,15 +204,14 @@ public class CardanoIndexWorker<T>(
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
 
+        Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {Slot}", reducerName, rollbackSlot);
+        await reducer.RollBackwardAsync(rollbackSlot);
+
         // Find the closest valid point from recent points
-        var recentPoints = _reducerStates[reducerName].Points;
         var closestPoint = recentPoints
             .Where(p => p.Slot <= rollbackSlot)
             .OrderByDescending(p => p.Slot)
             .FirstOrDefault();
-
-        Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {Slot}", reducerName, closestPoint.Slot);
-        await reducer.RollBackwardAsync(closestPoint.Slot);
 
         // Update the recent points list to remove any points after the rollback
         recentPoints.RemoveAll(p => p.Slot > closestPoint.Slot);
