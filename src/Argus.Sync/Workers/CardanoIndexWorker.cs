@@ -189,18 +189,18 @@ public class CardanoIndexWorker<T>(
         {
             RollBackType.Exclusive => response.Block!.Slot() + 1,
             RollBackType.Inclusive => response.Block!.Slot(),
-            _ => 0
+            _ => 0  
         };
-
-        var recentPoints = _reducerStates[reducerName].Points;
-
-        _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
 
         PreventMassRollback(currentSlot, rollbackSlot, reducerName, stoppingToken);
 
         // Wait for dependencies to rollback
         await AwaitReducerDependenciesRollbackAsync(reducerName, rollbackSlot, stoppingToken);
 
+        var recentPoints = _reducerStates[reducerName].Points;
+
+        _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
+        
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
 
