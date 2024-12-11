@@ -59,9 +59,9 @@ public class CardanoIndexWorker<T>(
         // the rest of the states we can update in-memory
         using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
 
-        var allStates = await dbContext.ReducerStates.ToListAsync(stoppingToken);
+        List<ReducerState> allStates = await dbContext.ReducerStates.ToListAsync(stoppingToken);
 
-        var lastRecordedReducerStates = allStates
+        Dictionary<string, (ulong, List<(ulong Slot, string Hash)>)> lastRecordedReducerStates = allStates
             .Where(rs => registeredReducers.Contains(rs.Name))
             .GroupBy(rs => rs.Name)
             .ToDictionary(
@@ -79,7 +79,7 @@ public class CardanoIndexWorker<T>(
         // Update ReducerStates with the current slots and intersection points
         _reducerStates.ToList().ForEach(reducerState =>
         {
-            var (slot, points) = lastRecordedReducerStates.GetValueOrDefault(
+            (ulong slot, List<(ulong Slot, string Hash)> points) = lastRecordedReducerStates.GetValueOrDefault(
                 reducerState.Key,
                 (0UL, [])
             );
@@ -140,7 +140,7 @@ public class CardanoIndexWorker<T>(
         // Run the reducer's rollforward logic
         await reducer.RollForwardAsync(response.Block);
 
-        var recentPoints = _reducerStates[reducerName].Points;
+        List<(ulong Slot, string Hash)> recentPoints = _reducerStates[reducerName].Points;
         recentPoints.Add((currentSlot, currentBlockHash));
 
         // Keeps the window size of the recent points
@@ -189,18 +189,25 @@ public class CardanoIndexWorker<T>(
         {
             RollBackType.Exclusive => response.Block!.Slot() + 1,
             RollBackType.Inclusive => response.Block!.Slot(),
-            _ => 0  
+            _ => 0
         };
 
         PreventMassRollback(currentSlot, rollbackSlot, reducerName, stoppingToken);
 
         // Wait for dependencies to rollback
+        bool hasDependents = _reducerStates
+            .Where(e => e.Value.Dependencies.Contains(reducerName))
+            .Any();
+
+        List<(ulong Slot, string Hash)> recentPoints = _reducerStates[reducerName].Points;
+
+        if (hasDependents)
+            _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
+
         await AwaitReducerDependenciesRollbackAsync(reducerName, rollbackSlot, stoppingToken);
 
-        var recentPoints = _reducerStates[reducerName].Points;
-
         _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
-        
+
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
 
@@ -208,7 +215,7 @@ public class CardanoIndexWorker<T>(
         await reducer.RollBackwardAsync(rollbackSlot);
 
         // Find the closest valid point from recent points
-        var closestPoint = recentPoints
+        (ulong Slot, string Hash) closestPoint = recentPoints
             .Where(p => p.Slot <= rollbackSlot)
             .OrderByDescending(p => p.Slot)
             .FirstOrDefault();
