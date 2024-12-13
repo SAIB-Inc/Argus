@@ -236,9 +236,9 @@ public class CardanoIndexWorker<T>(
         }
     }
 
-    private ulong GetLatestSlotByReducer(List<Point> intersections)
+    private static ulong GetLatestSlotByReducer(List<Point> intersections)
     {
-        return intersections.Max(e => e.Slot);
+        return intersections.OrderByDescending(o => o.Slot).Select(i => i.Slot).FirstOrDefault();
     }
 
     private async Task AwaitReducerDependenciesRollForwardAsync(string reducerName, ulong currentSlot, CancellationToken stoppingToken)
@@ -246,7 +246,7 @@ public class CardanoIndexWorker<T>(
         while (true)
         {
             // Check for dependencies
-            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => GetLatestSlotByReducer(_reducerStates[e].Intersections) < currentSlot);
+            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => CardanoIndexWorker<T>.GetLatestSlotByReducer(_reducerStates[e].Intersections) < currentSlot);
 
             // If this reducer can move forward, we break out of this loop
             if (canRollForward) break;
@@ -266,7 +266,7 @@ public class CardanoIndexWorker<T>(
             // @TODO: recheck logic
             bool isDependentsRollingBack = _reducerStates
                 .Where(e => e.Value.Dependencies.Contains(reducerName))
-                .Any(e => e.Value.Intersections.Max(e => e.Slot) >= rollbackSlot);
+                .Any(e => CardanoIndexWorker<T>.GetLatestSlotByReducer(e.Value.Intersections) >= rollbackSlot);
 
             // If no dependents are rolling back, we can break out of this loop
             if (!isDependentsRollingBack) break;
@@ -324,14 +324,18 @@ public class CardanoIndexWorker<T>(
             .OrderByDescending(rs => rs.Slot)
             .ToListAsync();
 
+        await dbContext.DisposeAsync();
+
         if (latestState.Any())
         {
             configStartSlot = latestState.First().Slot;
             configStartHash = latestState.First().Hash;
+            return latestState.Select(rs => new Point(rs.Hash, rs.Slot));
         }
-
-        await dbContext.DisposeAsync();
-        return latestState.Select(rs => new Point(rs.Hash, rs.Slot));
+        else
+        {
+            return [new Point(configStartHash, configStartSlot)];
+        }
     }
 
     private ICardanoChainProvider GetCardanoChainProvider()
