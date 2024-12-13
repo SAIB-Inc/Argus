@@ -216,7 +216,7 @@ public class CardanoIndexWorker<T>(
 
         // Find the closest valid point from recent points
         (ulong Slot, string Hash) closestPoint = recentPoints
-            .Where(p => p.Slot <= rollbackSlot)
+            .Where(p => p.Slot <= rollbackSlot && p.Hash != null)
             .OrderByDescending(p => p.Slot)
             .FirstOrDefault();
 
