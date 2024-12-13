@@ -21,13 +21,11 @@ public class CardanoIndexWorker<T>(
     IEnumerable<IReducer<IReducerModel>> Reducers
 ) : BackgroundService where T : CardanoDbContext
 {
-    private static readonly Dictionary<string, (ulong CurrentSlot, List<string> Dependencies, List<(ulong Slot, string Hash)> Points)> _reducerStates = [];
+    private static readonly Dictionary<string, (List<string> Dependencies, List<Point> Intersections)> _reducerStates = [];
     private readonly ulong _maxRollbackSlots = Configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000UL);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await PrepopulateReducerStatesAsync(stoppingToken);
-
         // Execute reducers
         await Task.WhenAny(
             Reducers.Select(
@@ -38,54 +36,6 @@ public class CardanoIndexWorker<T>(
         Environment.Exit(1);
     }
 
-    private async Task PrepopulateReducerStatesAsync(CancellationToken stoppingToken)
-    {
-        // Pre-populate ReducerStates with registered reducers
-        // and their dependencies
-        Reducers.ToList().ForEach(reducer =>
-        {
-            string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-            List<string> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducer.GetType())
-                .Select(ArgusUtils.GetTypeNameWithoutGenerics)
-                .ToList();
-            _reducerStates.Add(reducerName, (0UL, dependencies, []));
-        });
-
-        // Get all registered reducers to fetch their currently saved slots
-        // in the database
-        IEnumerable<string> registeredReducers = _reducerStates.Select(e => e.Key);
-
-        // Fetch current slots from database, we do this so we only need to fetch the slots once on sync start
-        // the rest of the states we can update in-memory
-        using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-
-        List<ReducerState> allStates = await dbContext.ReducerStates.ToListAsync(stoppingToken);
-
-        Dictionary<string, (ulong, List<(ulong Slot, string Hash)>)> lastRecordedReducerStates = allStates
-            .Where(rs => registeredReducers.Contains(rs.Name))
-            .GroupBy(rs => rs.Name)
-            .ToDictionary(
-                g => g.Key,
-                g => (
-                    g.Max(rs => rs.Slot),
-                    g.OrderByDescending(rs => rs.Slot)
-                        .Select(rs => (rs.Slot, rs.Hash))
-                        .ToList()
-                )
-            );
-
-        await dbContext.DisposeAsync();
-
-        // Update ReducerStates with the current slots and intersection points
-        _reducerStates.ToList().ForEach(reducerState =>
-        {
-            (ulong slot, List<(ulong Slot, string Hash)> points) = lastRecordedReducerStates.GetValueOrDefault(
-                reducerState.Key,
-                (0UL, [])
-            );
-            _reducerStates[reducerState.Key] = (slot, reducerState.Value.Dependencies, points);
-        });
-    }
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
@@ -93,9 +43,14 @@ public class CardanoIndexWorker<T>(
         try
         {
             ICardanoChainProvider chainProvider = GetCardanoChainProvider();
-            Point intersection = await GetReducerStartPoint(reducer, stoppingToken);
 
-            await foreach (NextResponse response in chainProvider.StartChainSyncAsync(intersection, stoppingToken))
+            IEnumerable<Point> intersections = await GetReducerStartPoint(reducer, stoppingToken);
+
+            List<string> dependencies = [.. ReducerDependencyResolver.GetReducerDependencies(reducer.GetType()).Select(ArgusUtils.GetTypeNameWithoutGenerics)];
+            Point startPoint = intersections.First();
+            _reducerStates[ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType())] = (dependencies, intersections.ToList());
+
+            await foreach (NextResponse response in chainProvider.StartChainSyncAsync(startPoint, stoppingToken))
             {
                 currentResponse = response;  // Store the current response
                 Task responseTask = response.Action switch
@@ -140,27 +95,26 @@ public class CardanoIndexWorker<T>(
         // Run the reducer's rollforward logic
         await reducer.RollForwardAsync(response.Block);
 
-        List<(ulong Slot, string Hash)> recentPoints = _reducerStates[reducerName].Points;
-        recentPoints.Add((currentSlot, currentBlockHash));
+        _reducerStates[reducerName].Intersections.Add(new Point(currentBlockHash, currentSlot));
 
         // Keeps the window size of the recent points
         int rollbackBuffer = GetRollbackBuffer(reducerName);
-        if (recentPoints.Count > rollbackBuffer)
+        if (_reducerStates[reducerName].Intersections.Count > rollbackBuffer)
         {
-            recentPoints.RemoveRange(0, recentPoints.Count - rollbackBuffer);
+            _reducerStates[reducerName].Intersections.RemoveRange(0, _reducerStates[reducerName].Intersections.Count - rollbackBuffer);
         }
 
         // Update database state
         await UpdateReducerStateAsync(reducerName, currentSlot, currentBlockHash, stoppingToken);
+
+        // Tag as standby again after processing rollforward
+        _reducerStates[reducerName] = (_reducerStates[reducerName].Dependencies, _reducerStates[reducerName].Intersections);
 
         // Stop the timer
         reducerStopwatch.Stop();
 
         // Log the time taken to process the rollforward
         Logger.LogInformation("Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
-
-        // Tag as standby again after processing rollforward
-        _reducerStates[reducerName] = (currentSlot, _reducerStates[reducerName].Dependencies, recentPoints);
 
         // Stop the timer
         stopwatch.Stop();
@@ -179,7 +133,7 @@ public class CardanoIndexWorker<T>(
     {
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
-        ulong currentSlot = await reducer.QueryTip() ?? 0UL;
+        ulong currentSlot = _reducerStates[reducerName].Intersections.First().Slot;
 
         // if it's zero, we do not need to rollback
         if (currentSlot == 0) return;
@@ -199,14 +153,12 @@ public class CardanoIndexWorker<T>(
             .Where(e => e.Value.Dependencies.Contains(reducerName))
             .Any();
 
-        List<(ulong Slot, string Hash)> recentPoints = _reducerStates[reducerName].Points;
+        List<Point> recentIntersections = _reducerStates[reducerName].Intersections;
 
         if (hasDependents)
-            _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
+            _reducerStates[reducerName] = (_reducerStates[reducerName].Dependencies, recentIntersections);
 
         await AwaitReducerDependenciesRollbackAsync(reducerName, rollbackSlot, stoppingToken);
-
-        _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
 
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
@@ -215,20 +167,21 @@ public class CardanoIndexWorker<T>(
         await reducer.RollBackwardAsync(rollbackSlot);
 
         // Find the closest valid point from recent points
-        (ulong Slot, string Hash) closestPoint = recentPoints
-            .Where(p => p.Slot <= rollbackSlot && p.Hash != null)
+        Point closestPoint = recentIntersections
+            .Where(p => p.Slot <= rollbackSlot)
             .OrderByDescending(p => p.Slot)
-            .FirstOrDefault();
+            .First();
 
         // Update the recent points list to remove any points after the rollback
-        recentPoints.RemoveAll(p => p.Slot > closestPoint.Slot);
+        // @TODO: check if inclusive or exlusive
+        recentIntersections.RemoveAll(p => p.Slot >= closestPoint.Slot);
 
         // Update database state
-        await UpdateReducerStateAsync(reducerName, closestPoint.Slot, closestPoint.Hash, stoppingToken);
+        await RemoveReducerStateAsync(reducerName, closestPoint.Slot, stoppingToken);
 
         reducerStopwatch.Stop();
 
-        _reducerStates[reducerName] = (rollbackSlot, _reducerStates[reducerName].Dependencies, recentPoints);
+        _reducerStates[reducerName] = (_reducerStates[reducerName].Dependencies, recentIntersections);
 
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
     }
@@ -267,12 +220,33 @@ public class CardanoIndexWorker<T>(
         await dbContext.SaveChangesAsync(stoppingToken);
     }
 
+    private async Task RemoveReducerStateAsync(string reducerName, ulong slot, CancellationToken stoppingToken)
+    {
+        await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+
+        IEnumerable<ReducerState> states = await dbContext.ReducerStates
+            .AsNoTracking()
+            .Where(rs => rs.Name == reducerName && rs.Slot >= slot)
+            .ToListAsync(stoppingToken);
+
+        if (states.Any())
+        {
+            dbContext.ReducerStates.RemoveRange(states);
+            await dbContext.SaveChangesAsync(stoppingToken);
+        }
+    }
+
+    private ulong GetLatestSlotByReducer(List<Point> intersections)
+    {
+        return intersections.Max(e => e.Slot);
+    }
+
     private async Task AwaitReducerDependenciesRollForwardAsync(string reducerName, ulong currentSlot, CancellationToken stoppingToken)
     {
         while (true)
         {
             // Check for dependencies
-            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => _reducerStates[e].CurrentSlot < currentSlot);
+            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => GetLatestSlotByReducer(_reducerStates[e].Intersections) < currentSlot);
 
             // If this reducer can move forward, we break out of this loop
             if (canRollForward) break;
@@ -292,7 +266,7 @@ public class CardanoIndexWorker<T>(
             // @TODO: recheck logic
             bool isDependentsRollingBack = _reducerStates
                 .Where(e => e.Value.Dependencies.Contains(reducerName))
-                .Any(e => e.Value.CurrentSlot >= rollbackSlot);
+                .Any(e => e.Value.Intersections.Max(e => e.Slot) >= rollbackSlot);
 
             // If no dependents are rolling back, we can break out of this loop
             if (!isDependentsRollingBack) break;
@@ -327,7 +301,7 @@ public class CardanoIndexWorker<T>(
         return currentSlot == 0 || rollbackSlot > currentSlot || slotDifference <= (long)_maxRollbackSlots;
     }
 
-    private async Task<Point> GetReducerStartPoint(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
+    private async Task<IEnumerable<Point>> GetReducerStartPoint(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
@@ -345,19 +319,19 @@ public class CardanoIndexWorker<T>(
         string configStartHash = reducerSection.GetValue<string>("StartHash") ?? defaultStartHash;
 
         await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-        ReducerState? latestState = await dbContext.ReducerStates
+        IEnumerable<ReducerState> latestState = await dbContext.ReducerStates
             .Where(rs => rs.Name == reducerName)
             .OrderByDescending(rs => rs.Slot)
-            .FirstOrDefaultAsync(stoppingToken);
+            .ToListAsync();
 
-        if (latestState is not null)
+        if (latestState.Any())
         {
-            configStartSlot = latestState.Slot;
-            configStartHash = latestState.Hash;
+            configStartSlot = latestState.First().Slot;
+            configStartHash = latestState.First().Hash;
         }
 
         await dbContext.DisposeAsync();
-        return new Point(configStartHash, configStartSlot);
+        return latestState.Select(rs => new Point(rs.Hash, rs.Slot));
     }
 
     private ICardanoChainProvider GetCardanoChainProvider()
