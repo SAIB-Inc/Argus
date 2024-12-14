@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
@@ -21,7 +22,7 @@ public class CardanoIndexWorker<T>(
     IEnumerable<IReducer<IReducerModel>> Reducers
 ) : BackgroundService where T : CardanoDbContext
 {
-    private static readonly Dictionary<string, (List<string> Dependencies, List<Point> Intersections)> _reducerStates = [];
+    private static readonly ConcurrentDictionary<string, ReducerRuntimeState> _reducerStates = [];
     private readonly ulong _maxRollbackSlots = Configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000UL);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -36,7 +37,6 @@ public class CardanoIndexWorker<T>(
         Environment.Exit(1);
     }
 
-
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
         NextResponse? currentResponse = null;
@@ -48,7 +48,15 @@ public class CardanoIndexWorker<T>(
 
             List<string> dependencies = [.. ReducerDependencyResolver.GetReducerDependencies(reducer.GetType()).Select(ArgusUtils.GetTypeNameWithoutGenerics)];
             Point startPoint = intersections.First();
-            _reducerStates[ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType())] = (dependencies, intersections.ToList());
+            string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+
+            _reducerStates.AddOrUpdate(reducerName, new ReducerRuntimeState
+            {
+                Name = reducerName,
+                Dependencies = dependencies,
+                Intersections = intersections.ToList(),
+                RollbackBuffer = GetRollbackBuffer(reducerName)
+            }, (k, v) => v);
 
             await foreach (NextResponse response in chainProvider.StartChainSyncAsync(startPoint, stoppingToken))
             {
@@ -82,33 +90,24 @@ public class CardanoIndexWorker<T>(
         ulong currentBlockNumber = response.Block.Number();
         string currentBlockHash = response.Block.Hash();
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+        ReducerRuntimeState reducerState = _reducerStates[reducerName];
 
         // Let's check if the reducer can move forward
-        await AwaitReducerDependenciesRollForwardAsync(reducerName, currentSlot, stoppingToken);
+        await AwaitReducerDependenciesRollForwardAsync(reducerState, currentSlot, stoppingToken);
 
         // Log the new chain event rollforward
         Logger.LogInformation("[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}", reducerName, currentSlot, currentBlockNumber);
 
-        // Execute the rollforward logic of this reducer
         Stopwatch reducerStopwatch = Stopwatch.StartNew();
 
         // Run the reducer's rollforward logic
         await reducer.RollForwardAsync(response.Block);
 
-        _reducerStates[reducerName].Intersections.Add(new Point(currentBlockHash, currentSlot));
-
-        // Keeps the window size of the recent points
-        int rollbackBuffer = GetRollbackBuffer(reducerName);
-        if (_reducerStates[reducerName].Intersections.Count > rollbackBuffer)
-        {
-            _reducerStates[reducerName].Intersections.RemoveRange(0, _reducerStates[reducerName].Intersections.Count - rollbackBuffer);
-        }
-
         // Update database state
         await UpdateReducerStateAsync(reducerName, currentSlot, currentBlockHash, stoppingToken);
 
         // Tag as standby again after processing rollforward
-        _reducerStates[reducerName] = (_reducerStates[reducerName].Dependencies, _reducerStates[reducerName].Intersections);
+        reducerState.AddIntersection(new Point(currentBlockHash, currentSlot));
 
         // Stop the timer
         reducerStopwatch.Stop();
@@ -116,7 +115,6 @@ public class CardanoIndexWorker<T>(
         // Log the time taken to process the rollforward
         Logger.LogInformation("Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
 
-        // Stop the timer
         stopwatch.Stop();
 
         Logger.LogInformation(
@@ -132,8 +130,9 @@ public class CardanoIndexWorker<T>(
     private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+        ReducerRuntimeState reducerState = _reducerStates[reducerName];
 
-        ulong currentSlot = _reducerStates[reducerName].Intersections.First().Slot;
+        ulong currentSlot = reducerState.CurrentSlot;
 
         // if it's zero, we do not need to rollback
         if (currentSlot == 0) return;
@@ -148,40 +147,33 @@ public class CardanoIndexWorker<T>(
 
         PreventMassRollback(currentSlot, rollbackSlot, reducerName, stoppingToken);
 
+        List<Point> recentIntersections = reducerState.Intersections;
+
         // Wait for dependencies to rollback
         bool hasDependents = _reducerStates
-            .Where(e => e.Value.Dependencies.Contains(reducerName))
-            .Any();
-
-        List<Point> recentIntersections = _reducerStates[reducerName].Intersections;
+            .Select(e => e.Value.Dependencies)
+            .Any(reducerState.HasDependents);
 
         if (hasDependents)
-            _reducerStates[reducerName] = (_reducerStates[reducerName].Dependencies, recentIntersections);
+            reducerState.RemoveIntersections(rollbackSlot);
 
-        await AwaitReducerDependenciesRollbackAsync(reducerName, rollbackSlot, stoppingToken);
+        await AwaitReducerDependenciesRollbackAsync(reducerState, rollbackSlot, stoppingToken);
 
         Stopwatch reducerStopwatch = new();
         reducerStopwatch.Start();
 
         Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {Slot}", reducerName, rollbackSlot);
+
+        // Run the reducer's rollback logic
         await reducer.RollBackwardAsync(rollbackSlot);
 
-        // Find the closest valid point from recent points
-        Point closestPoint = recentIntersections
-            .Where(p => p.Slot <= rollbackSlot)
-            .OrderByDescending(p => p.Slot)
-            .First();
-
-        // Update the recent points list to remove any points after the rollback
-        // @TODO: check if inclusive or exlusive
-        recentIntersections.RemoveAll(p => p.Slot >= closestPoint.Slot);
-
         // Update database state
-        await RemoveReducerStateAsync(reducerName, closestPoint.Slot, stoppingToken);
+        await RemoveReducerStateAsync(reducerName, rollbackSlot, stoppingToken);
+
+        // Update local state to match database
+        reducerState.RemoveIntersections(rollbackSlot);
 
         reducerStopwatch.Stop();
-
-        _reducerStates[reducerName] = (_reducerStates[reducerName].Dependencies, recentIntersections);
 
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
     }
@@ -189,8 +181,7 @@ public class CardanoIndexWorker<T>(
     private async Task UpdateReducerStateAsync(string reducerName, ulong slot, string hash, CancellationToken stoppingToken)
     {
         await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-
-        int rollbackBuffer = GetRollbackBuffer(reducerName);
+        ReducerRuntimeState reducerState = _reducerStates[reducerName];
 
         ReducerState? stateExisting = await dbContext.ReducerStates
             .FirstOrDefaultAsync(rs => rs.Name == reducerName && rs.Slot == slot, stoppingToken);
@@ -211,9 +202,10 @@ public class CardanoIndexWorker<T>(
             .OrderByDescending(rs => rs.Slot)
             .ToListAsync(stoppingToken);
 
+        int rollbackBuffer = reducerState.RollbackBuffer;
         if (existingStates.Count >= rollbackBuffer)
         {
-            IEnumerable<ReducerState> statesToRemove = existingStates.Skip(rollbackBuffer - 1);
+            IEnumerable<ReducerState> statesToRemove = existingStates.Skip(rollbackBuffer);
             dbContext.ReducerStates.RemoveRange(statesToRemove);
         }
 
@@ -236,28 +228,23 @@ public class CardanoIndexWorker<T>(
         }
     }
 
-    private static ulong GetLatestSlotByReducer(List<Point> intersections)
-    {
-        return intersections.OrderByDescending(o => o.Slot).Select(i => i.Slot).FirstOrDefault();
-    }
-
-    private async Task AwaitReducerDependenciesRollForwardAsync(string reducerName, ulong currentSlot, CancellationToken stoppingToken)
+    private async Task AwaitReducerDependenciesRollForwardAsync(ReducerRuntimeState reducerState, ulong currentSlot, CancellationToken stoppingToken)
     {
         while (true)
         {
             // Check for dependencies
-            bool canRollForward = !_reducerStates[reducerName].Dependencies.Any(e => CardanoIndexWorker<T>.GetLatestSlotByReducer(_reducerStates[e].Intersections) < currentSlot);
+            bool canRollForward = !reducerState.Dependencies.Any(e => _reducerStates[e].CurrentSlot < currentSlot);
 
             // If this reducer can move forward, we break out of this loop
             if (canRollForward) break;
 
             // Otherwise we add a slight delay to recheck if the dependencies have moved forward
-            Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward", reducerName);
+            Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward", reducerState.Name);
             await Task.Delay(100, stoppingToken);
         }
     }
 
-    private async Task AwaitReducerDependenciesRollbackAsync(string reducerName, ulong rollbackSlot, CancellationToken stoppingToken)
+    private async Task AwaitReducerDependenciesRollbackAsync(ReducerRuntimeState reducerState, ulong rollbackSlot, CancellationToken stoppingToken)
     {
         // Check if the reducer has dependencies that needs to rollback first
         while (true)
@@ -265,14 +252,15 @@ public class CardanoIndexWorker<T>(
             // Let's check if anything depends on this reducer, that means we need them to finish rollback first
             // @TODO: recheck logic
             bool isDependentsRollingBack = _reducerStates
-                .Where(e => e.Value.Dependencies.Contains(reducerName))
-                .Any(e => CardanoIndexWorker<T>.GetLatestSlotByReducer(e.Value.Intersections) >= rollbackSlot);
+                .Select(e => e)
+                .Where(e => reducerState.HasDependents(e.Value.Dependencies))
+                .Any(e => e.Value.CurrentSlot > rollbackSlot);
 
             // If no dependents are rolling back, we can break out of this loop
             if (!isDependentsRollingBack) break;
 
             // Otherwise we wait
-            Logger.LogInformation("Reducer {Reducer} is waiting for dependents to finish rollback", reducerName);
+            Logger.LogInformation("Reducer {Reducer} is waiting for dependents to finish rollback", reducerState.Name);
             await Task.Delay(100, stoppingToken);
         }
     }
@@ -388,6 +376,6 @@ public class CardanoIndexWorker<T>(
     private int GetRollbackBuffer(string reducerName)
     {
         IConfigurationSection reducerSection = Configuration.GetSection($"CardanoIndexReducers:{reducerName}");
-        return reducerSection.GetValue<int>("RollbackBuffer", 10);
+        return reducerSection.GetValue("RollbackBuffer", 10);
     }
 }
