@@ -127,7 +127,11 @@ public class CardanoIndexWorker<T>(
         ulong currentSlot = reducerState.CurrentSlot;
 
         // if it's zero, we do not need to rollback
-        if (currentSlot == 0) return;
+        if (currentSlot == 0)
+        {
+            reducerState.IsRollingBack = false;
+            return;
+        }
 
         reducerState.IsRollingBack = true;
 
