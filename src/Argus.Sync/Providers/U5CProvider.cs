@@ -41,7 +41,6 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Apply:
                         BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.AppliedBlock!.NativeBytes);
                         ChrysalisBlock? block = blockWithEra?.Block;
-                        Console.WriteLine($"Deserialized block: Slot {response.AppliedBlock.NativeBytes}");
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
                             null,
@@ -51,7 +50,6 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Undo:
                         blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.UndoneBlock!.NativeBytes);
                         block = blockWithEra?.Block;
-                        Console.WriteLine($"Deserialized block: Slot {response.UndoneBlock.NativeBytes}");
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
                             RollBackType.Inclusive,
@@ -87,7 +85,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
-                            RollBackType.Inclusive,
+                            RollBackType.Exclusive,
                             block
                         );
                         break;

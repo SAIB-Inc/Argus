@@ -13,12 +13,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Chrysalis" Version="0.5.5" />
+    <PackageReference Include="Chrysalis" Version="0.5.7" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.1" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
     <PackageReference Include="CborSerializer" Version="1.0.10" />
-    <PackageReference Include="Pallas.NET" Version="0.3.4" />
+    <PackageReference Include="Pallas.NET" Version="0.3.5" />
     <PackageReference Include="SAIB.CardanoSharp.Wallet" Version="7.1.0" />
     <PackageReference Include="Utxorpc.Sdk" Version="1.1.0-alpha" />
     <PackageReference Include="NSec.Cryptography" Version="24.4.0" />

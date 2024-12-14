@@ -41,7 +41,7 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                         block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
                         yield return new NextResponse(
                             Data.Models.NextResponseAction.RollBack,
-                            RollBackType.Inclusive,
+                            RollBackType.Exclusive,
                             block!
                         );
                         break;

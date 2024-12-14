@@ -3,6 +3,7 @@
 using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
 using Chrysalis.Cardano.Core.Extensions;
+using Chrysalis.Cardano.Core.Types.Block;
 using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
@@ -11,13 +12,6 @@ public class BlockTestReducer(
     IDbContextFactory<TestDbContext> dbContextFactory
 ) : IReducer<BlockTest>
 {
-    public async Task<ulong?> QueryTip()
-    {
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        ulong maxSlot = await dbContext.BlockTests.MaxAsync(x => (ulong?)x.Slot) ?? 0;
-        return maxSlot;
-    }
-
     public async Task RollBackwardAsync(ulong slot)
     {
         using TestDbContext dbContext = dbContextFactory.CreateDbContext();
@@ -31,7 +25,7 @@ public class BlockTestReducer(
         await dbContext.SaveChangesAsync();
     }
 
-    public async Task RollForwardAsync(Chrysalis.Cardano.Core.Types.Block.Block block)
+    public async Task RollForwardAsync(Block block)
     {
         string blockHash = block.Hash();
         ulong blockNumber = block.Number();
