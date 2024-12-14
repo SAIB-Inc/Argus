@@ -123,12 +123,13 @@ public class CardanoIndexWorker<T>(
     {
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
         ReducerRuntimeState reducerState = _reducerStates[reducerName];
-        reducerState.IsRollingBack = true;
 
         ulong currentSlot = reducerState.CurrentSlot;
 
         // if it's zero, we do not need to rollback
         if (currentSlot == 0) return;
+
+        reducerState.IsRollingBack = true;
 
         // Once we're sure we can rollback, we can proceed executing the rollback function
         ulong rollbackSlot = response.RollBackType switch
