@@ -5,7 +5,9 @@ public record ReducerRuntimeState
     public string Name { get; init; } = string.Empty;
     public List<string> Dependencies { get; init; } = [];
     public List<Point> Intersections { get; set; } = [];
-    public int RollbackBuffer { get; init; } = 10;
+    public required Point InitialIntersection { get; init; }
+    public int RollbackBuffer { get; init; }
+    public bool IsRollingBack { get; set; }
 
     public ulong CurrentSlot => Intersections.Any()
         ? Intersections.Max(e => e.Slot)
@@ -34,5 +36,13 @@ public record ReducerRuntimeState
     public void RemoveIntersections(ulong fromSlot)
     {
         Intersections.RemoveAll(e => e.Slot >= fromSlot);
+    }
+
+    public Point StartIntersection()
+    {
+        if (Intersections.Count > 1)
+            return Intersections.OrderByDescending(e => e.Slot).Skip(1).First();
+
+        return InitialIntersection;
     }
 }
