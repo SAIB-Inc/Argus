@@ -1,124 +1,122 @@
-
 namespace Argus.Sync.Data.Models;
 
 public record ReducerRuntimeState
 {
-    private readonly Lock _lock = new();
-    private ulong _currentMax = 0;
+    private readonly ReaderWriterLockSlim _lock = new();
+    private readonly List<Point> _intersections = [];
+    private long _currentSlot = 0;
 
     public string Name { get; init; } = string.Empty;
-    public List<string> Dependencies { get; init; } = [];
-    private List<Point> _intersections = [];
-    public List<Point> Intersections
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return _intersections;
-            }
-        }
-        set
-        {
-            lock (_lock)
-            {
-                _intersections = value;
-                _currentMax = _intersections.Any() ? _intersections.Max(e => e.Slot) : 0UL;
-            }
-        }
-    }
-    public required Point InitialIntersection { get; init; }
+    public IReadOnlyList<string> Dependencies { get; init; } = [];
+    public Point InitialIntersection { get; init; } = default!;
     public int RollbackBuffer { get; init; }
-    public bool IsRollingBack { get; set; }
 
-    public ulong CurrentSlot
+    private volatile bool _isRollingBack;
+    public bool IsRollingBack
     {
-        get
-        {
-            lock (_lock)
-            {
-                return _currentMax;
-            }
-        }
+        get => _isRollingBack;
+        set => _isRollingBack = value;
+    }
+
+    public ulong CurrentSlot => (ulong)Interlocked.Read(ref _currentSlot);
+
+    public ReducerRuntimeState(IEnumerable<Point> initialPoints)
+    {
+        _intersections.AddRange(initialPoints);
+        _currentSlot = _intersections.Any() ?
+            (long)_intersections.Max(p => p.Slot) : 0L;
     }
 
     public Point CurrentIntersection
     {
         get
         {
-            lock (_lock)
+            _lock.EnterReadLock();
+            try
             {
-                // Check again after lock
-                if (Intersections.Any())
+                if (_intersections.Any())
                 {
-                    // CurrentSlot is also locked, but we already hold the lock, so safe
-                    ulong slot = _currentMax;
-                    return Intersections.First(e => e.Slot == slot);
+                    ulong slot = CurrentSlot;
+                    return _intersections.First(e => e.Slot == slot);
                 }
-
-                return new Point("", 0);
+                return InitialIntersection;
+            }
+            finally
+            {
+                _lock.ExitReadLock();
             }
         }
     }
-
-    public Point ClosestIntersection(ulong slot)
-    {
-        lock (_lock)
-        {
-            return Intersections
-                .Where(e => e.Slot <= slot)
-                .OrderByDescending(e => e.Slot)
-                .FirstOrDefault() ?? new Point("", 0);
-        }
-    }
-
-    public bool HasDependents(List<string> dependencies) => dependencies.Contains(Name);
 
     public void AddIntersection(Point point)
     {
-        lock (_lock)
+        _lock.EnterWriteLock();
+        try
         {
-            Intersections.Add(point);
-
-            // Update the currentMax if needed
-            if (point.Slot > _currentMax)
-            {
-                _currentMax = point.Slot;
-            }
+            _intersections.Add(point);
+            Interlocked.Exchange(ref _currentSlot, Math.Max(Interlocked.Read(ref _currentSlot), (long)point.Slot));
 
             // Maintain rollback buffer size
-            if (Intersections.Count > RollbackBuffer)
+            if (_intersections.Count > RollbackBuffer)
             {
-                Intersections = Intersections
-                    .OrderByDescending(e => e.Slot)
-                    .Take(RollbackBuffer)
-                    .ToList();
-
-                // Recalculate _currentMax, since we may have removed intersections
-                _currentMax = Intersections.Any() ? Intersections.Max(e => e.Slot) : 0UL;
+                _intersections.Sort((a, b) => b.Slot.CompareTo(a.Slot));
+                _intersections.RemoveRange(RollbackBuffer, _intersections.Count - RollbackBuffer);
             }
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
         }
     }
 
     public void RemoveIntersections(ulong fromSlot)
     {
-        lock (_lock)
+        _lock.EnterWriteLock();
+        try
         {
-            Intersections.RemoveAll(e => e.Slot >= fromSlot);
-
+            _intersections.RemoveAll(e => e.Slot >= fromSlot);
             // After removal, recalculate currentMax
-            _currentMax = Intersections.Any() ? Intersections.Max(e => e.Slot) : 0UL;
+            _currentSlot = _intersections.Any() ?
+                _intersections.Max(e => (long)e.Slot) : 0L;
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
+    }
+
+    public Point ClosestIntersection(ulong slot)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            return _intersections
+                .Where(e => e.Slot <= slot)
+                .OrderByDescending(e => e.Slot)
+                .FirstOrDefault() ?? InitialIntersection;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
         }
     }
 
     public Point StartIntersection()
     {
-        lock (_lock)
+        _lock.EnterReadLock();
+        try
         {
-            if (Intersections.Count > 1)
-                return Intersections.OrderByDescending(e => e.Slot).Skip(1).First();
+            if (_intersections.Count == 1)
+                return _intersections.First();
+
+            if (_intersections.Count > 1)
+                return _intersections.OrderByDescending(e => e.Slot).Skip(1).First();
 
             return InitialIntersection;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
         }
     }
 }

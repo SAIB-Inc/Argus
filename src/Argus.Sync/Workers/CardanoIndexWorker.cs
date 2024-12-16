@@ -349,11 +349,10 @@ public class CardanoIndexWorker<T>(
 
             Point startIntersection = GetConfiguredReducerIntersection(e);
 
-            ReducerRuntimeState reducerState = new()
+            ReducerRuntimeState reducerState = new(intersections)
             {
                 Name = e,
                 Dependencies = dependencies,
-                Intersections = intersections,
                 RollbackBuffer = GetRollbackBuffer(e),
                 InitialIntersection = startIntersection,
                 IsRollingBack = true
