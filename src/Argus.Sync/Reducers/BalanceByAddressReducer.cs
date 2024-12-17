@@ -5,8 +5,6 @@ using Argus.Sync.Data.Models;
 using Argus.Sync.Extensions;
 using Block = Chrysalis.Cardano.Core.Types.Block.Block;
 using TransactionOutputEntity = Argus.Sync.Data.Models.OutputBySlot;
-using Chrysalis.Cardano.Core;
-using Argus.Sync.Extensions.Chrysalis;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
 using Chrysalis.Cardano.Core.Extensions;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Input;
@@ -45,11 +43,11 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
             {
                 if (output.SpentSlot != null)
                 {
-                    address.Balance += output.Amount.Lovelace();
+                    address.Balance += output.Amount.Lovelace() ?? 0UL;
                 }
                 else
                 {
-                    address.Balance -= output.Amount.Lovelace();
+                    address.Balance -= output.Amount.Lovelace() ?? 0UL;
                 }
             }
         }
@@ -121,7 +119,7 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
                 .FirstOrDefault(ba => ba.Address == utxo.Address);
             if (address == null) continue;
 
-            address.Balance -= utxo.Amount.Lovelace();
+            address.Balance -= utxo.Amount.Lovelace() ?? 0UL;
         }
     }
 
@@ -137,11 +135,11 @@ public class BalanceByAddressReducer<T>(IDbContextFactory<T> dbContextFactory)
 
                 if (address != null)
                 {
-                    address.Balance += output.Amount()!.Lovelace();
+                    address.Balance += output.Amount()?.Lovelace() ?? 0UL;
                 }
                 else
                 {
-                    BalanceByAddress newAddress = new(addr, output.Amount()!.Lovelace());
+                    BalanceByAddress newAddress = new(addr, output.Amount()?.Lovelace() ?? 0UL);
 
                     dbContext.BalanceByAddress.Add(newAddress);
                     existingAddresses.Add(newAddress);

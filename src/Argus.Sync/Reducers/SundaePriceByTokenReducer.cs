@@ -1,7 +1,8 @@
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models.SundaeSwap;
-using Argus.Sync.Extensions.Chrysalis;
+using Argus.Sync.Extensions;
 using Argus.Sync.Utils;
+using CardanoSharp.Wallet.Extensions;
 using Chrysalis.Cardano.Core.Extensions;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
@@ -64,7 +65,7 @@ public class SundaePriceByTokenReducer<T>(
 
                 if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                 {
-                    ulong adaReserve = transactionOutput!.Amount()!.TransactionValueLovelace().Lovelace.Value;
+                    ulong adaReserve = transactionOutput?.Amount()?.Lovelace() ?? 0UL;
 
                     // if reserve is less than 10k ada, skip
                     if (adaReserve < 10_000) continue;
@@ -73,13 +74,13 @@ public class SundaePriceByTokenReducer<T>(
                     string otherTokenName = tokenXName == string.Empty ? tokenYName : tokenXName;
 
                     // calculate the price
-                    ulong otherTokenReserve = transactionOutput!.Amount()!.TransactionValueLovelace()
-                        .MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
+                    ulong otherTokenReserve = transactionOutput?.Amount()?.MultiAsset()?
+                        .ToDictionary(k => k.Key,
                             v =>
                                 v.Value.Value.ToDictionary(
-                                    k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
+                                    k => k.Key.Value.ToStringHex(),
                                     v => v.Value.Value
-                                ))[otherTokenPolicy][otherTokenName];
+                                ))[otherTokenPolicy][otherTokenName] ?? 0UL;
 
                     PriceByToken sundaeSwapTokenPrice = new(
                         block.Slot(),

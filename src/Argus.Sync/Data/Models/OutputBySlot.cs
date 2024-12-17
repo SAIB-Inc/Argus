@@ -43,16 +43,11 @@ public record OutputBySlot : IReducerModel
         UtxoStatus = utxoStatus;
     }
 
-    public Datum? Datum
+    public (DatumType DatumType, byte[]? RawData)? Datum
     {
         get
         {
-            if (DatumType == DatumType.NoDatum)
-            {
-                return null;
-            }
-
-            return new Datum(DatumType, DatumData);
+            return (DatumType, DatumData);
         }
     }
 

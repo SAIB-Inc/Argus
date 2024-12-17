@@ -1,8 +1,7 @@
 using System.Text;
-using Argus.Sync.Extensions.Chrysalis;
+using Chrysalis.Cardano.Core.Extensions;
 using Chrysalis.Cardano.Core.Types.Block.Transaction;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.WitnessSet;
-using Chrysalis.Cbor.Types.Primitives;
 
 
 namespace Argus.Sync.Utils;
@@ -15,9 +14,9 @@ public static class JpgUtils
 
         StringBuilder datumBuild = new();
 
-        foreach (KeyValuePair<CborUlong, TransactionMetadatum> metaDict in data.GetMetadata())
+        foreach (KeyValuePair<ulong, TransactionMetadatum> metaDict in data.GetMetadata())
         {
-            if (metaDict.Key.Value == 30) continue;
+            if (metaDict.Key == 30) continue;
 
             object value = metaDict.Value.GetMetadataValue();
             if (value is string strValue)
