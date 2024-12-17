@@ -78,7 +78,7 @@ public class MinswapPriceByTokenReducer<T>(
                                 ))[otherTokenPolicy][otherTokenName] ?? 0UL;
 
                     PriceByToken minSwapTokenPrice = new(
-                        block.Slot(),
+                        block.Slot() ?? 0UL,
                         transaction.Id(),
                         txIndex,
                         $"{tokenXPolicy}{tokenXName}",

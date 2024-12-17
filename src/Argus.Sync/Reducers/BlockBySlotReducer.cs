@@ -13,7 +13,7 @@ public class BlockBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
     public async Task RollForwardAsync(Block block)
     {
         await using T _dbContext = await dbContextFactory.CreateDbContextAsync();
-        ulong slot = block.Slot();
+        ulong slot = block.Slot() ?? 0UL;
 
         string hash = block.Hash();
 

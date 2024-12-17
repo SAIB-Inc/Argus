@@ -83,7 +83,7 @@ public partial class SplashPriceByTokenReducer<T>(
                                 ))[otherTokenPolicy][otherTokenName] ?? 0UL;
 
                     PriceByToken splashTokenPrice = new(
-                        block.Slot(),
+                        block.Slot() ?? 0UL,
                         tx.Id(),
                         txIndex,
                         $"{tokenXPolicy}{tokenXName}",

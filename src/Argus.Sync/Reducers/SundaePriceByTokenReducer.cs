@@ -83,7 +83,7 @@ public class SundaePriceByTokenReducer<T>(
                                 ))[otherTokenPolicy][otherTokenName] ?? 0UL;
 
                     PriceByToken sundaeSwapTokenPrice = new(
-                        block.Slot(),
+                        block.Slot() ?? 0UL,
                         transaction.Id(),
                         txIndex,
                         $"{tokenXPolicy}{tokenXName}",

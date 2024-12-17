@@ -78,8 +78,8 @@ public class CardanoIndexWorker<T>(
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        ulong currentSlot = response.Block.Slot();
-        ulong currentBlockNumber = response.Block.Number();
+        ulong currentSlot = response.Block.Slot() ?? 0UL;
+        ulong currentBlockNumber = response.Block.Number() ?? 0UL;
         string currentBlockHash = response.Block.Hash();
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
         ReducerRuntimeState reducerState = _reducerStates[reducerName];
@@ -138,8 +138,8 @@ public class CardanoIndexWorker<T>(
         // Once we're sure we can rollback, we can proceed executing the rollback function
         ulong rollbackSlot = response.RollBackType switch
         {
-            RollBackType.Exclusive => response.Block!.Slot() + 1,
-            RollBackType.Inclusive => response.Block!.Slot(),
+            RollBackType.Exclusive => response.Block!.Slot() ?? 0UL + 1,
+            RollBackType.Inclusive => response.Block!.Slot() ?? 0UL,
             _ => 0
         };
 

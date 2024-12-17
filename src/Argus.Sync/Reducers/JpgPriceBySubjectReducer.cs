@@ -163,7 +163,7 @@ public class JpgPriceBySubjectReducer<T>(
                             : (totalPayoutAmount + jpgMinFee);
 
                         return new PriceByToken(
-                            block.Slot(),
+                            block.Slot() ?? 0UL,
                             null,
                             tx.Id(),
                             (ulong)outputIdx,

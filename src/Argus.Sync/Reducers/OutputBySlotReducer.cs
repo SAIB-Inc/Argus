@@ -100,7 +100,7 @@ public class OutputBySlotReducer<T>(
                 DataUtils.MapTransactionOutputEntity(
                     txBody.Id(),
                     (uint)outputIndex,
-                    block.Slot(),
+                    block.Slot() ?? 0UL,
                     output,
                     UtxoStatus.Unspent
                 )))
