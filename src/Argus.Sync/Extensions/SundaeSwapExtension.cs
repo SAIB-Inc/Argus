@@ -1,6 +1,7 @@
 using Chrysalis.Cardano.Sundae.Types.Common;
 using Chrysalis.Cbor.Types.Primitives;
 
+namespace Argus.Sync.Extensions;
 
 public static class SundaeSwapExtension
 {

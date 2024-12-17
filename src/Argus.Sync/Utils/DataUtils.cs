@@ -1,6 +1,5 @@
 using Argus.Sync.Data.Models.Enums;
 using Argus.Sync.Data.Models;
-using Argus.Sync.Extensions.Chrysalis;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
 using Chrysalis.Cbor.Converters;
 using Chrysalis.Cardano.Core.Extensions;
@@ -16,12 +15,10 @@ public static class DataUtils
         if (address == null)
             return null;
 
-        Datum? datum = output.ArgusDatumInfo() is var datumInfo && datumInfo.HasValue
-            ? new(datumInfo.Value.Type, datumInfo.Value.Data)
-            : null;
+        (DatumType DatumType, byte[]? RawData) datum = output.DatumInfo();
 
-        if (datum == null)
-            datum = new(DatumType.NoDatum, Array.Empty<byte>());
+        if (datum.RawData is null)
+            datum = new(DatumType.None, []);
 
         return new(
             transactionId,
@@ -30,8 +27,8 @@ public static class DataUtils
             null,
             address,
             CborSerializer.Serialize(output),
-            datum.Type,
-            datum.Data,
+            datum.DatumType,
+            datum.RawData,
             output.ScriptRef(),
             status
         );

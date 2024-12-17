@@ -17,7 +17,7 @@ public class TxBySlotReducer<T>(IDbContextFactory<T> dbContextFactory)
     {
         await using T dbContext = await dbContextFactory.CreateDbContextAsync();
 
-        ulong slot = block.Slot();
+        ulong slot = block.Slot() ?? 0UL;
 
         string hash = block.Hash();
 

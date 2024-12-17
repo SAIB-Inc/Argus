@@ -1,8 +1,5 @@
-using Chrysalis.Cardano.Core.Types.Block;
 using Argus.Sync.Data;
-using Argus.Sync.Data.Models;
 using Argus.Sync.Data.Models.Enums;
-using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -12,7 +9,6 @@ using JpgListing = Chrysalis.Cardano.Jpg.Types.Datums.Listing;
 using Chrysalis.Cardano.Core.Extensions;
 using System.Linq.Expressions;
 using Argus.Sync.Extensions;
-using Chrysalis.Cbor.Types.Primitives;
 using Chrysalis.Cbor.Converters;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
 
@@ -132,21 +128,22 @@ public class JpgPriceBySubjectReducer<T>(
                         );
                         if (!isJpgOutput) return null;
 
-                        (DatumType Type, byte[] Data)? datumInfo = o.ArgusDatumInfo();
+                        (DatumType DatumType, byte[]? RawData)? datumInfo = o.DatumInfo();
+
                         if (datumInfo is null) return null;
 
-                        Datum datum = new(datumInfo.Value.Type, datumInfo.Value.Data);
+                        byte[]? datum = null;
 
                         if (
-                            datum.Type is DatumType.DatumHash &&
-                            metadata.TryGetValue(Convert.ToHexString(datum.Data), out byte[]? rawDatum) &&
+                            datumInfo.Value.DatumType is DatumType.Hash &&
+                            metadata.TryGetValue(Convert.ToHexString(datumInfo.Value.RawData ?? []), out byte[]? rawDatum) &&
                             rawDatum != null
                         )
                         {
-                            datum = new (DatumType.InlineDatum, rawDatum);
+                            datum = rawDatum;
                         }
 
-                        JpgListing? listing = CborSerializer.Deserialize<JpgListing>(datum!.Data);
+                        JpgListing? listing = CborSerializer.Deserialize<JpgListing>(datum ?? []);
                         if (listing is null) return null;
 
                         Value outputAmount = o.Amount()!;
@@ -154,7 +151,7 @@ public class JpgPriceBySubjectReducer<T>(
                         if (multiAssetOutput is null) return null;
 
                         ulong totalPayoutAmount = listing.Payouts.Value
-                            .Aggregate(0UL,(acc, payout) => acc + payout.Amount.Value);
+                            .Aggregate(0UL, (acc, payout) => acc + payout.Amount.Value);
 
 
                         string subject = multiAssetOutput.Subjects().First().ToLowerInvariant();
@@ -162,11 +159,11 @@ public class JpgPriceBySubjectReducer<T>(
                         double jpgFee = 0.02;
                         ulong jpgMinFee = 1000000;
                         ulong price = ((ulong)(totalPayoutAmount * jpgFee)) > jpgMinFee
-                            ? (ulong)(totalPayoutAmount * (1 + jpgFee)) 
+                            ? (ulong)(totalPayoutAmount * (1 + jpgFee))
                             : (totalPayoutAmount + jpgMinFee);
 
                         return new PriceByToken(
-                            block.Slot(),
+                            block.Slot() ?? 0UL,
                             null,
                             tx.Id(),
                             (ulong)outputIdx,

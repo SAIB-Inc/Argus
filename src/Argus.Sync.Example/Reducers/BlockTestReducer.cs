@@ -28,8 +28,8 @@ public class BlockTestReducer(
     public async Task RollForwardAsync(Block block)
     {
         string blockHash = block.Hash();
-        ulong blockNumber = block.Number();
-        ulong slot = block.Slot();
+        ulong blockNumber = block.Number() ?? 0UL;
+        ulong slot = block.Slot() ?? 0UL;
 
         using TestDbContext dbContext = dbContextFactory.CreateDbContext();
         dbContext.BlockTests.Add(new BlockTest(blockHash, blockNumber, slot));

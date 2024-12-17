@@ -4,8 +4,6 @@ using Argus.Sync.Data.Models.Splash;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Chrysalis.Cardano.Core.Types.Block;
-
-using Argus.Sync.Extensions.Chrysalis;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
 using Chrysalis.Cardano.Core.Extensions;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
@@ -66,7 +64,7 @@ public partial class SplashPriceByTokenReducer<T>(
                 if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                 {
                     //are you sure Amount() will never be null? Should this be handled in Argus or Chrysalis?
-                    ulong loveLaceReserve = output!.Amount()!.TransactionValueLovelace().Lovelace.Value;
+                    ulong loveLaceReserve = output?.Amount()?.Lovelace() ?? 0UL;
                     decimal adaReserve = (decimal)loveLaceReserve / 1_000_000;
 
                     if (adaReserve < 10_000) continue;
@@ -76,16 +74,16 @@ public partial class SplashPriceByTokenReducer<T>(
 
                     // calculate the price
                     //transaction must have output, and each output must have an amount
-                    ulong otherTokenReserve = output!.Amount()!.TransactionValueLovelace()
-                        .MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
+                    ulong otherTokenReserve = output?.Amount()?
+                        .MultiAsset()?.ToDictionary(k => k.Key,
                             v =>
                                 v.Value.Value.ToDictionary(
                                     k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
                                     v => v.Value.Value
-                                ))[otherTokenPolicy][otherTokenName];
+                                ))[otherTokenPolicy][otherTokenName] ?? 0UL;
 
                     PriceByToken splashTokenPrice = new(
-                        block.Slot(),
+                        block.Slot() ?? 0UL,
                         tx.Id(),
                         txIndex,
                         $"{tokenXPolicy}{tokenXName}",

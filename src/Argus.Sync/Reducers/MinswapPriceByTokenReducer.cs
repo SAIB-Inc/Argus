@@ -1,6 +1,5 @@
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models.Minswap;
-using Argus.Sync.Extensions.Chrysalis;
 using Argus.Sync.Utils;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -61,7 +60,7 @@ public class MinswapPriceByTokenReducer<T>(
 
                 if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                 {
-                    ulong adaReserve = (ulong)transactionOutput!.Amount()!.Coin()!;
+                    ulong adaReserve = transactionOutput?.Amount()?.Lovelace() ?? 0UL;
 
                     // if reserve is less than 10k ada, skip 
                     if (adaReserve < 10_000) continue;
@@ -70,16 +69,16 @@ public class MinswapPriceByTokenReducer<T>(
                     string otherTokenName = tokenXName == string.Empty ? tokenYName : tokenXName;
 
                     // calculate the price 
-                    ulong otherTokenReserve = transactionOutput!.Amount()!.TransactionValueLovelace()
-                        .MultiAsset.Value.ToDictionary(k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
+                    ulong otherTokenReserve = transactionOutput?.Amount()?
+                        .MultiAsset()?.ToDictionary(k => k.Key,
                             v =>
                                 v.Value.Value.ToDictionary(
                                     k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
                                     v => v.Value.Value
-                                ))[otherTokenPolicy][otherTokenName];
+                                ))[otherTokenPolicy][otherTokenName] ?? 0UL;
 
                     PriceByToken minSwapTokenPrice = new(
-                        block.Slot(),
+                        block.Slot() ?? 0UL,
                         transaction.Id(),
                         txIndex,
                         $"{tokenXPolicy}{tokenXName}",

@@ -57,7 +57,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Reset:
-                        block = new PostAlonzoBlock(
+                        block = new AlonzoBlock(
                             new BlockHeader(
                                 new AlonzoHeaderBody(
                                     new CborUlong(0),
