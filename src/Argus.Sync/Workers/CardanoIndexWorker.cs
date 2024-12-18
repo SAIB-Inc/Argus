@@ -138,7 +138,7 @@ public class CardanoIndexWorker<T>(
         // Once we're sure we can rollback, we can proceed executing the rollback function
         ulong rollbackSlot = response.RollBackType switch
         {
-            RollBackType.Exclusive => response.Block!.Slot() ?? 0UL + 1,
+            RollBackType.Exclusive => (response.Block!.Slot() ?? 0UL) + 1UL,
             RollBackType.Inclusive => response.Block!.Slot() ?? 0UL,
             _ => 0
         };
@@ -195,16 +195,12 @@ public class CardanoIndexWorker<T>(
     {
         await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
 
-        IEnumerable<ReducerState> states = await dbContext.ReducerStates
-            .AsNoTracking()
-            .Where(rs => rs.Name == reducerName && rs.Slot >= slot)
-            .ToListAsync(stoppingToken);
+        IQueryable<ReducerState> removeQuery = dbContext.ReducerStates
+            .Where(rs => rs.Name == reducerName && rs.Slot >= slot);
 
-        if (states.Any())
-        {
-            dbContext.ReducerStates.RemoveRange(states);
-            await dbContext.SaveChangesAsync(stoppingToken);
-        }
+        dbContext.RemoveRange(removeQuery);
+        await dbContext.SaveChangesAsync(stoppingToken);
+        await dbContext.DisposeAsync();
     }
 
     private async Task AwaitReducerDependenciesRollForwardAsync(ReducerRuntimeState reducerState, ulong currentSlot, CancellationToken stoppingToken)
@@ -349,14 +345,17 @@ public class CardanoIndexWorker<T>(
 
             Point startIntersection = GetConfiguredReducerIntersection(e);
 
-            ReducerRuntimeState reducerState = new(intersections)
+            ReducerRuntimeState reducerState = new()
             {
                 Name = e,
                 Dependencies = dependencies,
                 RollbackBuffer = GetRollbackBuffer(e),
                 InitialIntersection = startIntersection,
-                IsRollingBack = true
+                IsRollingBack = true,
             };
+
+            intersections.ForEach(reducerState.AddIntersection);
+
             _reducerStates.TryAdd(e, reducerState);
         });
     }
