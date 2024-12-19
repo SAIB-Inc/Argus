@@ -179,16 +179,9 @@ public class CardanoIndexWorker<T>(
             Hash = hash
         };
 
-        IQueryable<ReducerState> removeQuery = dbContext.ReducerStates
-            .Where(rs => rs.Name == reducerName)
-            .OrderByDescending(rs => rs.Slot)
-            .Skip(reducerState.RollbackBuffer);
-
         dbContext.ReducerStates.Add(newState);
-        dbContext.ReducerStates.RemoveRange(removeQuery);
 
         await dbContext.SaveChangesAsync(stoppingToken);
-        await dbContext.DisposeAsync();
     }
 
     private async Task RemoveReducerStateAsync(string reducerName, ulong slot, CancellationToken stoppingToken)
@@ -200,7 +193,6 @@ public class CardanoIndexWorker<T>(
 
         dbContext.RemoveRange(removeQuery);
         await dbContext.SaveChangesAsync(stoppingToken);
-        await dbContext.DisposeAsync();
     }
 
     private async Task AwaitReducerDependenciesRollForwardAsync(ReducerRuntimeState reducerState, ulong currentSlot, CancellationToken stoppingToken)
@@ -319,21 +311,25 @@ public class CardanoIndexWorker<T>(
             .Select(e => new { Name = ArgusUtils.GetTypeNameWithoutGenerics(e.GetType()), Reducer = e })
             .ToDictionary(e => e.Name, e => e.Reducer);
 
-        HashSet<string> reducerNames = [.. reducerDict.Keys];
-
         // Get all the reducer states from the database
         await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+        int rollbackBuffer = GetRollbackBuffer("Default");
+
         Dictionary<string, IEnumerable<Point>> latestStates = await dbContext.ReducerStates
-            .Where(rs => reducerNames.Contains(rs.Name))
             .GroupBy(rs => rs.Name)
+            .Select(g => new
+            {
+                g.Key,
+                Values = g.OrderByDescending(e => e.Slot).Take(rollbackBuffer)
+            })
             .ToDictionaryAsync(
                 g => g.Key,
-                g => g.Select(e => new Point(e.Hash, e.Slot))
+                g => g.Values.Select(e => new Point(e.Hash, e.Slot)),
+                stoppingToken
             );
-        await dbContext.DisposeAsync();
 
         // Initialize the reducer states
-        reducerNames.ToList().ForEach(e =>
+        reducerDict.Keys.ToList().ForEach(e =>
         {
             List<string> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducerDict[e].GetType())
                 .Select(ArgusUtils.GetTypeNameWithoutGenerics)
@@ -349,7 +345,7 @@ public class CardanoIndexWorker<T>(
             {
                 Name = e,
                 Dependencies = dependencies,
-                RollbackBuffer = GetRollbackBuffer(e),
+                RollbackBuffer = rollbackBuffer,
                 InitialIntersection = startIntersection,
                 IsRollingBack = true,
             };
