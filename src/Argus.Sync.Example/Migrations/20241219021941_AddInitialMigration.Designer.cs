@@ -10,7 +10,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    [Migration("20241209205840_AddInitialMigration")]
+    [Migration("20241219021941_AddInitialMigration")]
     partial class AddInitialMigration
     {
         /// <inheritdoc />
@@ -37,6 +37,12 @@ namespace Argus.Sync.Example.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Name", "Slot");
+
+                    b.HasIndex("Slot")
+                        .IsDescending();
+
+                    b.HasIndex("Name", "Slot")
+                        .IsDescending(false, true);
 
                     b.ToTable("ReducerStates", "public");
                 });
