@@ -40,6 +40,20 @@ namespace Argus.Sync.Example.Migrations
                 {
                     table.PrimaryKey("PK_ReducerStates", x => new { x.Name, x.Slot });
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ReducerStates_Name_Slot",
+                schema: "public",
+                table: "ReducerStates",
+                columns: new[] { "Name", "Slot" },
+                descending: new[] { false, true });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ReducerStates_Slot",
+                schema: "public",
+                table: "ReducerStates",
+                column: "Slot",
+                descending: new bool[0]);
         }
 
         /// <inheritdoc />

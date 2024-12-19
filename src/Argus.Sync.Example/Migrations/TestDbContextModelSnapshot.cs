@@ -35,6 +35,12 @@ namespace Argus.Sync.Example.Migrations
 
                     b.HasKey("Name", "Slot");
 
+                    b.HasIndex("Slot")
+                        .IsDescending();
+
+                    b.HasIndex("Name", "Slot")
+                        .IsDescending(false, true);
+
                     b.ToTable("ReducerStates", "public");
                 });
 
