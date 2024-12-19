@@ -31,6 +31,10 @@ public class CardanoDbContext(
         modelBuilder.Entity<ReducerState>(entity =>
         {
             entity.HasKey(e => new { e.Name, e.Slot });
+
+            // Index
+            entity.HasIndex(e => new { e.Name, e.Slot }).IsDescending(false, true);
+            entity.HasIndex(e => e.Slot).IsDescending();
         });
 
         modelBuilder.HasDefaultSchema(Configuration.GetConnectionString("CardanoContextSchema"));
