@@ -78,7 +78,8 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                             ),
                             new CborDefList<AlonzoTransactionBody>([]),
                             new CborDefList<AlonzoTransactionWitnessSet>([]),
-                            new AuxiliaryDataSet([])
+                            new AuxiliaryDataSet([]),
+                            new CborDefList<CborInt>([])
                         );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
