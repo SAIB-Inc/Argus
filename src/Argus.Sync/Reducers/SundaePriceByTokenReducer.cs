@@ -2,7 +2,6 @@ using Argus.Sync.Data;
 using Argus.Sync.Data.Models.SundaeSwap;
 using Argus.Sync.Extensions;
 using Argus.Sync.Utils;
-using CardanoSharp.Wallet.Extensions;
 using Chrysalis.Cardano.Core.Extensions;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
@@ -78,7 +77,7 @@ public class SundaePriceByTokenReducer<T>(
                         .ToDictionary(k => k.Key,
                             v =>
                                 v.Value.Value.ToDictionary(
-                                    k => k.Key.Value.ToStringHex(),
+                                    k => Convert.ToHexString(k.Key.Value).ToLowerInvariant(),
                                     v => v.Value.Value
                                 ))[otherTokenPolicy][otherTokenName] ?? 0UL;
 

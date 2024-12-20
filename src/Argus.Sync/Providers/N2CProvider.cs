@@ -1,10 +1,9 @@
 using Argus.Sync.Data.Models;
-using Chrysalis.Cbor;
 using PallasNextResponse = Pallas.NET.Models.NextResponse;
 using ChrysalisBlock = Chrysalis.Cardano.Core.Types.Block.Block;
 using Pallas.NET;
 using Pallas.NET.Models.Enums;
-using Chrysalis.Cbor.Converters;
+using Argus.Sync.Utils;
 
 namespace Argus.Sync.Providers;
 
@@ -30,7 +29,7 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                 switch (response.Action)
                 {
                     case Pallas.NET.Models.Enums.NextResponseAction.RollForward:
-                        ChrysalisBlock? block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
+                        ChrysalisBlock? block = ArgusUtils.DeserializeBlockWithEra(response.BlockCbor);
                         yield return new NextResponse(
                             Data.Models.NextResponseAction.RollForward,
                             null,
@@ -38,7 +37,7 @@ public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoCh
                         );
                         break;
                     case Pallas.NET.Models.Enums.NextResponseAction.RollBack:
-                        block = CborSerializer.Deserialize<ChrysalisBlock>(response.BlockCbor);
+                        block = ArgusUtils.DeserializeBlockWithEra(response.BlockCbor);
                         yield return new NextResponse(
                             Data.Models.NextResponseAction.RollBack,
                             RollBackType.Exclusive,

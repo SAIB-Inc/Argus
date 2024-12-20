@@ -5,7 +5,7 @@ using Argus.Sync.Extensions;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddCardanoIndexer<TestDbContext>(builder.Configuration);
-builder.Services.AddReducers<TestDbContext, IReducerModel>([typeof(BlockTestReducer)]);
+builder.Services.AddReducers<TestDbContext, IReducerModel>([typeof(BlockTestReducer), typeof(BlockDependencyTestReducer)]);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
