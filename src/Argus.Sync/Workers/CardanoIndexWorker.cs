@@ -65,10 +65,17 @@ public class CardanoIndexWorker<T>(
         }
         catch (Exception ex)
         {
+            string action = currentResponse?.Action switch
+            {
+                NextResponseAction.RollForward => "RollForward",
+                NextResponseAction.RollBack => "RollBack",
+                _ => "Unknown"
+            };
+
             Logger.LogError(
                 ex,
-                "[{Reducer}] Something went wrong. Block: {BlockHash} Slot: {Slot}",
-                reducerName, currentResponse?.Block.Hash(), currentResponse?.Block.Slot()
+                "[{Reducer}][{Action}] Something went wrong. Block: {BlockHash} Slot: {Slot}",
+                reducerName, action, currentResponse?.Block.Hash(), currentResponse?.Block.Slot()
             );
 
             Logger.LogError("Last recorded intersection: {TxHash}#{TxIndex}", reducerState.CurrentIntersection.Hash, reducerState.CurrentIntersection.Slot);
