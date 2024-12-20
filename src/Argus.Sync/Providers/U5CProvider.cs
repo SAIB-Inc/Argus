@@ -55,7 +55,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Reset:
-                        block = new AlonzoCompatibleBlock(
+                        block = new ConwayBlock(
                             new BlockHeader(
                                 new AlonzoHeaderBody(
                                     new CborUlong(0),
@@ -76,8 +76,8 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                                 ),
                             new CborBytes([])
                             ),
-                            new CborDefList<AlonzoTransactionBody>([]),
-                            new CborDefList<AlonzoTransactionWitnessSet>([]),
+                            new CborDefList<ConwayTransactionBody>([]),
+                            new CborDefList<PostAlonzoTransactionWitnessSet>([]),
                             new AuxiliaryDataSet([]),
                             new CborDefList<CborInt>([])
                         );
