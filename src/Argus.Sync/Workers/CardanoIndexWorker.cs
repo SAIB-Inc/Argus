@@ -40,14 +40,14 @@ public class CardanoIndexWorker<T>(
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
+        // Get the initial start intersection for the reducer
+        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+        ReducerRuntimeState reducerState = _reducerStates[reducerName];
+        Point startIntersection = reducerState.StartIntersection();
+
         NextResponse? currentResponse = null;
         try
         {
-            // Get the initial start intersection for the reducer
-            string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-            ReducerRuntimeState reducerState = _reducerStates[reducerName];
-            Point startIntersection = reducerState.StartIntersection();
-
             // Start the chain sync
             ICardanoChainProvider chainProvider = GetCardanoChainProvider();
             await foreach (NextResponse response in chainProvider.StartChainSyncAsync(startIntersection, stoppingToken))
@@ -67,9 +67,12 @@ public class CardanoIndexWorker<T>(
         {
             Logger.LogError(
                 ex,
-                "Something went wrong. Block: {BlockHash} Slot: {Slot}",
-                currentResponse?.Block.Hash(), currentResponse?.Block.Slot()
+                "[{Reducer}] Something went wrong. Block: {BlockHash} Slot: {Slot}",
+                reducerName, currentResponse?.Block.Hash(), currentResponse?.Block.Slot()
             );
+
+            Logger.LogError("Last recorded intersection: {TxHash}#{TxIndex}", reducerState.CurrentIntersection.Hash, reducerState.CurrentIntersection.Slot);
+
             throw new CriticalNodeException($"Critical Error, Aborting");
         }
     }
