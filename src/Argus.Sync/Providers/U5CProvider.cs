@@ -1,16 +1,16 @@
 using Argus.Sync.Data.Models;
 using Utxorpc.Sdk;
-using ChrysalisBlock = Chrysalis.Cardano.Core.Types.Block.Block;
 using CborBytes = Chrysalis.Cbor.Types.Primitives.CborBytes;
 using U5CNextResponse = Utxorpc.Sdk.Models.NextResponse;
 using Chrysalis.Cardano.Core.Types.Block;
-using Chrysalis.Cbor.Converters;
 using Chrysalis.Cardano.Core.Types.Block.Header;
 using Chrysalis.Cardano.Core.Types.Block.Header.Body;
 using Chrysalis.Cbor.Types.Primitives;
 using Chrysalis.Cbor.Types.Collections;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
 using Chrysalis.Cardano.Core.Types.Block.Transaction.WitnessSet;
+using Argus.Sync.Utils;
+using Block = Chrysalis.Cardano.Core.Types.Block.Block;
 namespace Argus.Sync.Providers;
 
 public class U5CProvider(string url, Dictionary<string, string> header) : ICardanoChainProvider
@@ -39,8 +39,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                 switch (response.Action)
                 {
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Apply:
-                        BlockWithEra? blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.AppliedBlock!.NativeBytes);
-                        ChrysalisBlock? block = blockWithEra?.Block;
+                        Block? block = ArgusUtils.DeserializeBlockWithEra(response.AppliedBlock!.NativeBytes);
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
                             null,
@@ -48,8 +47,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Undo:
-                        blockWithEra = CborSerializer.Deserialize<BlockWithEra>(response.UndoneBlock!.NativeBytes);
-                        block = blockWithEra?.Block;
+                        block = ArgusUtils.DeserializeBlockWithEra(response.UndoneBlock!.NativeBytes);
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
                             RollBackType.Inclusive,
@@ -57,7 +55,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Reset:
-                        block = new AlonzoBlock(
+                        block = new AlonzoCompatibleBlock(
                             new BlockHeader(
                                 new AlonzoHeaderBody(
                                     new CborUlong(0),
@@ -78,10 +76,9 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                                 ),
                             new CborBytes([])
                             ),
-                            new CborDefList<TransactionBody>([]),
-                            new CborDefList<TransactionWitnessSet>([]),
-                            new AuxiliaryDataSet([]),
-                            new CborDefList<CborInt>([])
+                            new CborDefList<AlonzoTransactionBody>([]),
+                            new CborDefList<AlonzoTransactionWitnessSet>([]),
+                            new AuxiliaryDataSet([])
                         );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,

@@ -207,7 +207,7 @@ public class CardanoIndexWorker<T>(
 
             // Otherwise we add a slight delay to recheck if the dependencies have moved forward
             Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward to {RollforwardSlot}", reducerState.Name, currentSlot);
-            await Task.Delay(100, stoppingToken);
+            await Task.Delay(20_000, stoppingToken);
         }
     }
 
@@ -224,7 +224,7 @@ public class CardanoIndexWorker<T>(
 
             // Otherwise we wait
             Logger.LogInformation("Reducer {Reducer} is waiting for dependents to finish rollback to {RollbackSlot}", reducerState.Name, rollbackSlot);
-            await Task.Delay(100, stoppingToken);
+            await Task.Delay(20_000, stoppingToken);
         }
     }
 
