@@ -39,7 +39,8 @@ public static class ArgusUtils
 
     public static Block? DeserializeBlockWithEra(byte[] blockCbor)
     {
-        CborReader reader = new(blockCbor);
+        CborConformanceMode conformanceMode = CborConformanceMode.Lax;
+        CborReader reader = new(blockCbor, conformanceMode);
         reader.ReadStartArray();
         Era era = (Era)reader.ReadInt32();
         byte[] blockBytes = reader.ReadEncodedValue().ToArray();
