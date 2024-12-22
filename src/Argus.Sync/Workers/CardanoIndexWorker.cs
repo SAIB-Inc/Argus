@@ -78,7 +78,7 @@ public class CardanoIndexWorker<T>(
                 reducerName, action, currentResponse?.Block.Hash(), currentResponse?.Block.Slot()
             );
 
-            Logger.LogError("Last recorded intersection: {TxHash}#{TxIndex}", reducerState.CurrentIntersection.Hash, reducerState.CurrentIntersection.Slot);
+            Logger.LogError("Last recorded intersection: {BlockHash}#{Slot}", reducerState.CurrentIntersection.Hash, reducerState.CurrentIntersection.Slot);
 
             throw new CriticalNodeException($"Critical Error, Aborting");
         }
