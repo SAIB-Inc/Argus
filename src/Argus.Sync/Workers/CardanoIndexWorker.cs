@@ -31,12 +31,27 @@ public class CardanoIndexWorker<T>(
         // Create dependency graph
         CreateDependencyGraph(Reducers);
 
-        // Execute reducers
-        await Task.WhenAny(
-            Reducers.Select(
-                reducer => StartReducerChainSyncAsync(reducer, stoppingToken)
-            )
-        );
+        HashSet<string> activeReducerNames = [.. GetActiveReducers()];
+        IEnumerable<IReducer<IReducerModel>> reducersToRun = Reducers;
+        if (activeReducerNames.Any())
+        {
+            reducersToRun = Reducers.Where(r =>
+            {
+                string name = ArgusUtils.GetTypeNameWithoutGenerics(r.GetType());
+                return activeReducerNames.Contains(name, StringComparer.OrdinalIgnoreCase);
+            })
+            .ToList();
+        }
+
+        if (reducersToRun.Any())
+        {
+            // Execute reducers
+            await Task.WhenAny(
+                reducersToRun.Select(
+                    reducer => StartReducerChainSyncAsync(reducer, stoppingToken)
+                )
+            );
+        }
 
         Environment.Exit(1);
     }
@@ -431,4 +446,7 @@ public class CardanoIndexWorker<T>(
     private int GetRollbackBuffer(string reducerName) =>
         Configuration.GetValue<int?>($"CardanoIndexReducers:{reducerName}:RollbackBuffer")
             ?? Configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
+
+    private IEnumerable<string> GetActiveReducers() =>
+        Configuration.GetSection("CardanoIndexReducers:ActiveReducers").Get<IEnumerable<string>>() ?? [];
 }
