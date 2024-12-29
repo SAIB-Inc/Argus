@@ -229,11 +229,19 @@ public class CardanoIndexWorker<T>(
 
             // Get the latest slot for each dependency
             using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-            bool hasLaggingDependencies = await dbContext.ReducerStates
+            var dependencyStates = await dbContext.ReducerStates
                 .AsNoTracking()
-                .Where(rs => dependencies.Contains(rs.Name))
                 .GroupBy(rs => rs.Name)
-                .AnyAsync(g => g.Max(x => x.Slot) < currentSlot, stoppingToken);
+                .Select(g => new { Name = g.Key, MaxSlot = g.Max(x => x.Slot) })
+                .ToListAsync(stoppingToken);
+
+            bool hasLaggingDependencies = dependencyStates
+                .Where(x => dependencies.Contains(x.Name))
+                .Select(x => x.MaxSlot)
+                .Union(dependencies
+                    .Except(dependencyStates.Select(x => x.Name))
+                    .Select(_ => 0UL))
+                .Any(maxSlot => maxSlot < currentSlot);
             await dbContext.DisposeAsync();
 
             // If this reducer can move forward, we break out of this loop
@@ -259,7 +267,8 @@ public class CardanoIndexWorker<T>(
             bool anyChildAhead = await dbContext.ReducerStates
                 .AsNoTracking()
                 .Where(rs => dependents.Contains(rs.Name))
-                .AnyAsync(rs => rs.Slot > rollbackSlot, stoppingToken);
+                .GroupBy(rs => rs.Name)
+                .AnyAsync(g => g.Max(x => x.Slot) > rollbackSlot, stoppingToken);
             await dbContext.DisposeAsync();
 
             // If no dependents are rolling back, we can break out of this loop
