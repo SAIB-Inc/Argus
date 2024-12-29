@@ -69,13 +69,23 @@ public class CardanoIndexWorker<T>(
         }
 
         NextResponse? currentResponse = null;
+        string action = string.Empty;
         try
         {
             // Start the chain sync
             ICardanoChainProvider chainProvider = GetCardanoChainProvider();
             await foreach (NextResponse response in chainProvider.StartChainSyncAsync(startIntersection, stoppingToken))
             {
-                currentResponse = response;  // Store the current response
+
+
+                currentResponse = response;
+                action = currentResponse?.Action switch
+                {
+                    NextResponseAction.RollForward => "RollForward",
+                    NextResponseAction.RollBack => "RollBack",
+                    _ => "Unknown"
+                };
+
                 Task responseTask = response.Action switch
                 {
                     NextResponseAction.RollForward => ProcessRollForwardAsync(response, reducer, stoppingToken),
@@ -83,17 +93,23 @@ public class CardanoIndexWorker<T>(
                     _ => throw new CriticalNodeException($"Next response error received. {response}"),
                 };
 
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 await responseTask;
+                stopwatch.Stop();
+
+                Logger.LogInformation(
+                    "[{Reducer}]: Processed Chain Event {Action}: Slot {Slot} Block: {Block} in {ElapsedMilliseconds} ms, Mem: {MemoryUsage} MB",
+                    action,
+                    reducerName,
+                    currentResponse?.Block.Slot(),
+                    currentResponse?.Block.Number(),
+                    stopwatch.ElapsedMilliseconds,
+                    Math.Round(GetCurrentMemoryUsageInMB(), 2)
+                );
             }
         }
         catch (Exception ex)
         {
-            string action = currentResponse?.Action switch
-            {
-                NextResponseAction.RollForward => "RollForward",
-                NextResponseAction.RollBack => "RollBack",
-                _ => "Unknown"
-            };
 
             Logger.LogError(
                 ex,
@@ -107,8 +123,6 @@ public class CardanoIndexWorker<T>(
 
     private async Task ProcessRollForwardAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
-
         ulong currentSlot = response.Block.Slot() ?? 0UL;
         ulong currentBlockNumber = response.Block.Number() ?? 0UL;
         string currentBlockHash = response.Block.Hash();
@@ -134,17 +148,6 @@ public class CardanoIndexWorker<T>(
 
         // Log the time taken to process the rollforward
         Logger.LogInformation("Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
-
-        stopwatch.Stop();
-
-        Logger.LogInformation(
-            "[{Reducer}]: Processed Chain Event RollForward: Slot {Slot} Block: {Block} in {ElapsedMilliseconds} ms, Mem: {MemoryUsage} MB",
-            reducerName,
-            currentSlot,
-            currentBlockNumber,
-            stopwatch.ElapsedMilliseconds,
-            Math.Round(GetCurrentMemoryUsageInMB(), 2)
-        );
     }
 
     private async Task ProcessRollBackAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
@@ -179,6 +182,7 @@ public class CardanoIndexWorker<T>(
         reducerStopwatch.Stop();
 
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
+        await Task.Delay(5_000, stoppingToken);
     }
 
     private async Task UpdateReducerStateAsync(string reducerName, ulong slot, string hash, CancellationToken stoppingToken)
@@ -249,7 +253,7 @@ public class CardanoIndexWorker<T>(
 
             // Otherwise we add a slight delay to recheck if the dependencies have moved forward
             Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward to {RollforwardSlot}", reducerName, currentSlot);
-            await Task.Delay(20_000, stoppingToken);
+            await Task.Delay(1_000, stoppingToken);
         }
     }
 
@@ -276,7 +280,7 @@ public class CardanoIndexWorker<T>(
 
             // Otherwise we wait
             Logger.LogInformation("Reducer {Reducer} is waiting for dependents to finish rollback to {RollbackSlot}", reducerName, rollbackSlot);
-            await Task.Delay(20_000, stoppingToken);
+            await Task.Delay(1_000, stoppingToken);
         }
     }
 
