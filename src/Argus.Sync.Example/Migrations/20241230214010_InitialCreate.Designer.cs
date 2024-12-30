@@ -10,8 +10,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    [Migration("20241219021941_AddInitialMigration")]
-    partial class AddInitialMigration
+    [Migration("20241230214010_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
