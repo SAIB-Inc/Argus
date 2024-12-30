@@ -78,23 +78,33 @@ public static class ReducerExtensions
         where T : DbContext
         where V : IReducerModel
     {
-        IEnumerable<string> activeReducers = configuration.GetSection("CardanoIndexReducers:ActiveReducers").Get<IEnumerable<string>>() ?? [];
+        // Check if we're running migrations
+        bool isEfDesignTime = AppDomain.CurrentDomain.GetAssemblies()
+            .Any(a => a.GetName().Name == "ef");
 
-        // Convert to list for multiple enumeration
-        activeReducers ??= [];
-        List<string> activeReducersList = activeReducers.ToList();
+        if (isEfDesignTime)
+        {
+            // During migrations, just add DbContext without reducers
+            return;
+        }
 
-        Assembly? entryAssembly = Assembly.GetEntryAssembly();
+        IEnumerable<string> activeReducers = configuration
+            .GetSection("CardanoIndexReducers:ActiveReducers")
+            .Get<IEnumerable<string>>() ?? [];
 
-        List<Type> reducerTypes = entryAssembly!
-            .GetTypes()
+        // Use AppDomain.CurrentDomain like the first version
+        var reducerTypes = AppDomain.CurrentDomain
+            .GetAssemblies()
+            .Where(a => !a.FullName!.StartsWith("Argus.Sync,"))
+            .SelectMany(a => a.GetTypes())
             .Where(t => typeof(IReducer<V>).IsAssignableFrom(t)
                     && !t.IsInterface
                     && !t.IsAbstract)
             .ToList();
 
+
         // If no active reducers specified, register all found reducers
-        if (!activeReducersList.Any())
+        if (!activeReducers.Any())
         {
             foreach (Type reducerType in reducerTypes)  // Changed to iterate over reducerTypes
             {
@@ -109,7 +119,7 @@ public static class ReducerExtensions
             .Select(ArgusUtils.GetTypeNameWithoutGenerics)
             .ToList();
 
-        List<string> invalidReducers = activeReducersList
+        List<string> invalidReducers = activeReducers
             .Where(r => !availableReducerNames.Contains(r))
             .ToList();
 
@@ -121,7 +131,7 @@ public static class ReducerExtensions
         }
 
         // Check for duplicates in active reducers
-        List<string> duplicateNames = activeReducersList
+        List<string> duplicateNames = activeReducers
             .GroupBy(x => x)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
@@ -135,7 +145,7 @@ public static class ReducerExtensions
         }
 
         // Register the specified reducers
-        foreach (string reducerName in activeReducersList)
+        foreach (string reducerName in activeReducers)
         {
             Type reducerType = reducerTypes
                 .First(t => ArgusUtils.GetTypeNameWithoutGenerics(t) == reducerName);

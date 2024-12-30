@@ -161,6 +161,8 @@ public class CardanoIndexWorker<T>(
 
         PreventMassRollback(currentSlot, rollbackSlot, reducerName, stoppingToken);
 
+        await AwaitReducerDependenciesRollbackAsync(reducerName, rollbackSlot, stoppingToken);
+
         Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {Slot}", reducerName, rollbackSlot);
 
         Stopwatch reducerStopwatch = Stopwatch.StartNew();
@@ -242,7 +244,33 @@ public class CardanoIndexWorker<T>(
 
             // Otherwise we add a slight delay to recheck if the dependencies have moved forward
             Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward to {RollforwardSlot}", reducerName, currentSlot);
-            await Task.Delay(1_000, stoppingToken);
+            await Task.Delay(5_000, stoppingToken);
+        }
+    }
+
+    private async Task AwaitReducerDependenciesRollbackAsync(string reducerName, ulong rollbackSlot, CancellationToken stoppingToken)
+    {
+        // Check if the reducer has dependencies that needs to rollback first
+        while (true)
+        {
+            // Let's check if anything depends on this reducer, that means we need them to finish rollback first
+            IEnumerable<string> dependents = GetReducerDependents(reducerName);
+
+            if (!dependents.Any()) break;
+
+            using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
+            bool anyChildAhead = await dbContext.ReducerStates
+                .AsNoTracking()
+                .Where(rs => dependents.Contains(rs.Name))
+                .AnyAsync(rs => rs.Slot > rollbackSlot, stoppingToken);
+            await dbContext.DisposeAsync();
+
+            // If no dependents are rolling back, we can break out of this loop
+            if (!anyChildAhead) break;
+
+            // Otherwise we wait
+            Logger.LogInformation("Reducer {Reducer} is waiting for dependents to finish rollback to {RollbackSlot}", reducerName, rollbackSlot);
+            await Task.Delay(5_000, stoppingToken);
         }
     }
 
@@ -366,6 +394,41 @@ public class CardanoIndexWorker<T>(
         return _dependencyGraph.TryGetValue(reducerName, out HashSet<string>? dependencies)
             ? dependencies
             : Enumerable.Empty<string>();
+    }
+
+    private static IEnumerable<string> GetReducerDependents(string reducerName)
+    {
+        HashSet<string> visited = [];
+        Stack<string> stack = new();
+
+        // Push initial dependents of the provided reducer
+        foreach (string? dependent in _dependencyGraph
+            .Where(kv => kv.Value.Contains(reducerName))
+            .Select(kv => kv.Key))
+        {
+            stack.Push(dependent);
+        }
+
+        // Traverse the graph to find all dependents
+        while (stack.Count > 0)
+        {
+            string current = stack.Pop();
+            if (visited.Add(current))
+            {
+                yield return current;
+
+                // Add dependents of the current node to the stack
+                foreach (string? dependent in _dependencyGraph
+                    .Where(kv => kv.Value.Contains(current))
+                    .Select(kv => kv.Key))
+                {
+                    if (!visited.Contains(dependent))
+                    {
+                        stack.Push(dependent);
+                    }
+                }
+            }
+        }
     }
 
     private static void CreateDependencyGraph(IEnumerable<IReducer<IReducerModel>> reducers)
