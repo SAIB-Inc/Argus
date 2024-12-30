@@ -60,7 +60,7 @@ public class CardanoIndexWorker<T>(
     {
         // Get the initial start intersection for the reducer
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-        Point? startIntersection = await GetIntersectionAsync(reducerName, 1, stoppingToken);
+        Point? startIntersection = await GetRollbackIntersectionAsync(reducerName, 1, stoppingToken);
 
         if (startIntersection is null)
         {
@@ -135,16 +135,11 @@ public class CardanoIndexWorker<T>(
         Logger.LogInformation("[{Reducer}]: New Chain Event RollForward: Slot {Slot} Block: {Block}", reducerName, currentSlot, currentBlockNumber);
 
         Stopwatch reducerStopwatch = Stopwatch.StartNew();
-
-        // Run the reducer's rollforward logic
         await reducer.RollForwardAsync(response.Block);
+        reducerStopwatch.Stop();
 
         // Update database state
         await UpdateReducerStateAsync(reducerName, currentSlot, currentBlockHash, stoppingToken);
-
-
-        // Stop the timer
-        reducerStopwatch.Stop();
 
         // Log the time taken to process the rollforward
         Logger.LogInformation("Processed RollForwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
@@ -166,23 +161,17 @@ public class CardanoIndexWorker<T>(
 
         PreventMassRollback(currentSlot, rollbackSlot, reducerName, stoppingToken);
 
-        await AwaitReducerDependenciesRollbackAsync(reducerName, rollbackSlot, stoppingToken);
-
-        Stopwatch reducerStopwatch = new();
-        reducerStopwatch.Start();
-
         Logger.LogInformation("[{Reducer}]: New Chain Event RollBack: Slot {Slot}", reducerName, rollbackSlot);
 
-        // Run the reducer's rollback logic
+        Stopwatch reducerStopwatch = Stopwatch.StartNew();
         await reducer.RollBackwardAsync(rollbackSlot);
+        reducerStopwatch.Stop();
 
         // Update database state
         await RemoveReducerStateAsync(reducerName, rollbackSlot, stoppingToken);
 
-        reducerStopwatch.Stop();
 
         Logger.Log(LogLevel.Information, "Processed RollBackwardAsync[{Reducer}] in {ElapsedMilliseconds} ms", reducerName, reducerStopwatch.ElapsedMilliseconds);
-        await Task.Delay(5_000, stoppingToken);
     }
 
     private async Task UpdateReducerStateAsync(string reducerName, ulong slot, string hash, CancellationToken stoppingToken)
@@ -253,33 +242,6 @@ public class CardanoIndexWorker<T>(
 
             // Otherwise we add a slight delay to recheck if the dependencies have moved forward
             Logger.LogInformation("Reducer {Reducer} is waiting for dependencies to move forward to {RollforwardSlot}", reducerName, currentSlot);
-            await Task.Delay(1_000, stoppingToken);
-        }
-    }
-
-    private async Task AwaitReducerDependenciesRollbackAsync(string reducerName, ulong rollbackSlot, CancellationToken stoppingToken)
-    {
-        // Check if the reducer has dependencies that needs to rollback first
-        while (true)
-        {
-            // Let's check if anything depends on this reducer, that means we need them to finish rollback first
-            IEnumerable<string> dependents = GetReducerDependents(reducerName);
-
-            if (!dependents.Any()) break;
-
-            using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-            bool anyChildAhead = await dbContext.ReducerStates
-                .AsNoTracking()
-                .Where(rs => dependents.Contains(rs.Name))
-                .GroupBy(rs => rs.Name)
-                .AnyAsync(g => g.Max(x => x.Slot) > rollbackSlot, stoppingToken);
-            await dbContext.DisposeAsync();
-
-            // If no dependents are rolling back, we can break out of this loop
-            if (!anyChildAhead) break;
-
-            // Otherwise we wait
-            Logger.LogInformation("Reducer {Reducer} is waiting for dependents to finish rollback to {RollbackSlot}", reducerName, rollbackSlot);
             await Task.Delay(1_000, stoppingToken);
         }
     }
@@ -372,19 +334,30 @@ public class CardanoIndexWorker<T>(
         return slot ?? GetConfiguredReducerIntersection(reducerName).Slot;
     }
 
-    private async Task<Point?> GetIntersectionAsync(string reducerName, int offset, CancellationToken stoppingToken)
+    private async Task<Point?> GetRollbackIntersectionAsync(string reducerName, int requestedOffset, CancellationToken stoppingToken)
     {
         await using T dbContext = await DbContextFactory.CreateDbContextAsync(stoppingToken);
-        ReducerState? reducerState = await dbContext.ReducerStates
-                .AsNoTracking()
-                .Where(rs => rs.Name == reducerName)
-                .OrderByDescending(rs => rs.Slot)
-                .Skip(offset)
-                .FirstOrDefaultAsync(stoppingToken);
 
-        return reducerState is not null
-            ? new(reducerState.Hash, reducerState.Slot)
-            : GetConfiguredReducerIntersection(reducerName);
+        // First get all states for this reducer, ordered by slot descending
+        var states = await dbContext.ReducerStates
+            .AsNoTracking()
+            .Where(rs => rs.Name == reducerName)
+            .OrderByDescending(rs => rs.Slot)
+            .ToListAsync(stoppingToken);
+
+        // No states case - fall back to configuration
+        if (!states.Any())
+        {
+            return GetConfiguredReducerIntersection(reducerName);
+        }
+
+        // Single state case - use that state
+        if (states.Count == 1)
+        {
+            return new Point(states[0].Hash, states[0].Slot);
+        }
+
+        return new Point(states[1].Hash, states[1].Slot);
     }
 
     private static IEnumerable<string> GetReducerDependencies(string reducerName)
@@ -393,41 +366,6 @@ public class CardanoIndexWorker<T>(
         return _dependencyGraph.TryGetValue(reducerName, out HashSet<string>? dependencies)
             ? dependencies
             : Enumerable.Empty<string>();
-    }
-
-    private static IEnumerable<string> GetReducerDependents(string reducerName)
-    {
-        HashSet<string> visited = [];
-        Stack<string> stack = new();
-
-        // Push initial dependents of the provided reducer
-        foreach (string? dependent in _dependencyGraph
-            .Where(kv => kv.Value.Contains(reducerName))
-            .Select(kv => kv.Key))
-        {
-            stack.Push(dependent);
-        }
-
-        // Traverse the graph to find all dependents
-        while (stack.Count > 0)
-        {
-            string current = stack.Pop();
-            if (visited.Add(current))
-            {
-                yield return current;
-
-                // Add dependents of the current node to the stack
-                foreach (string? dependent in _dependencyGraph
-                    .Where(kv => kv.Value.Contains(current))
-                    .Select(kv => kv.Key))
-                {
-                    if (!visited.Contains(dependent))
-                    {
-                        stack.Push(dependent);
-                    }
-                }
-            }
-        }
     }
 
     private static void CreateDependencyGraph(IEnumerable<IReducer<IReducerModel>> reducers)
