@@ -46,7 +46,7 @@ public static class ArgusUtils
 
         return era switch
         {
-            Era.Allegra or Era.Mary or Era.Alonzo => CborSerializer.Deserialize<AlonzoCompatibleBlock>(blockBytes),
+            Era.Shelley or Era.Allegra or Era.Mary or Era.Alonzo => CborSerializer.Deserialize<AlonzoCompatibleBlock>(blockBytes),
             Era.Babbage => CborSerializer.Deserialize<BabbageBlock>(blockBytes),
             Era.Conway => CborSerializer.Deserialize<ConwayBlock>(blockBytes),
             _ => throw new NotSupportedException($"Unsupported era: {era}")
