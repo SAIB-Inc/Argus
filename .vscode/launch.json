@@ -9,7 +9,7 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/src/Argus.Sync.Example/bin/Debug/net8.0/Argus.Sync.Example.dll",
+            "program": "${workspaceFolder}/src/Argus.Sync.Example/bin/Debug/net9.0/Argus.Sync.Example.dll",
             "args": [],
             "cwd": "${workspaceFolder}/src/Argus.Sync.Example",
             "stopAtEntry": false,
@@ -18,12 +18,8 @@
             },
             "sourceFileMap": {
                 "/Views": "${workspaceFolder}/Views"
-            }
+            },
+            "console": "integratedTerminal"
         },
-        {
-            "name": ".NET Core Attach",
-            "type": "coreclr",
-            "request": "attach"
-        }
     ]
 }
