@@ -11,8 +11,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    [Migration("20241230214010_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20250324223946_OrderBySlotReducerTypes2")]
+    partial class OrderBySlotReducerTypes2
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -20,7 +20,7 @@ namespace Argus.Sync.Example.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("public")
-                .HasAnnotation("ProductVersion", "9.0.0")
+                .HasAnnotation("ProductVersion", "9.0.3")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -48,20 +48,48 @@ namespace Argus.Sync.Example.Migrations
                     b.ToTable("ReducerStates", "public");
                 });
 
-            modelBuilder.Entity("Argus.Sync.Example.Models.BlockTest", b =>
+            modelBuilder.Entity("Argus.Sync.Example.Models.OrderBySlot", b =>
                 {
-                    b.Property<string>("BlockHash")
+                    b.Property<string>("TxHash")
                         .HasColumnType("text");
 
-                    b.Property<decimal>("BlockNumber")
+                    b.Property<decimal>("Index")
                         .HasColumnType("numeric(20,0)");
+
+                    b.Property<string>("AssetName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("BuyerAddress")
+                        .HasColumnType("text");
+
+                    b.Property<string>("OwnerAddress")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PolicyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<byte[]>("RawData")
+                        .IsRequired()
+                        .HasColumnType("bytea");
 
                     b.Property<decimal>("Slot")
                         .HasColumnType("numeric(20,0)");
 
-                    b.HasKey("BlockHash");
+                    b.Property<string>("SpentTxHash")
+                        .HasColumnType("text");
 
-                    b.ToTable("BlockTests", "public");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("TxHash", "Index");
+
+                    b.ToTable("OrdersBySlot", "public");
                 });
 #pragma warning restore 612, 618
         }

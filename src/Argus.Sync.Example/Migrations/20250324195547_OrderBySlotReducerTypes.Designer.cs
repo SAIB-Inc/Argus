@@ -11,8 +11,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    [Migration("20241230214010_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20250324195547_OrderBySlotReducerTypes")]
+    partial class OrderBySlotReducerTypes
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -62,6 +62,44 @@ namespace Argus.Sync.Example.Migrations
                     b.HasKey("BlockHash");
 
                     b.ToTable("BlockTests", "public");
+                });
+
+            modelBuilder.Entity("Argus.Sync.Example.Models.OrderBySlot", b =>
+                {
+                    b.Property<string>("TxHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AssetName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Index")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<string>("OwnerAddress")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PolicyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<byte[]>("RawData")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("TxHash");
+
+                    b.ToTable("OrdersBySlot", "public");
                 });
 #pragma warning restore 612, 618
         }
