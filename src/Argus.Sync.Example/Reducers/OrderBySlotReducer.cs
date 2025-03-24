@@ -22,7 +22,7 @@ public class OrderBySlotReducer(
     IConfiguration configuration
 ) : IReducer<OrderBySlot>
 {
-    private readonly string _orderBookScriptHash = configuration.GetValue<string>("OrderBook", "0f45963b8e895bd46839bbcf34185993440f26e3f07c668bd2026f92");
+    private readonly string _orderBookScriptHash = configuration.GetValue("OrderBook", "0f45963b8e895bd46839bbcf34185993440f26e3f07c668bd2026f92");
 
     public async Task RollBackwardAsync(ulong slot)
     {
