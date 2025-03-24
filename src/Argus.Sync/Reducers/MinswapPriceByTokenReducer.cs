@@ -16,7 +16,6 @@ public class MinswapPriceByTokenReducer<T>(
     IDbContextFactory<T> dbContextFactory,
     IConfiguration configuration
 ) : IReducer<PriceByToken> where T : MinswapPriceByTokenDbContext, IMinswapPriceByTokenDbContext
-
 {
     private readonly string _minsSwapScriptHash = configuration["MinswapScriptHash"] ?? "";
 
@@ -38,7 +37,6 @@ public class MinswapPriceByTokenReducer<T>(
             ulong txIndex = 0;
             foreach (TransactionOutput transactionOutput in transaction.Outputs())
             {
-
                 string? outputBech32Addr = transactionOutput.Address()?.ToBech32();
 
                 if (string.IsNullOrEmpty(outputBech32Addr) || !outputBech32Addr.StartsWith("addr")) continue;
