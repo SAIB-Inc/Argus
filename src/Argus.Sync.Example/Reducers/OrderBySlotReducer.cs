@@ -114,13 +114,13 @@ public class OrderBySlotReducer(
     {
         if (!orderBySlotEntries.Any()) return;
 
-        List<TransactionBody> transactions = block.TransactionBodies().ToList();
+        List<TransactionBody> transactions = [.. block.TransactionBodies()];
         IEnumerable<(byte[]? RedeemerRaw, TransactionInput Input, TransactionBody Tx)> inputRedeemers = transactions.GetInputRedeemerTuple(block);
         ulong currentSlot = block.Slot() ?? 0;
 
         orderBySlotEntries.ForEach(entry =>
         {
-            (byte[]? RedeemerRaw, TransactionInput Input, TransactionBody Tx) redeemerInfo = inputRedeemers
+            (byte[]? RedeemerRaw, TransactionInput Input, TransactionBody Tx) = inputRedeemers
                 .FirstOrDefault(ir => ir.Input.TransactionId() == entry.TxHash && ir.Input.Index.Value == entry.Index);
 
             bool isSold = entry.IsAcceptOrCancelRedeemer(inputRedeemers);
@@ -128,7 +128,7 @@ public class OrderBySlotReducer(
             OrderBySlot? localEntry = dbContext.OrdersBySlot.Local
                 .FirstOrDefault(e => e.TxHash == entry.TxHash && e.Index == entry.Index);
 
-            Address? executorAddress = redeemerInfo.Tx.Outputs().Last().Address();
+            Address? executorAddress = Tx.Outputs().First().Address(); // TODO
             string executorAddressBech32 = executorAddress?.GetBaseAddressBech32() ?? string.Empty;
 
             OrderBySlot updatedEntry = entry with
@@ -136,17 +136,13 @@ public class OrderBySlotReducer(
                 Slot = currentSlot,
                 Status = isSold ? OrderStatus.Sold : OrderStatus.Cancelled,
                 BuyerAddress = isSold ? executorAddressBech32 : null,
-                SpentTxHash = isSold ? redeemerInfo.Tx.Id() : null
+                SpentTxHash = isSold ? Tx.Id() : null
             };
 
             if (localEntry is not null)
-            {
                 dbContext.Entry(localEntry).CurrentValues.SetValues(updatedEntry);
-            }
             else
-            {
                 dbContext.Attach(updatedEntry).State = EntityState.Modified;
-            }
         });
     }
 
