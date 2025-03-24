@@ -71,7 +71,6 @@ public class OrderBySlotReducer(
     private void ProcessOutputs(TransactionBody tx, TestDbContext dbContext, Block block)
     {
         ulong slot = block.Slot() ?? 0;
-
         string txHash = tx.Id();
 
         tx.Outputs().Select((output, index) => new { Output = output, Index = (ulong)index })
