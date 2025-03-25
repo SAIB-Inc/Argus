@@ -5,4 +5,3 @@ public record Point
     string Hash,
     ulong Slot
 );
-    

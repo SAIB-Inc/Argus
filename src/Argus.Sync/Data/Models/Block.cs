@@ -1,9 +1,9 @@
-namespace Argus.Sync.Data.Models;
+// namespace Argus.Sync.Data.Models;
 
-public record Block
-(
-    string? Hash,
-    ulong Slot,
-    byte[]? Cbor
-);
+// public record Block
+// (
+//     string? Hash,
+//     ulong Slot,
+//     byte[]? Cbor
+// );
 

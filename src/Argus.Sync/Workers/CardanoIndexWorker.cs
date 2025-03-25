@@ -5,11 +5,11 @@ using Argus.Sync.Data.Models;
 using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
-using Chrysalis.Cardano.Core.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Argus.Sync.Extensions;
 
 namespace Argus.Sync.Workers;
 
@@ -29,18 +29,17 @@ public class CardanoIndexWorker<T>(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Create dependency graph
-        CreateDependencyGraph(Reducers);
+        // CreateDependencyGraph(Reducers);
 
         HashSet<string> activeReducerNames = [.. GetActiveReducers()];
         IEnumerable<IReducer<IReducerModel>> reducersToRun = Reducers;
-        if (activeReducerNames.Any())
+        if (activeReducerNames.Count != 0)
         {
-            reducersToRun = Reducers.Where(r =>
+            reducersToRun = [.. Reducers.Where(r =>
             {
                 string name = ArgusUtils.GetTypeNameWithoutGenerics(r.GetType());
                 return activeReducerNames.Contains(name, StringComparer.OrdinalIgnoreCase);
-            })
-            .ToList();
+            })];
         }
 
         if (reducersToRun.Any())
@@ -60,6 +59,7 @@ public class CardanoIndexWorker<T>(
     {
         // Get the initial start intersection for the reducer
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+        Logger.LogInformation("Starting Chain Sync for {Reducer}", reducerName);
         Point? startIntersection = await GetRollbackIntersectionAsync(reducerName, 1, stoppingToken);
 
         if (startIntersection is null)
@@ -76,7 +76,6 @@ public class CardanoIndexWorker<T>(
             ICardanoChainProvider chainProvider = GetCardanoChainProvider();
             await foreach (NextResponse response in chainProvider.StartChainSyncAsync(startIntersection, stoppingToken))
             {
-
 
                 currentResponse = response;
                 action = currentResponse?.Action switch
@@ -101,8 +100,8 @@ public class CardanoIndexWorker<T>(
                     "[{Reducer}]: Processed Chain Event {Action}: Slot {Slot} Block: {Block} in {ElapsedMilliseconds} ms, Mem: {MemoryUsage} MB",
                     action,
                     reducerName,
-                    currentResponse?.Block.Slot(),
-                    currentResponse?.Block.Number(),
+                    currentResponse?.Block.Header().Slot(),
+                    currentResponse?.Block.Header().Number(),
                     stopwatch.ElapsedMilliseconds,
                     Math.Round(GetCurrentMemoryUsageInMB(), 2)
                 );
@@ -114,7 +113,7 @@ public class CardanoIndexWorker<T>(
             Logger.LogError(
                 ex,
                 "[{Reducer}][{Action}] Something went wrong. Block: {BlockHash} Slot: {Slot}",
-                reducerName, action, currentResponse?.Block.Hash(), currentResponse?.Block.Slot()
+                reducerName, action, currentResponse?.Block.Header().Hash(), currentResponse?.Block.Header().Slot()
             );
 
             throw new CriticalNodeException($"Critical Error, Aborting");
@@ -123,9 +122,9 @@ public class CardanoIndexWorker<T>(
 
     private async Task ProcessRollForwardAsync(NextResponse response, IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
-        ulong currentSlot = response.Block.Slot() ?? 0UL;
-        ulong currentBlockNumber = response.Block.Number() ?? 0UL;
-        string currentBlockHash = response.Block.Hash();
+        ulong currentSlot = response.Block.Header().Slot();
+        ulong currentBlockNumber = response.Block.Header().Number();
+        string? currentBlockHash = response.Block.Header().Hash();
         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
 
         // Let's check if the reducer can move forward
@@ -154,8 +153,8 @@ public class CardanoIndexWorker<T>(
         // Once we're sure we can rollback, we can proceed executing the rollback function
         ulong rollbackSlot = response.RollBackType switch
         {
-            RollBackType.Exclusive => (response.Block!.Slot() ?? 0UL) + 1UL,
-            RollBackType.Inclusive => response.Block!.Slot() ?? 0UL,
+            RollBackType.Exclusive => response.Block.Header().Slot() + 1UL,
+            RollBackType.Inclusive => response.Block.Header().Slot(),
             _ => 0
         };
 
@@ -313,6 +312,7 @@ public class CardanoIndexWorker<T>(
         ulong configStartSlot = reducerSection.GetValue<ulong?>("StartSlot") ?? defaultStartSlot;
         string configStartHash = reducerSection.GetValue<string>("StartHash") ?? defaultStartHash;
 
+        Logger.LogInformation("Using configured intersection for {Reducer}: Slot {Slot} Hash {Hash}", reducerName, configStartSlot, configStartHash);
         return new Point(configStartHash, configStartSlot);
     }
 
@@ -328,7 +328,6 @@ public class CardanoIndexWorker<T>(
         {
             "UnixSocket" =>
                 new N2CProvider(
-                    networkMagic,
                     config.GetValue<string>("UnixSocket:Path")
                     ?? throw new InvalidOperationException("UnixSocket:Path is not specified in the configuration.")
                 ),
@@ -374,7 +373,7 @@ public class CardanoIndexWorker<T>(
             .ToListAsync(stoppingToken);
 
         // No states case - fall back to configuration
-        if (!states.Any())
+        if (states.Count == 0)
         {
             return GetConfiguredReducerIntersection(reducerName);
         }
@@ -431,18 +430,18 @@ public class CardanoIndexWorker<T>(
         }
     }
 
-    private static void CreateDependencyGraph(IEnumerable<IReducer<IReducerModel>> reducers)
-    {
-        foreach (IReducer<IReducerModel> reducer in reducers)
-        {
-            string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
-            IEnumerable<string> dependencies = ReducerDependencyResolver
-                .GetReducerDependencies(reducer.GetType())
-                .Select(ArgusUtils.GetTypeNameWithoutGenerics);
+    // private static void CreateDependencyGraph(IEnumerable<IReducer<IReducerModel>> reducers)
+    // {
+    //     foreach (IReducer<IReducerModel> reducer in reducers)
+    //     {
+    //         string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+    //         IEnumerable<string> dependencies = ReducerDependencyResolver
+    //             .GetReducerDependencies(reducer.GetType())
+    //             .Select(ArgusUtils.GetTypeNameWithoutGenerics);
 
-            _dependencyGraph[reducerName] = [.. dependencies];
-        }
-    }
+    //         _dependencyGraph[reducerName] = [.. dependencies];
+    //     }
+    // }
 
     private static double GetCurrentMemoryUsageInMB()
     {

@@ -18,10 +18,9 @@ public static class ReducerExtensions
         optInList ??= [];
 
         IEnumerable<string> reducerNames = optInList.Select(ArgusUtils.GetTypeNameWithoutGenerics);
-        IEnumerable<string> duplicateNames = reducerNames.GroupBy(x => x)
+        IEnumerable<string> duplicateNames = [.. reducerNames.GroupBy(x => x)
                                        .Where(g => g.Count() > 1)
-                                       .Select(g => g.Key)
-                                       .ToList();
+                                       .Select(g => g.Key)];
 
         if (duplicateNames.Any())
         {
@@ -30,21 +29,21 @@ public static class ReducerExtensions
             );
         }
 
-        foreach (Type reducerType in optInList)
-        {
-            IEnumerable<Type> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducerType);
+        // foreach (Type reducerType in optInList)
+        // {
+        //     IEnumerable<Type> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducerType);
 
-            foreach (Type dependency in dependencies)
-            {
-                IEnumerable<Type> subDependencies = ReducerDependencyResolver.GetReducerDependencies(dependency);
-                if (subDependencies.Contains(reducerType))
-                {
-                    throw new ArgumentException(
-                        $"Circular dependency detected: {ArgusUtils.GetTypeNameWithoutGenerics(reducerType)} <-> {ArgusUtils.GetTypeNameWithoutGenerics(dependency)}"
-                    );
-                }
-            }
-        }
+        //     foreach (Type dependency in dependencies)
+        //     {
+        //         IEnumerable<Type> subDependencies = ReducerDependencyResolver.GetReducerDependencies(dependency);
+        //         if (subDependencies.Contains(reducerType))
+        //         {
+        //             throw new ArgumentException(
+        //                 $"Circular dependency detected: {ArgusUtils.GetTypeNameWithoutGenerics(reducerType)} <-> {ArgusUtils.GetTypeNameWithoutGenerics(dependency)}"
+        //             );
+        //         }
+        //     }
+        // }
 
         IEnumerable<Type> reducerTypes = AppDomain.CurrentDomain.GetAssemblies()
                    .SelectMany(a => a.GetTypes())
@@ -108,7 +107,7 @@ public static class ReducerExtensions
         {
             foreach (Type reducerType in reducerTypes)  // Changed to iterate over reducerTypes
             {
-                ValidateReducerDependencies(reducerType);
+                //ValidateReducerDependencies(reducerType);
                 RegisterReducer<V>(services, reducerType, typeof(T));
             }
             return;
@@ -137,7 +136,7 @@ public static class ReducerExtensions
             .Select(g => g.Key)
             .ToList();
 
-        if (duplicateNames.Any())
+        if (duplicateNames.Count != 0)
         {
             throw new ArgumentException(
                 $"Duplicate reducer names specified: {string.Join(", ", duplicateNames)}"
@@ -150,26 +149,26 @@ public static class ReducerExtensions
             Type reducerType = reducerTypes
                 .First(t => ArgusUtils.GetTypeNameWithoutGenerics(t) == reducerName);
 
-            ValidateReducerDependencies(reducerType);
+            // ValidateReducerDependencies(reducerType);
             RegisterReducer<V>(services, reducerType, typeof(T));  // Note the <V> here
         }
     }
 
-    private static void ValidateReducerDependencies(Type reducerType)
-    {
-        Type[] dependencies = ReducerDependencyResolver.GetReducerDependencies(reducerType);
+    // private static void ValidateReducerDependencies(Type reducerType)
+    // {
+    //     Type[] dependencies = ReducerDependencyResolver.GetReducerDependencies(reducerType);
 
-        foreach (Type dependency in dependencies)
-        {
-            Type[] subDependencies = ReducerDependencyResolver.GetReducerDependencies(dependency);
-            if (subDependencies.Contains(reducerType))
-            {
-                throw new ArgumentException(
-                    $"Circular dependency detected: {ArgusUtils.GetTypeNameWithoutGenerics(reducerType)} <-> {ArgusUtils.GetTypeNameWithoutGenerics(dependency)}"
-                );
-            }
-        }
-    }
+    //     foreach (Type dependency in dependencies)
+    //     {
+    //         Type[] subDependencies = ReducerDependencyResolver.GetReducerDependencies(dependency);
+    //         if (subDependencies.Contains(reducerType))
+    //         {
+    //             throw new ArgumentException(
+    //                 $"Circular dependency detected: {ArgusUtils.GetTypeNameWithoutGenerics(reducerType)} <-> {ArgusUtils.GetTypeNameWithoutGenerics(dependency)}"
+    //             );
+    //         }
+    //     }
+    // }
 
     private static void RegisterReducer<V>(IServiceCollection services, Type reducerType, Type dbContextType)
         where V : IReducerModel

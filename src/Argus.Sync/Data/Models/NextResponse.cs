@@ -1,5 +1,6 @@
-using Argus.Sync.Data.Models;
-using Block = Chrysalis.Cardano.Core.Types.Block.Block;
+using Chrysalis.Cbor.Cardano.Types.Block;
+
+namespace Argus.Sync.Data.Models;
 
 public record NextResponse
 (
