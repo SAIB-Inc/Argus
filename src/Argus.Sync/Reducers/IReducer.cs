@@ -1,5 +1,7 @@
+
+
 using Argus.Sync.Data.Models;
-using Block = Chrysalis.Cardano.Core.Types.Block.Block;
+using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
 
 namespace Argus.Sync.Reducers;
 

@@ -1,10 +1,9 @@
-using Argus.Sync.Data.Models;
-using Block = Chrysalis.Cardano.Core.Types.Block.Block;
+namespace Argus.Sync.Data.Models;
 
 public record NextResponse
 (
     NextResponseAction Action,
     RollBackType? RollBackType,
-    Block Block
+    Chrysalis.Cbor.Types.Cardano.Core.Block Block
 );
 

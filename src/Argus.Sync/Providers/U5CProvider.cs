@@ -1,16 +1,13 @@
 using Argus.Sync.Data.Models;
 using Utxorpc.Sdk;
-using CborBytes = Chrysalis.Cbor.Types.Primitives.CborBytes;
 using U5CNextResponse = Utxorpc.Sdk.Models.NextResponse;
-using Chrysalis.Cardano.Core.Types.Block;
-using Chrysalis.Cardano.Core.Types.Block.Header;
-using Chrysalis.Cardano.Core.Types.Block.Header.Body;
-using Chrysalis.Cbor.Types.Primitives;
-using Chrysalis.Cbor.Types.Collections;
-using Chrysalis.Cardano.Core.Types.Block.Transaction.Body;
-using Chrysalis.Cardano.Core.Types.Block.Transaction.WitnessSet;
 using Argus.Sync.Utils;
-using Block = Chrysalis.Cardano.Core.Types.Block.Block;
+using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
+using Chrysalis.Cbor.Types;
+using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
+using Chrysalis.Cbor.Types.Cardano.Core.TransactionWitness;
+using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Cbor.Types.Cardano.Core.Header;
 namespace Argus.Sync.Providers;
 
 public class U5CProvider(string url, Dictionary<string, string> header) : ICardanoChainProvider
@@ -58,28 +55,28 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         block = new ConwayBlock(
                             new BlockHeader(
                                 new AlonzoHeaderBody(
-                                    new CborUlong(0),
-                                    new CborUlong(response.ResetRef!.Index),
-                                    new CborNullable<CborBytes>(new CborBytes([])),
-                                    new CborBytes([]),
-                                    new CborBytes([]),
-                                    new VrfCert(new CborBytes([]), new CborBytes([])),
-                                    new VrfCert(new CborBytes([]), new CborBytes([])),
-                                    new CborUlong(0),
-                                    new CborBytes([]),
-                                    new CborBytes([]),
-                                    new CborUlong(0),
-                                    new CborUlong(0),
-                                    new CborBytes([]),
-                                    new CborUlong(0),
-                                    new CborUlong(0)
+                                    0,
+                                    response.ResetRef!.Index,
+                                    [],
+                                    [],
+                                    [],
+                                    new VrfCert([], []),
+                                    new VrfCert([], []),
+                                    0,
+                                    [],
+                                    [],
+                                    0,
+                                    0,
+                                    [],
+                                    0,
+                                    0
                                 ),
-                            new CborBytes([])
+                            []
                             ),
                             new CborDefList<ConwayTransactionBody>([]),
                             new CborDefList<PostAlonzoTransactionWitnessSet>([]),
                             new AuxiliaryDataSet([]),
-                            new CborDefList<CborInt>([])
+                            new CborDefList<int>([])
                         );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,

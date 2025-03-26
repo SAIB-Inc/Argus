@@ -1,52 +1,65 @@
+using System.Formats.Cbor;
 using Argus.Sync.Data.Models;
-using PallasNextResponse = Pallas.NET.Models.NextResponse;
-using ChrysalisBlock = Chrysalis.Cardano.Core.Types.Block.Block;
-using Pallas.NET;
-using Pallas.NET.Models.Enums;
 using Argus.Sync.Utils;
+using Chrysalis.Cbor.Types;
+using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Cbor.Types.Cardano.Core.Header;
+using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
+using Chrysalis.Cbor.Types.Cardano.Core.TransactionWitness;
+using Chrysalis.Network.Cbor.ChainSync;
+using Chrysalis.Network.Cbor.Handshake;
+using Chrysalis.Network.Multiplexer;
+using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
+using CPoint = Chrysalis.Network.Cbor.Common.Point;
+using Point = Argus.Sync.Data.Models.Point;
 
 namespace Argus.Sync.Providers;
 
-public class N2CProvider(ulong NetworkMagic, string NodeSocketPath) : ICardanoChainProvider
+public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
 {
-    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken = null)
+    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken)
     {
-        Client client = new();
-        await client.ConnectAsync(NodeSocketPath, NetworkMagic, ClientType.N2C);
-        await foreach (PallasNextResponse response in client.StartChainSyncAsync(
-            [
-                new(intersection.Slot, intersection.Hash)
-            ]
-        ))
+        stoppingToken ??= new CancellationTokenSource().Token;
+
+        NodeClient client = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
+        client.Start();
+
+        ProposeVersions proposeVersion = HandshakeMessages.ProposeVersions(VersionTables.N2C_V10_AND_ABOVE);
+        CborWriter writer = new();
+        ProposeVersions.Write(writer, proposeVersion);
+        await client.Handshake!.SendAsync(proposeVersion, CancellationToken.None);
+
+        CPoint point = new(intersection.Slot, Convert.FromHexString(intersection.Hash));
+        await client.ChainSync!.FindIntersectionAsync([point], stoppingToken.Value);
+
+        while (!stoppingToken.Value.IsCancellationRequested)
         {
-            if (stoppingToken.HasValue && stoppingToken.Value.IsCancellationRequested)
+            MessageNextResponse? nextResponse = await client.ChainSync!.NextRequestAsync(stoppingToken.Value);
+            switch (nextResponse)
             {
-                await client.DisconnectAsync();
-                yield break;
-            }
-            else
-            {
-                switch (response.Action)
-                {
-                    case Pallas.NET.Models.Enums.NextResponseAction.RollForward:
-                        ChrysalisBlock? block = ArgusUtils.DeserializeBlockWithEra(response.BlockCbor);
-                        yield return new NextResponse(
-                            Data.Models.NextResponseAction.RollForward,
-                            null,
-                             block!
-                        );
-                        break;
-                    case Pallas.NET.Models.Enums.NextResponseAction.RollBack:
-                        block = ArgusUtils.DeserializeBlockWithEra(response.BlockCbor);
-                        yield return new NextResponse(
-                            Data.Models.NextResponseAction.RollBack,
-                            RollBackType.Exclusive,
-                            block!
-                        );
-                        break;
-                    default:
-                        continue;
-                }
+                case MessageRollBackward msg:
+                    yield return new NextResponse(
+                          NextResponseAction.RollBack,
+                          RollBackType.Exclusive,
+                          new ConwayBlock(
+                                new(new BabbageHeaderBody(0, msg.Point.Slot, [], [], [], new([], []), 0, [], new([], 0, 0, []), new(0, 0)), []),
+                                new CborDefList<ConwayTransactionBody>([]),
+                                new CborDefList<PostAlonzoTransactionWitnessSet>([]),
+                                new([]),
+                                new CborDefList<int>([])
+                          )
+                      );
+                    break;
+                case MessageRollForward msg:
+                    Block? block = ArgusUtils.DeserializeBlockWithEra(msg.Payload.Value);
+                    yield return new NextResponse(
+                          NextResponseAction.RollForward,
+                          null,
+                          block!
+                      );
+                    break;
+                default:
+                    continue;
             }
         }
     }

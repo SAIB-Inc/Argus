@@ -1,11 +1,8 @@
 using System.Formats.Cbor;
 using Argus.Sync.Data.Models.Enums;
-using Chrysalis.Cardano.Core.Types.Block;
-using Chrysalis.Cardano.Core.Types.Block.Transaction.Output;
-using Chrysalis.Cbor.Converters;
+using Chrysalis.Cbor.Types.Cardano.Core;
 using Microsoft.Extensions.Configuration;
 using NSec.Cryptography;
-using Pallas.NET.Models;
 
 namespace Argus.Sync.Utils;
 
@@ -30,25 +27,27 @@ public static class ArgusUtils
         return algorithm.Hash(input);
     }
 
-    public static byte[] GetPublicKeyHash(this Address address)
-    {
-        byte[] dst = new byte[28];
-        Buffer.BlockCopy(address.Value, 1, dst, 0, dst.Length);
-        return dst;
-    }
+    // public static byte[] GetPublicKeyHash(this Address address)
+    // {
+    //     byte[] dst = new byte[28];
+    //     Buffer.BlockCopy(address.Value, 1, dst, 0, dst.Length);
+    //     return dst;
+    // }
 
-    public static Block? DeserializeBlockWithEra(byte[] blockCbor)
+    public static Block? DeserializeBlockWithEra(ReadOnlyMemory<byte> blockCbor)
     {
-        CborReader reader = CborSerializer.CreateReader(blockCbor);
+        CborReader reader = new(blockCbor, CborConformanceMode.Lax);
+        reader.ReadTag();
+        reader = new(reader.ReadByteString(), CborConformanceMode.Lax);
         reader.ReadStartArray();
         Era era = (Era)reader.ReadInt32();
-        byte[] blockBytes = reader.ReadEncodedValue().ToArray();
+        ReadOnlyMemory<byte> blockBytes = reader.ReadEncodedValue(true);
 
         return era switch
         {
-            Era.Shelley or Era.Allegra or Era.Mary or Era.Alonzo => CborSerializer.Deserialize<AlonzoCompatibleBlock>(blockBytes),
-            Era.Babbage => CborSerializer.Deserialize<BabbageBlock>(blockBytes),
-            Era.Conway => CborSerializer.Deserialize<ConwayBlock>(blockBytes),
+            Era.Shelley or Era.Allegra or Era.Mary or Era.Alonzo => AlonzoCompatibleBlock.Read(blockBytes),
+            Era.Babbage => BabbageBlock.Read(blockBytes),
+            Era.Conway => ConwayBlock.Read(blockBytes),
             _ => throw new NotSupportedException($"Unsupported era: {era}")
         };
     }

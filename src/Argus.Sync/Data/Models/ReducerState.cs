@@ -1,8 +1,9 @@
 namespace Argus.Sync.Data.Models;
 
-public record ReducerState
+public record ReducerState(string Name, ulong Slot, string Hash, DateTimeOffset CreatedAt)
 {
-    public string Name { get; set; } = default!;
-    public ulong Slot { get; set; }
-    public string Hash { get; set; } = default!;
+    public string Name { get; set; } = Name;
+    public ulong Slot { get; set; } = Slot;
+    public string Hash { get; set; } = Hash;
+    public DateTimeOffset CreatedAt { get; set; } = CreatedAt;
 }
