@@ -7,7 +7,7 @@ namespace Argus.Sync.Extensions;
 public static class BlockExtension
 {
 
-    public static BlockHeaderBody Header(this Block self)
+    public static BlockHeaderBody HeaderBody(this Block self)
     {
         return self switch
         {
@@ -17,6 +17,14 @@ public static class BlockExtension
             _ => throw new NotImplementedException()
         };
     }
+
+    public static BlockHeader Header(this Block self) => self switch
+    {
+        AlonzoCompatibleBlock a => a.Header,
+        BabbageBlock b => b.Header,
+        ConwayBlock c => c.Header,
+        _ => throw new NotImplementedException()
+    };
 
     public static ulong Slot(this BlockHeaderBody self)
     {
@@ -38,15 +46,7 @@ public static class BlockExtension
         };
     }
 
-    public static string Hash(this BlockHeaderBody self)
-    {
-        return self switch
-        {
-            AlonzoHeaderBody a => Convert.ToHexString(ToBlake2b256(a.Raw!.Value)),
-            BabbageHeaderBody b => Convert.ToHexString(ToBlake2b256(b.Raw!.Value)),
-            _ => throw new NotImplementedException()
-        };
-    }
+    public static string Hash(this BlockHeader self) => Convert.ToHexString(ToBlake2b256(self.Raw!.Value)).ToLowerInvariant();
 
     public static byte[] ToBlake2b256(this byte[] input)
     {

@@ -7,7 +7,9 @@ using Chrysalis.Cbor.Types.Cardano.Core.Header;
 using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
 using Chrysalis.Cbor.Types.Cardano.Core.TransactionWitness;
 using Chrysalis.Network.Cbor.ChainSync;
+using Chrysalis.Network.Cbor.Common;
 using Chrysalis.Network.Cbor.Handshake;
+using Chrysalis.Network.MiniProtocols.Extensions;
 using Chrysalis.Network.Multiplexer;
 using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
 using CPoint = Chrysalis.Network.Cbor.Common.Point;
@@ -17,20 +19,50 @@ namespace Argus.Sync.Providers;
 
 public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
 {
-    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken)
+
+    private static async Task SendHandshakeMessageAsync(NodeClient client, CancellationToken? stoppingToken)
+    {
+        stoppingToken ??= new CancellationTokenSource().Token;
+        ProposeVersions proposeVersion = HandshakeMessages.ProposeVersions(VersionTables.N2C_V10_AND_ABOVE);
+        CborWriter writer = new();
+        ProposeVersions.Write(writer, proposeVersion);
+        HandshakeMessage handshakeMessage = await client.Handshake!.SendAsync(proposeVersion, stoppingToken.Value);
+
+        if (handshakeMessage is Refuse)
+        {
+            throw new Exception("Handshake refused");
+        }
+    }
+
+    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, CancellationToken? stoppingToken)
     {
         stoppingToken ??= new CancellationTokenSource().Token;
 
         NodeClient client = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
         client.Start();
 
-        ProposeVersions proposeVersion = HandshakeMessages.ProposeVersions(VersionTables.N2C_V10_AND_ABOVE);
-        CborWriter writer = new();
-        ProposeVersions.Write(writer, proposeVersion);
-        await client.Handshake!.SendAsync(proposeVersion, CancellationToken.None);
+        await SendHandshakeMessageAsync(client, stoppingToken);
 
-        CPoint point = new(intersection.Slot, Convert.FromHexString(intersection.Hash));
-        await client.ChainSync!.FindIntersectionAsync([point], stoppingToken.Value);
+        IEnumerable<CPoint> cIntersections = intersections.Select(p => new CPoint(p.Slot, Convert.FromHexString(p.Hash)));
+
+        // Find intersect
+        while (true)
+        {
+            if (!cIntersections.Any())
+            {
+                break;
+            }
+
+            cIntersections = cIntersections.OrderByDescending(p => p.Slot);
+            ChainSyncMessage intersectMessage = await client.ChainSync!.FindIntersectionAsync(cIntersections, stoppingToken.Value);
+
+            if (intersectMessage is MessageIntersectFound)
+            {
+                break;
+            }
+
+            cIntersections = cIntersections.Skip(1);
+        }
 
         while (!stoppingToken.Value.IsCancellationRequested)
         {
@@ -62,5 +94,19 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
                     continue;
             }
         }
+    }
+
+    public async Task<Point> GetTipAsync(CancellationToken? stoppingToken = null)
+    {
+        stoppingToken ??= new CancellationTokenSource().Token;
+
+        NodeClient client = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
+        client.Start();
+
+        await SendHandshakeMessageAsync(client, stoppingToken);
+
+        Tip tip = await client.LocalStateQuery!.GetTipAsync();
+
+        return new(Convert.ToHexString(tip.Slot.Hash).ToLowerInvariant(), tip.Slot.Slot);
     }
 }

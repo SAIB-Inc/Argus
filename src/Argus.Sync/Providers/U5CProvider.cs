@@ -8,22 +8,30 @@ using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
 using Chrysalis.Cbor.Types.Cardano.Core.TransactionWitness;
 using Chrysalis.Cbor.Types.Cardano.Core;
 using Chrysalis.Cbor.Types.Cardano.Core.Header;
+
 namespace Argus.Sync.Providers;
 
 public class U5CProvider(string url, Dictionary<string, string> header) : ICardanoChainProvider
 {
-    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(Point intersection, CancellationToken? stoppingToken = null)
+    public Task<Point> GetTipAsync(CancellationToken? stoppingToken = null)
+    {
+        throw new NotImplementedException();
+    }
+
+    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, CancellationToken? stoppingToken = null)
     {
 
         var client = new SyncServiceClient(
             url,
             header
         );
+
+        var latestIntersections = intersections.MaxBy(e => e.Slot);
         await foreach (U5CNextResponse? response in client.FollowTipAsync(
             new Utxorpc.Sdk.Models.BlockRef
             (
-                intersection.Hash,
-                intersection.Slot
+                latestIntersections!.Hash,
+                latestIntersections.Slot
             )))
         {
 
