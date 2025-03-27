@@ -45,7 +45,6 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
 
         IEnumerable<CPoint> cIntersections = intersections.Select(p => new CPoint(p.Slot, Convert.FromHexString(p.Hash)));
 
-        // Find intersect
         while (true)
         {
             if (!cIntersections.Any())
@@ -83,7 +82,7 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
                       );
                     break;
                 case MessageRollForward msg:
-                    Block? block = ArgusUtils.DeserializeBlockWithEra(msg.Payload.Value);
+                    Block? block = ArgusUtil.DeserializeBlockWithEra(msg.Payload.Value);
                     yield return new NextResponse(
                           NextResponseAction.RollForward,
                           null,

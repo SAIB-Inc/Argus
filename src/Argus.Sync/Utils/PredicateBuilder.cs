@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
 
-namespace Argus.Sync.Extensions;
+namespace Argus.Sync.Utils;
 
 public static class PredicateBuilder
 {

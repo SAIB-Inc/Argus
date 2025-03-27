@@ -1,9 +1,7 @@
-using System.Collections;
 using System.Collections.Concurrent;
-using System.Diagnostics;
+using System.Text.Json;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
-using Argus.Sync.Extensions;
 using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
@@ -13,6 +11,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using NextResponse = Argus.Sync.Data.Models.NextResponse;
+using Chrysalis.Cbor.Extensions.Cardano.Core;
+using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
+using Argus.Sync.Extensions;
 
 namespace Argus.Sync.Workers;
 
@@ -24,26 +25,30 @@ public class CardanoIndexWorker<T>(
 ) : BackgroundService where T : CardanoDbContext
 {
     private readonly ConcurrentDictionary<string, ReducerState> _reducerStates = [];
+    private Point CurrentTip = new(string.Empty, 0);
 
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);
     private readonly int _rollbackBuffer = configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
-    private readonly ulong _networkMagic = configuration.GetValue("CardanoNodeConnection:NetworkMagic", 2UL);
     private readonly string _connectionType = configuration.GetValue<string>("CardanoNodeConnection:ConnectionType") ?? throw new Exception("Connection type not configured.");
     private readonly string? _socketPath = configuration.GetValue<string?>("CardanoNodeConnection:UnixSocket:Path");
     private readonly string? _gRPCEndpoint = configuration.GetValue<string?>("CardanoNodeConnection:gRPC:Endpoint");
     private readonly string? _apiKey = configuration.GetValue<string?>("CardanoNodeConnection:gRPC:ApiKey");
     private readonly string _defaultStartHash = configuration.GetValue<string>("CardanoNodeConnection:Hash") ?? throw new Exception("Default start hash not configured.");
     private readonly ulong _defaultStartSlot = configuration.GetValue<ulong?>("CardanoNodeConnection:Slot") ?? throw new Exception("Default start slot not configured.");
-    private Point CurrentTip = new(string.Empty, 0);
+    private readonly bool _rollbackModeEnabled = configuration.GetValue("CardanoIndexReducers:RollbackMode:Enabled", false);
 
+    private readonly bool _tuiMode = configuration.GetValue("Dashboard:TuiModeEnabled", true);
     private readonly PeriodicTimer _dashboardTimer = new(TimeSpan.FromSeconds(configuration.GetValue("Dashboard:RefreshIntervalSeconds", 5)));
     private readonly PeriodicTimer _dbSyncTimer = new(TimeSpan.FromSeconds(configuration.GetValue("Database:DbSyncIntervalSeconds", 10)));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!_rollbackModeEnabled)
+        {
+            _ = Task.Run(InitDashboardAsync, stoppingToken);
+            _ = Task.Run(async () => await StartReducerStateSync(stoppingToken), stoppingToken);
+        }
 
-        _ = Task.Run(InitDashboardAsync, stoppingToken);
-        _ = Task.Run(async () => await StartReducerStateSync(stoppingToken), stoppingToken);
         await Task.WhenAny(reducers.Select(reducer => StartReducerChainSyncAsync(reducer, stoppingToken)));
 
         Environment.Exit(0);
@@ -51,8 +56,12 @@ public class CardanoIndexWorker<T>(
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
-        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
         ReducerState reducerState = await GetReducerStateAsync(reducerName, stoppingToken);
+        _reducerStates[reducerName] = reducerState;
+
+        IEnumerable<Point> intersections = reducerState.LatestIntersections;
+        bool rollbackMode = _rollbackModeEnabled;
 
         if (reducerState is null)
         {
@@ -60,28 +69,53 @@ public class CardanoIndexWorker<T>(
             throw new Exception($"Failed to determine chainsync intersection for {reducerName}");
         }
 
-        _reducerStates[reducerName] = reducerState;
+        if (_rollbackModeEnabled)
+        {
+            rollbackMode = configuration.GetValue($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:Enabled", true);
+
+            if (rollbackMode)
+            {
+                string? defaultRollbackHash = configuration.GetValue<string>("CardanoIndexReducers:RollbackMode:RollbackHash");
+                ulong? defaultRollbackSlot = configuration.GetValue<ulong>("CardanoIndexReducers:RollbackMode:Slot");
+                string? selfRollbackHash = configuration.GetValue<string>($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:RollbackHash");
+                ulong? selfRollbackSlot = configuration.GetValue<ulong>($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:RollbackSlot");
+                string rollbackHash = selfRollbackHash ?? defaultRollbackHash ?? throw new Exception("Rollback hash not configured");
+                ulong rollbackSlot = selfRollbackSlot ?? defaultRollbackSlot ?? throw new Exception("Rollback slot not configured");
+
+                Point rollbackIntersection = new(rollbackHash, rollbackSlot);
+                intersections = [rollbackIntersection];
+            }
+        }
 
         ICardanoChainProvider chainProvider = GetCardanoChainProvider();
-        await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(reducerState.LatestIntersections, stoppingToken))
+        await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersections, stoppingToken))
         {
             Task reducerTask = nextResponse.Action switch
             {
                 NextResponseAction.RollForward => ProcessRollforwardAsync(reducer, nextResponse),
-                NextResponseAction.RollBack => ProcessRollbackAsync(reducer, nextResponse),
+                NextResponseAction.RollBack => ProcessRollbackAsync(reducer, nextResponse, rollbackMode, stoppingToken),
                 _ => throw new Exception($"Next response error received. {nextResponse}"),
             };
 
             await reducerTask;
+
+            if (rollbackMode)
+            {
+                await UpdateReducerStatesAsync(stoppingToken);
+                logger.LogInformation("Rollback successfully completed. Please disable rollback mode to start syncing.");
+                Environment.Exit(0);
+            }
         }
     }
 
     private async Task ProcessRollforwardAsync(IReducer<IReducerModel> reducer, NextResponse response)
     {
-        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+        if (_rollbackModeEnabled) return;
+
+        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
         await reducer.RollForwardAsync(response.Block);
 
-        Point recentIntersection = new(response.Block.Header().Hash(), response.Block.HeaderBody().Slot());
+        Point recentIntersection = new(response.Block.Header().Hash(), response.Block.Header().HeaderBody().Slot());
         IEnumerable<Point> latestIntersections = UpdateLatestIntersections(_reducerStates[reducerName].LatestIntersections, recentIntersection);
         _reducerStates[reducerName] = _reducerStates[reducerName] with
         {
@@ -89,19 +123,22 @@ public class CardanoIndexWorker<T>(
         };
     }
 
-    private async Task ProcessRollbackAsync(IReducer<IReducerModel> reducer, NextResponse response)
+    private async Task ProcessRollbackAsync(IReducer<IReducerModel> reducer, NextResponse response, bool rollbackMode, CancellationToken stoppingToken)
     {
-        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+
+        if (_rollbackModeEnabled && !rollbackMode) return;
+
+        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
         ulong rollbackSlot = response.RollBackType switch
         {
-            RollBackType.Exclusive => response.Block.HeaderBody().Slot() + 1UL,
-            RollBackType.Inclusive => response.Block.HeaderBody().Slot(),
+            RollBackType.Exclusive => response.Block.Header().HeaderBody().Slot() + 1UL,
+            RollBackType.Inclusive => response.Block.Header().HeaderBody().Slot(),
             _ => 0
         };
 
         long rollbackDepth = (long)_reducerStates[reducerName].LatestSlot - (long)rollbackSlot;
 
-        if (rollbackDepth >= _maxRollbackSlots)
+        if (rollbackDepth >= _maxRollbackSlots && !rollbackMode)
         {
             throw new Exception($"Requested RollBack Slot {rollbackSlot} is more than {_maxRollbackSlots} slots behind current slot {_reducerStates[reducerName].LatestSlot}.");
         }
@@ -138,6 +175,17 @@ public class CardanoIndexWorker<T>(
             .AsNoTracking()
             .Where(state => state.Name == reducerName)
             .FirstOrDefaultAsync(cancellationToken: stoppingToken);
+
+        if (state is not null)
+        {
+            if (!state.LatestIntersections.Any())
+            {
+                state = state with
+                {
+                    LatestIntersections = [state.StartIntersection]
+                };
+            }
+        }
 
         ReducerState initialState = GetDefaultReducerState(reducerName);
 
@@ -203,15 +251,23 @@ public class CardanoIndexWorker<T>(
 
     private async Task InitDashboardAsync()
     {
-        _ = Task.Run(StartSyncProgressTrackerAsync);
+        if (_tuiMode)
+        {
+            _ = Task.Run(StartSyncProgressTrackerAsync);
+        }
+        else
+        {
+            _ = Task.Run(StartSyncProgressPlainTextTracker);
+        }
+
         await Task.CompletedTask;
     }
 
     private async Task StartSyncProgressTrackerAsync()
     {
         await Task.Delay(1000);
-
         ICardanoChainProvider chainProvider = GetCardanoChainProvider();
+
         await AnsiConsole.Progress()
             .Columns(
             [
@@ -228,7 +284,7 @@ public class CardanoIndexWorker<T>(
             {
                 List<ProgressTask> tasks = [.. reducers.Select(reducer =>
                     {
-                        string reducerName = ArgusUtils.GetTypeNameWithoutGenerics(reducer.GetType());
+                        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
                         return ctx.AddTask(reducerName);
                     })];
 
@@ -258,6 +314,41 @@ public class CardanoIndexWorker<T>(
                 }
             }
         );
+    }
+
+    private async Task StartSyncProgressPlainTextTracker()
+    {
+        await Task.Delay(1000);
+        ICardanoChainProvider chainProvider = GetCardanoChainProvider();
+
+        while (await _dashboardTimer.WaitForNextTickAsync())
+        {
+            CurrentTip = await chainProvider.GetTipAsync();
+
+            foreach (ReducerState state in _reducerStates.Values)
+            {
+                Point? currentIntersection = state.LatestIntersections.MaxBy(p => p.Slot);
+                ulong startSlot = state.StartIntersection.Slot;
+                ulong currentSlot = currentIntersection?.Slot ?? 0UL;
+                ulong tipSlot = CurrentTip.Slot;
+
+                ulong totalSlotsToSync = tipSlot - startSlot;
+                ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
+                double progress = tipSlot <= startSlot ? 100.0 : (double)totalSlotsSynced / totalSlotsToSync * 100.0;
+
+                var status = new
+                {
+                    ReducerName = state.Name,
+                    state.StartIntersection,
+                    CurrentIntersection = currentIntersection,
+                    SyncProgress = progress
+                };
+
+                string statusJson = JsonSerializer.Serialize(status);
+
+                logger.LogInformation("[{reducer}]: {status}", state.Name, statusJson);
+            }
+        }
     }
 
     private async Task StartReducerStateSync(CancellationToken stoppingToken)

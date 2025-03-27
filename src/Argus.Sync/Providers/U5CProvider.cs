@@ -44,7 +44,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                 switch (response.Action)
                 {
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Apply:
-                        Block? block = ArgusUtils.DeserializeBlockWithEra(response.AppliedBlock!.NativeBytes);
+                        Block? block = ArgusUtil.DeserializeBlockWithEra(response.AppliedBlock!.NativeBytes);
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
                             null,
@@ -52,7 +52,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Undo:
-                        block = ArgusUtils.DeserializeBlockWithEra(response.UndoneBlock!.NativeBytes);
+                        block = ArgusUtil.DeserializeBlockWithEra(response.UndoneBlock!.NativeBytes);
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
                             RollBackType.Inclusive,
