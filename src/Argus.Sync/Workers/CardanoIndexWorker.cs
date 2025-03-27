@@ -35,11 +35,11 @@ public class CardanoIndexWorker<T>(
     private readonly string? _apiKey = configuration.GetValue<string?>("CardanoNodeConnection:gRPC:ApiKey");
     private readonly string _defaultStartHash = configuration.GetValue<string>("CardanoNodeConnection:Hash") ?? throw new Exception("Default start hash not configured.");
     private readonly ulong _defaultStartSlot = configuration.GetValue<ulong?>("CardanoNodeConnection:Slot") ?? throw new Exception("Default start slot not configured.");
-    private readonly bool _rollbackModeEnabled = configuration.GetValue("CardanoIndexReducers:RollbackMode:Enabled", false);
+    private readonly bool _rollbackModeEnabled = configuration.GetValue("Sync:Rollback:Enabled", false);
 
-    private readonly bool _tuiMode = configuration.GetValue("Dashboard:TuiModeEnabled", true);
-    private readonly PeriodicTimer _dashboardTimer = new(TimeSpan.FromSeconds(configuration.GetValue("Dashboard:RefreshIntervalSeconds", 5)));
-    private readonly PeriodicTimer _dbSyncTimer = new(TimeSpan.FromSeconds(configuration.GetValue("Database:DbSyncIntervalSeconds", 10)));
+    private readonly bool _tuiMode = configuration.GetValue("Sync:Dashboard:TuiMode", true);
+    private readonly PeriodicTimer _dashboardTimer = new(TimeSpan.FromSeconds(configuration.GetValue("Sync:Dashboard:RefreshIntervalSeconds", 5)));
+    private readonly PeriodicTimer _dbSyncTimer = new(TimeSpan.FromSeconds(configuration.GetValue("Sync:State:ReducerStateSyncIntervalSeconds", 10)));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -125,7 +125,6 @@ public class CardanoIndexWorker<T>(
 
     private async Task ProcessRollbackAsync(IReducer<IReducerModel> reducer, NextResponse response, bool rollbackMode, CancellationToken stoppingToken)
     {
-
         if (_rollbackModeEnabled && !rollbackMode) return;
 
         string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
