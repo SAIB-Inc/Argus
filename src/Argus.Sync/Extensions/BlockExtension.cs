@@ -1,5 +1,6 @@
 using Chrysalis.Cbor.Types.Cardano.Core;
 using Chrysalis.Cbor.Types.Cardano.Core.Header;
+using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
 using NSec.Cryptography;
 
 namespace Argus.Sync.Extensions;
@@ -14,6 +15,39 @@ public static class BlockExtension
             AlonzoCompatibleBlock a => a.Header.HeaderBody,
             BabbageBlock b => b.Header.HeaderBody,
             ConwayBlock c => c.Header.HeaderBody,
+            _ => throw new NotImplementedException()
+        };
+    }
+
+    public static IEnumerable<TransactionBody> TransactionBodies(this Block self)
+    {
+        return self switch
+        {
+            AlonzoCompatibleBlock a => a.TransactionBodies.GetValue(),
+            BabbageBlock b => b.TransactionBodies.GetValue(),
+            ConwayBlock c => c.TransactionBodies.GetValue(),
+            _ => throw new NotImplementedException()
+        };
+    }
+
+    public static string TxHash(this TransactionBody self)
+    {
+        return self switch
+        {
+            AlonzoTransactionBody a => Convert.ToHexString(a.Raw?.ToBlake2b256() ?? []).ToLowerInvariant(),
+            BabbageTransactionBody b => Convert.ToHexString(b.Raw?.ToBlake2b256() ?? []).ToLowerInvariant(),
+            ConwayTransactionBody c => Convert.ToHexString(c.Raw?.ToBlake2b256() ?? []).ToLowerInvariant(),
+            _ => throw new NotImplementedException()
+        };
+    }
+
+    public static byte[]? TxRaw(this TransactionBody self)
+    {
+        return self switch
+        {
+            AlonzoTransactionBody a => a.Raw?.ToArray(),
+            BabbageTransactionBody b => b.Raw?.ToArray(),
+            ConwayTransactionBody c => c.Raw?.ToArray(),
             _ => throw new NotImplementedException()
         };
     }
