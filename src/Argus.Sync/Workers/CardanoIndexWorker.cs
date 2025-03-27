@@ -273,7 +273,8 @@ public class CardanoIndexWorker<T>(
                 new TaskDescriptionColumn(),
                     new ProgressBarColumn()
                     {
-                        CompletedStyle = Color.GreenYellow
+                        CompletedStyle = Color.MediumSpringGreen,
+                        FinishedStyle = Color.Cyan2
                     },
                     new PercentageColumn(),
                     new RemainingTimeColumn(),
