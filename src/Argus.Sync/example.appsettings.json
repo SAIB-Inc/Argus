@@ -1,0 +1,61 @@
+{
+    "Logging": {
+        "LogLevel": {
+            "Default": "Information",
+            "Microsoft.AspNetCore": "Warning",
+            "Microsoft.EntityFrameworkCore.Database.Command": "Warning"
+        }
+    },
+    "AllowedHosts": "*",
+    "ConnectionStrings": {
+        "CardanoContext": "Host=localhost;Database=argus-test-sync;Username=postgres;Password=test1234;Port=5432;",
+        "CardanoContextSchema": "public"
+    },
+    "CardanoNodeConnection": {
+        "ConnectionType": "UnixSocket",
+        "UnixSocket": {
+            "Path": "/home/rjlacanlale/cardano/ipc/node.socket"
+        },
+        "gRPC": {
+            "Endpoint": "http://localhost:50051",
+            "ApiKey": "utxorpc19wu6mwh7u7q0uxf9cyh"
+        },
+        "NetworkMagic": 2,
+        "MaxRollbackSlots": 1000,
+        "RollbackBuffer": 10,
+        "Slot": 57371845,
+        "Hash": "20a81db38339bf6ee9b1d7e22b22c0ac4d887d332bbf4f3005db4848cd647743"
+    },
+    "SyncSettings":
+    {
+        "Rollback": 
+        {
+            "Enabled": false,
+            "RollbackHash": "20a81db38339bf6ee9b1d7e22b22c0ac4d887d332bbf4f3005db4848cd647743",
+            "RollbackSlot": 57371845,
+            "Reducers": 
+            {
+                "BlockTestReducer":
+                {
+                    "Enabled": true,
+                    "RollbackHash": "20a81db38339bf6ee9b1d7e22b22c0ac4d887d332bbf4f3005db4848cd647743",
+                    "RollbackSlot": 57371845
+                },
+                "TransactionTestReducer":
+                {
+                    "Enabled": false,
+                    "RollbackHash": "20a81db38339bf6ee9b1d7e22b22c0ac4d887d332bbf4f3005db4848cd647743",
+                    "RollbackSlot": 57371845
+                }
+            }
+        },
+        "Dashboard":
+        {
+            "TuiMode": true
+        },
+        "State":
+        {
+            "ReducerStateSyncIntervalSeconds": 10
+        }
+    }
+}
