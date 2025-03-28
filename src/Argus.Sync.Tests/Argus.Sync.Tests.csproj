@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Chrysalis" Version="0.5.24" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
     <PackageReference Include="CborSerializer" Version="1.0.10" />
     <PackageReference Include="xunit" Version="2.9.2" />
@@ -23,8 +24,8 @@
     </PackageReference>
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- <ItemGroup>
     <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
-  </ItemGroup>
+  </ItemGroup> -->
 
 </Project>

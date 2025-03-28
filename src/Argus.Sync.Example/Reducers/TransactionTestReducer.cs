@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
 
-public class TransactionTestReducer(IDbContextFactory<TestDbContext> dbContextFactory) : IReducer<TransactionTest>
+public class TransactionTestReducer(IDbContextFactory<TestDbContext> dbContextFactory)
 {
     public async Task RollBackwardAsync(ulong slot)
     {

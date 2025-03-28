@@ -18,6 +18,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
+    <ProjectReference Include="../Argus.Sync/Argus.Sync.csproj" />
   </ItemGroup>
 </Project>

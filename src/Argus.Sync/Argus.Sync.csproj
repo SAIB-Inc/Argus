@@ -26,7 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\..\chrysalis\Chrysalis\src\Chrysalis.Cbor\Chrysalis.Cbor.csproj" />
-    <ProjectReference Include="..\..\..\..\..\chrysalis\Chrysalis\src\Chrysalis.Network\Chrysalis.Network.csproj" />
+  <ProjectReference Include="../../../Chrysalis/src/Chrysalis.Wallet/Chrysalis.Wallet.csproj" />
+    <ProjectReference Include="../../../Chrysalis/src/Chrysalis.Cbor/Chrysalis.Cbor.csproj" />
+    <ProjectReference Include="../../../Chrysalis/src/Chrysalis.Network/Chrysalis.Network.csproj" />
   </ItemGroup>
 </Project>

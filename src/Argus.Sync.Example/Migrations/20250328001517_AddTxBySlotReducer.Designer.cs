@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -10,9 +11,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    partial class TestDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250328001517_AddTxBySlotReducer")]
+    partial class AddTxBySlotReducer
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -60,71 +63,6 @@ namespace Argus.Sync.Example.Migrations
                     b.HasKey("BlockHash");
 
                     b.ToTable("BlockTests", "public");
-                });
-
-            modelBuilder.Entity("Argus.Sync.Example.Models.OutputBySlot", b =>
-                {
-                    b.Property<string>("TxHash")
-                        .HasColumnType("text");
-
-                    b.Property<long>("TxIndex")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Address")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<byte[]>("DatumData")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<byte[]>("RawCbor")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<byte[]>("ReferenceScript")
-                        .HasColumnType("bytea");
-
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<decimal?>("SpentSlot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<int>("UtxoStatus")
-                        .HasColumnType("integer");
-
-                    b.HasKey("TxHash", "TxIndex");
-
-                    b.ToTable("OutputBySlot", "public");
-                });
-
-            modelBuilder.Entity("Argus.Sync.Example.Models.PriceByToken", b =>
-                {
-                    b.Property<string>("OutRef")
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<string>("TokenXSubject")
-                        .HasColumnType("text");
-
-                    b.Property<string>("TokenYSubject")
-                        .HasColumnType("text");
-
-                    b.Property<int>("PlatformType")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal>("TokenXPrice")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<decimal>("TokenYPrice")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("OutRef", "Slot", "TokenXSubject", "TokenYSubject", "PlatformType");
-
-                    b.ToTable("PricesByToken", "public");
                 });
 
             modelBuilder.Entity("Argus.Sync.Example.Models.TransactionTest", b =>
