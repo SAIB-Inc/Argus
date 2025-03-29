@@ -10,22 +10,17 @@ namespace Argus.Sync.Example.Models.Cardano.Sundae;
 public abstract partial record AssetClass : CborBase;
 
 [CborSerializable]
-[CborList]
-public partial record AssetClassIndefinite([CborOrder(0)] CborIndefList<CborBytes> Value) : AssetClass;
+public partial record AssetClassIndefinite(CborIndefList<CborBytes> Value) : AssetClass;
 
 [CborSerializable]
-[CborList]
-public partial record AssetClassDefinite([CborOrder(0)] CborDefList<CborBytes> Value) : AssetClass;
-
+public partial record AssetClassDefinite(CborDefList<CborBytes> Value) : AssetClass;
 
 [CborSerializable]
 [CborUnion]
 public abstract partial record AssetClassTuple : CborBase;
 
 [CborSerializable]
-[CborList]
-public partial record AssetClassTupleIndef([CborOrder(0)] CborIndefList<AssetClass> Value) : AssetClassTuple;
+public partial record AssetClassTupleIndef(CborDefList<AssetClass> Value) : AssetClassTuple;
 
 [CborSerializable]
-[CborList]
-public partial record AssetClassTupleDef([CborOrder(0)] CborDefList<AssetClass> Value) : AssetClassTuple;
+public partial record AssetClassTupleDef(CborIndefList<AssetClass> Value) : AssetClassTuple;

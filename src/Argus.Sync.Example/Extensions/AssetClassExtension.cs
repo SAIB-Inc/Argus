@@ -1,9 +1,6 @@
-using Argus.Sync.Example.Models.Cardano.Common;
 using Argus.Sync.Example.Models.Cardano.Sundae;
-using Argus.Sync.Example.Models.Enums;
+using Argus.Sync.Example.Models.Cardano.Common;
 using Chrysalis.Cbor.Extensions;
-using Chrysalis.Cbor.Types.Cardano.Core.Common;
-using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
 
 namespace Argus.Sync.Example.Extensions;
 

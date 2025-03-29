@@ -5,7 +5,7 @@ namespace Argus.Sync.Example.Models;
 
 public record OrderBySlot(
     string TxHash,
-    ulong Index,
+    ulong TxIndex,
     ulong Slot,
     string OwnerAddress,
     string PolicyId,

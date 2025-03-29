@@ -1,5 +1,6 @@
 using Chrysalis.Cbor.Serialization.Attributes;
 using Chrysalis.Cbor.Types;
+using Chrysalis.Cbor.Types.Cardano.Core.Common;
 
 namespace Argus.Sync.Example.Models.Cardano.Sundae;
 
@@ -34,6 +35,3 @@ public record After(PosixTime Time) : MultisigScript;
 [CborSerializable]
 [CborConstr(6)]
 public record Script(byte[] ScriptHash) : MultisigScript;
-
-
-public record PosixTime(ulong Value) : CborBase;

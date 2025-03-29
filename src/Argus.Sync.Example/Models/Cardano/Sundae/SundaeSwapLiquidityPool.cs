@@ -6,7 +6,7 @@ using Chrysalis.Cbor.Types;
 namespace Argus.Sync.Example.Models.Cardano.Sundae;
 
 [CborSerializable]
-[CborConstr]
+[CborConstr(0)]
 public record SundaeSwapLiquidityPool(
     [CborOrder(0)]
     byte[] Identifer,
@@ -32,3 +32,4 @@ public record SundaeSwapLiquidityPool(
     [CborOrder(7)]
     ulong ProtocolFees
 ) : CborBase;
+

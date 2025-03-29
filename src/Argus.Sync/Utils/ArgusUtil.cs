@@ -1,6 +1,7 @@
 using System.Formats.Cbor;
 using Argus.Sync.Data.Models.Enums;
 using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Wallet.Models.Addresses;
 using Microsoft.Extensions.Configuration;
 using NSec.Cryptography;
 
@@ -17,6 +18,13 @@ public static class ArgusUtil
             typeName = typeName[..genericCharIndex];
         }
         return typeName;
+    }
+
+    public static byte[] GetPublicKeyHash(this Address address)
+    {
+        byte[] dst = new byte[28];
+        Buffer.BlockCopy(address.ToBytes(), 1, dst, 0, dst.Length);
+        return dst;
     }
 
     public static Block? DeserializeBlockWithEra(ReadOnlyMemory<byte> blockCbor)

@@ -4,5 +4,9 @@ using Chrysalis.Cbor.Types;
 namespace Argus.Sync.Example.Models.Cardano.OrderBook;
 
 [CborSerializable]
+[CborConstr(0)]
+public partial record AcceptRedeemer : CborBase;
+
+[CborSerializable]
 [CborConstr(1)]
-public record CancelRedeemer() : CborBase;
+public partial record CancelRedeemer : CborBase;

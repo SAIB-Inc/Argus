@@ -1,4 +1,5 @@
 using Argus.Sync.Example.Models.Enums;
+using Chrysalis.Cbor.Extensions.Cardano.Core.Common;
 using Chrysalis.Cbor.Types.Cardano.Core.Common;
 using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
 
@@ -25,7 +26,7 @@ public static class TransactionOutputExtension
             },
             PostAlonzoTransactionOutput b => b.Datum switch
             {
-                InlineDatumOption inline => (DatumType.Inline, inline.Data.Value),
+                InlineDatumOption inline => (DatumType.Inline, inline.Data()),
                 DatumHashOption hash => (DatumType.Hash, hash.DatumHash),
                 _ => (DatumType.None, null)
             },

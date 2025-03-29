@@ -20,12 +20,10 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 namespace Argus.Sync.Example.Reducers;
 
 public class OrderBySlotReducer(
-    IDbContextFactory<TestDbContext> dbContextFactory,
-    IConfiguration configuration
-) : IReducer<OrderBySlot>
+    IDbContextFactory<TestDbContext> dbContextFactory
+)
 {
-    private readonly string _orderBookScriptHash = configuration.GetValue("OrderBook", "0f45963b8e895bd46839bbcf34185993440f26e3f07c668bd2026f92");
-
+    readonly string _orderBookScriptHash = "0f45963b8e895bd46839bbcf34185993440f26e3f07c668bd2026f92";
     public async Task RollBackwardAsync(ulong slot)
     {
         await using TestDbContext dbContext = await dbContextFactory.CreateDbContextAsync();
@@ -50,7 +48,7 @@ public class OrderBySlotReducer(
                 .FirstOrDefault(e =>
                     e.Entity.Slot == existing.Slot &&
                     e.Entity.TxHash == existing.TxHash &&
-                    e.Entity.Index == existing.Index);
+                    e.Entity.TxIndex == existing.TxIndex);
 
             if (trackedEntity is not null) trackedEntity.State = EntityState.Detached;
         });
@@ -81,17 +79,17 @@ public class OrderBySlotReducer(
 
         Expression<Func<OrderBySlot, bool>> predicate = PredicateBuilder.False<OrderBySlot>();
         inputOutRefs.ForEach(input =>
-            predicate = predicate.Or(o => o.TxHash == input.txHash && o.Index == input.index));
+            predicate = predicate.Or(o => o.TxHash == input.txHash && o.TxIndex == input.index));
 
         List<OrderBySlot> dbEntries = await dbContext.OrdersBySlot
             .Where(predicate)
             .ToListAsync();
 
-        List<OrderBySlot> localEntries = [.. dbContext.OrdersBySlot.Local.Where(e => inputOutRefs.Any(input => input.txHash == e.TxHash && input.index == e.Index))];
+        List<OrderBySlot> localEntries = [.. dbContext.OrdersBySlot.Local.Where(e => inputOutRefs.Any(input => input.txHash == e.TxHash && input.index == e.TxIndex))];
 
         List<OrderBySlot> allEntries = [.. dbEntries
             .Concat(localEntries)
-            .GroupBy(e => (e.TxHash, e.Index))
+            .GroupBy(e => (e.TxHash, e.TxIndex))
             .Select(g => g.First())];
 
         ProcessInputs(block, allEntries, dbContext);
@@ -111,15 +109,20 @@ public class OrderBySlotReducer(
 
                 if (string.IsNullOrEmpty(outputBech32Addr) || !outputBech32Addr.StartsWith("addr")) return;
 
-                string pkh = Convert.ToHexString(new Address(e.Output.Address()).GetPkh() ?? []).ToLowerInvariant();
+                string pkh = Convert.ToHexString(new Address(e.Output.Address()).GetPublicKeyHash()).ToLowerInvariant();
 
                 if (pkh != _orderBookScriptHash) return;
 
-                OrderDatum orderDatum = CborSerializer.Deserialize<OrderDatum>(e.Output.Datum());
-                List<CborBytes>? asset = orderDatum.Asset.AssetClassValue();
+                string datumHex = "d8799f581cc05cb5c5f43aac9d9e057286e094f60d09ae61e8962ad5c42196180c9f4040ff1a00989680ff";
+                var datum = new OrderDatum(Convert.FromHexString("c05cb5c5f43aac9d9e057286e094f60d09ae61e8962ad5c42196180c"), new([new([]), new([])]), 10000000UL);
 
-                string policyId = Convert.ToHexStringLower(asset![0].Value);
-                string assetName = Convert.ToHexStringLower(asset[1].Value);
+                var hex = CborSerializer.Serialize(datum);
+                
+                OrderDatum? orderDatum = CborSerializer.Deserialize<OrderDatum>(Convert.FromHexString(datumHex));
+                List<CborBytes>? asset = [];
+
+                string policyId = Convert.ToHexStringLower(asset?[0].Value ?? []);
+                string assetName = Convert.ToHexStringLower(asset?[1].Value ?? []);
 
                 OrderBySlot orderBySlotHistory = new(
                     txHash,
@@ -152,12 +155,12 @@ public class OrderBySlotReducer(
         orderBySlotEntries.ForEach(entry =>
         {
             (byte[]? RedeemerRaw, TransactionInput Input, TransactionBody Tx) = inputRedeemers
-                .FirstOrDefault(ir => Convert.ToHexStringLower(ir.Input.TransactionId()) == entry.TxHash && ir.Input.Index == entry.Index);
+                .FirstOrDefault(ir => Convert.ToHexStringLower(ir.Input.TransactionId()) == entry.TxHash && ir.Input.Index == entry.TxIndex);
 
             bool isSold = IsAcceptOrCancelRedeemer(entry, inputRedeemers);
 
             OrderBySlot? localEntry = dbContext.OrdersBySlot.Local
-                .FirstOrDefault(e => e.TxHash == entry.TxHash && e.Index == entry.Index);
+                .FirstOrDefault(e => e.TxHash == entry.TxHash && e.TxIndex == entry.TxIndex);
 
             Address? executorAddress = new(Tx.Outputs().Last().Address()); // TODO
             string executorAddressBech32 = executorAddress?.ToBech32() ?? string.Empty;
@@ -186,7 +189,7 @@ public class OrderBySlotReducer(
     {
         // Get the input that spent this listing
         byte[]? redeemerRaw = inputRedeemers
-            .Where(ir => Convert.ToHexStringLower(ir.Input.TransactionId()) == order.TxHash && ir.Input.Index() == order.Index)
+            .Where(ir => Convert.ToHexStringLower(ir.Input.TransactionId()) == order.TxHash && ir.Input.Index() == order.TxIndex)
             .Select(ir => ir.RedeemerRaw)
             .FirstOrDefault();
 
