@@ -20,10 +20,10 @@ namespace Argus.Sync.Providers;
 public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
 {
 
-    private static async Task SendHandshakeMessageAsync(NodeClient client, CancellationToken? stoppingToken)
+    private static async Task SendHandshakeMessageAsync(NodeClient client, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         stoppingToken ??= new CancellationTokenSource().Token;
-        ProposeVersions proposeVersion = HandshakeMessages.ProposeVersions(VersionTables.N2C_V10_AND_ABOVE);
+        ProposeVersions proposeVersion = HandshakeMessages.ProposeVersions(VersionTables.N2C_V10_AND_ABOVE(networkMagic));
         CborWriter writer = new();
         ProposeVersions.Write(writer, proposeVersion);
         HandshakeMessage handshakeMessage = await client.Handshake!.SendAsync(proposeVersion, stoppingToken.Value);
@@ -34,14 +34,14 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
         }
     }
 
-    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, CancellationToken? stoppingToken)
+    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         stoppingToken ??= new CancellationTokenSource().Token;
 
         NodeClient client = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
         client.Start();
 
-        await SendHandshakeMessageAsync(client, stoppingToken);
+        await SendHandshakeMessageAsync(client, networkMagic, stoppingToken);
 
         IEnumerable<CPoint> cIntersections = intersections.Select(p => new CPoint(p.Slot, Convert.FromHexString(p.Hash)));
 
@@ -95,14 +95,14 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
         }
     }
 
-    public async Task<Point> GetTipAsync(CancellationToken? stoppingToken = null)
+    public async Task<Point> GetTipAsync(ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         stoppingToken ??= new CancellationTokenSource().Token;
 
         NodeClient client = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
         client.Start();
 
-        await SendHandshakeMessageAsync(client, stoppingToken);
+        await SendHandshakeMessageAsync(client, networkMagic, stoppingToken);
 
         Tip tip = await client.LocalStateQuery!.GetTipAsync();
 

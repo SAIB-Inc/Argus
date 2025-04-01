@@ -5,6 +5,6 @@ namespace Argus.Sync.Providers;
 
 public interface ICardanoChainProvider
 {
-    IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersection, CancellationToken? stoppingToken = null);
-    Task<Point> GetTipAsync(CancellationToken? stoppingToken = null);
+    IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersection, ulong networkMagic = 2, CancellationToken? stoppingToken = null);
+    Task<Point> GetTipAsync(ulong networkMagic = 2, CancellationToken? stoppingToken = null);
 }
