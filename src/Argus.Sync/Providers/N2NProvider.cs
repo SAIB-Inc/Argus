@@ -9,7 +9,7 @@ public class N2NProvider : ICardanoChainProvider
         throw new NotImplementedException();
     }
 
-    IAsyncEnumerable<NextResponse> ICardanoChainProvider.StartChainSyncAsync(IEnumerable<Point> intersection, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
+    public IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersection, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         throw new NotImplementedException();
     }
