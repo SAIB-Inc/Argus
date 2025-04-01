@@ -78,7 +78,7 @@ public class SundaePriceByTokenReducer(
                 return tx.Outputs()
                     .SelectMany(o =>
                     {
-                        string? outputAddressPkh = Convert.ToHexStringLower(new WalletAddress(o.Address()).GetPkh() ?? []);
+                        string? outputAddressPkh = Convert.ToHexStringLower(new WalletAddress(o.Address()).GetPaymentKeyHash() ?? []);
                         if (string.IsNullOrEmpty(outputAddressPkh) || outputAddressPkh != SundaeSwapScriptHash) return [];
 
                         (DatumType Type, byte[]? Data)? datumInfo = o.DatumInfo();

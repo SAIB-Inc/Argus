@@ -11,8 +11,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    [Migration("20250328234934_AddOwnerBySlot")]
-    partial class AddOwnerBySlot
+    [Migration("20250401032126_AddUtxoByAddress2")]
+    partial class AddUtxoByAddress2
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -273,6 +273,32 @@ namespace Argus.Sync.Example.Migrations
                     b.HasKey("TxHash", "Index");
 
                     b.ToTable("TxBySlot", "public");
+                });
+
+            modelBuilder.Entity("Argus.Sync.Example.Models.UtxoByAddress", b =>
+                {
+                    b.Property<string>("Address")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<string>("TxHash")
+                        .HasColumnType("text");
+
+                    b.Property<int>("TxIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("BlockNumber")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<byte[]>("RawData")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("Address", "Slot", "TxHash", "TxIndex");
+
+                    b.ToTable("UtxosByAddress", "public");
                 });
 #pragma warning restore 612, 618
         }

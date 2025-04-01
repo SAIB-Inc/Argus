@@ -271,6 +271,32 @@ namespace Argus.Sync.Example.Migrations
 
                     b.ToTable("TxBySlot", "public");
                 });
+
+            modelBuilder.Entity("Argus.Sync.Example.Models.UtxoByAddress", b =>
+                {
+                    b.Property<string>("Address")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<string>("TxHash")
+                        .HasColumnType("text");
+
+                    b.Property<int>("TxIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("BlockNumber")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<byte[]>("RawData")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("Address", "Slot", "TxHash", "TxIndex");
+
+                    b.ToTable("UtxosByAddress", "public");
+                });
 #pragma warning restore 612, 618
         }
     }

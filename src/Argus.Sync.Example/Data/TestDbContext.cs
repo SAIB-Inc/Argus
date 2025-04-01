@@ -15,6 +15,7 @@ public class TestDbContext
     public DbSet<PriceByToken> PricesByToken => Set<PriceByToken>();
     public DbSet<OrderBySlot> OrdersBySlot => Set<OrderBySlot>();
     public DbSet<OwnerBySlot> AssetOwnerBySlot => Set<OwnerBySlot>();
+    public DbSet<UtxoByAddress> UtxosByAddress => Set<UtxoByAddress>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -58,6 +59,11 @@ public class TestDbContext
         modelBuilder.Entity<OwnerBySlot>(entity =>
         {
             entity.HasKey(e =>  new { e.Address, e.Subject, e.Slot, e.OutRef });
+        });
+
+        modelBuilder.Entity<UtxoByAddress>(entity =>
+        {
+            entity.HasKey(e =>  new { e.Address, e.Slot, e.TxHash, e.TxIndex });
         });
     }
 }

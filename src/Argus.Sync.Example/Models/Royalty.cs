@@ -2,10 +2,9 @@ using Argus.Sync.Data.Models;
 
 namespace Argus.Sync.Example.Models;
 
-public record UtxosByAddress(
-    string TxHash,
-    int TxIndex,
-    ulong Slot,
+public record Royalty(
+    string PolicyId,
     string Address,
-    ulong Amount
+    decimal Share,
+    ulong Slot
 ) : IReducerModel;

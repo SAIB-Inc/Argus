@@ -18,7 +18,8 @@ namespace Argus.Sync.Example.Reducers;
 
 public class OwnerBySlotReducer(
     IDbContextFactory<TestDbContext> dbContextFactory
-) : IReducer<OwnerBySlot>
+) 
+// : IReducer<OwnerBySlot>
 {
     public async Task RollBackwardAsync(ulong slot)
     {
