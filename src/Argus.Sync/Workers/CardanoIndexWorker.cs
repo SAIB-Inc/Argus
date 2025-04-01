@@ -14,6 +14,7 @@ using NextResponse = Argus.Sync.Data.Models.NextResponse;
 using Chrysalis.Cbor.Extensions.Cardano.Core;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
 using Argus.Sync.Extensions;
+using System.Diagnostics;
 
 namespace Argus.Sync.Workers;
 
@@ -29,6 +30,7 @@ public class CardanoIndexWorker<T>(
 
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);
     private readonly int _rollbackBuffer = configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
+    private readonly ulong _networkMagic = configuration.GetValue("CardanoNodeConnection:NetworkMagic", 2UL);
     private readonly string _connectionType = configuration.GetValue<string>("CardanoNodeConnection:ConnectionType") ?? throw new Exception("Connection type not configured.");
     private readonly string? _socketPath = configuration.GetValue<string?>("CardanoNodeConnection:UnixSocket:Path");
     private readonly string? _gRPCEndpoint = configuration.GetValue<string?>("CardanoNodeConnection:gRPC:Endpoint");
@@ -38,8 +40,8 @@ public class CardanoIndexWorker<T>(
     private readonly bool _rollbackModeEnabled = configuration.GetValue("Sync:Rollback:Enabled", false);
 
     private readonly bool _tuiMode = configuration.GetValue("Sync:Dashboard:TuiMode", true);
-    private readonly PeriodicTimer _dashboardTimer = new(TimeSpan.FromSeconds(configuration.GetValue("Sync:Dashboard:RefreshIntervalSeconds", 5)));
-    private readonly PeriodicTimer _dbSyncTimer = new(TimeSpan.FromSeconds(configuration.GetValue("Sync:State:ReducerStateSyncIntervalSeconds", 10)));
+    private readonly PeriodicTimer _dashboardTimer = new(TimeSpan.FromMilliseconds(Math.Max(configuration.GetValue("Sync:Dashboard:RefreshInterval", 1000), 3000)));
+    private readonly PeriodicTimer _dbSyncTimer = new(TimeSpan.FromMilliseconds(configuration.GetValue("Sync:State:ReducerStateSyncInterval", 10000)));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -88,7 +90,7 @@ public class CardanoIndexWorker<T>(
         }
 
         ICardanoChainProvider chainProvider = GetCardanoChainProvider();
-        await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersections, stoppingToken))
+        await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersections, _networkMagic, stoppingToken))
         {
             Task reducerTask = nextResponse.Action switch
             {
@@ -252,7 +254,14 @@ public class CardanoIndexWorker<T>(
     {
         if (_tuiMode)
         {
-            _ = Task.Run(StartSyncProgressTrackerAsync);
+            if (configuration.GetValue<string>("Sync:Dashboard:DisplayType") == "Full")
+            {
+                _ = Task.Run(StartSyncFullDashboardTracker);
+            }
+            else
+            {
+                _ = Task.Run(StartSyncProgressTrackerAsync);
+            }
         }
         else
         {
@@ -264,7 +273,7 @@ public class CardanoIndexWorker<T>(
 
     private async Task StartSyncProgressTrackerAsync()
     {
-        await Task.Delay(1000);
+        await Task.Delay(100);
         ICardanoChainProvider chainProvider = GetCardanoChainProvider();
 
         await AnsiConsole.Progress()
@@ -318,7 +327,7 @@ public class CardanoIndexWorker<T>(
 
     private async Task StartSyncProgressPlainTextTracker()
     {
-        await Task.Delay(1000);
+        await Task.Delay(100);
         ICardanoChainProvider chainProvider = GetCardanoChainProvider();
 
         while (await _dashboardTimer.WaitForNextTickAsync())
@@ -348,8 +357,217 @@ public class CardanoIndexWorker<T>(
 
                 logger.LogInformation("[{reducer}]: {status}", state.Name, statusJson);
             }
+
+            Process processInfo = Process.GetCurrentProcess();
+            processInfo.Refresh();
+
+            DateTime lastCpuCheck = DateTime.Now;
+            TimeSpan lastCpuTotal = processInfo.TotalProcessorTime;
+
+            // Get memory usage
+            double memoryUsedMB = processInfo.WorkingSet64 / (1024.0 * 1024.0);
+            double privateMemoryMB = processInfo.PrivateMemorySize64 / (1024.0 * 1024.0);
+            double managedMemoryMB = GC.GetTotalMemory(false) / (1024.0 * 1024.0);
+
+            // Calculate CPU usage
+            DateTime currentTime = DateTime.Now;
+            TimeSpan currentCpuTime = processInfo.TotalProcessorTime;
+
+            double cpuUsage = 0;
+            if (lastCpuTotal != TimeSpan.Zero)
+            {
+                TimeSpan cpuUsedSinceLastCheck = currentCpuTime - lastCpuTotal;
+                TimeSpan timePassed = currentTime - lastCpuCheck;
+                cpuUsage = cpuUsedSinceLastCheck.TotalMilliseconds /
+                          (Environment.ProcessorCount * timePassed.TotalMilliseconds) * 100;
+                cpuUsage = Math.Min(100, Math.Max(0, cpuUsage)); // Ensure it's between 0-100
+            }
+
+            // Store current values for next calculation
+            lastCpuCheck = currentTime;
+            lastCpuTotal = currentCpuTime;
+
+            var resourceStats = new
+            {
+                Memory = new
+                {
+                    MemoryUsedMB = memoryUsedMB,
+                    PrivateMemoryMB = privateMemoryMB,
+                    ManagedMemoryMB = managedMemoryMB
+                },
+                CPU = new
+                {
+                    Usage = cpuUsage,
+                    ThreadCount = processInfo.Threads.Count,
+                    processInfo.HandleCount
+                }
+            };
+
+            string resourceStatsJson = JsonSerializer.Serialize(resourceStats);
+            logger.LogInformation("[Resource]: {stats}", resourceStatsJson);
         }
     }
+
+    private async Task StartSyncFullDashboardTracker()
+    {
+        var layout = new Layout("Main")
+            .SplitRows(
+                new Layout("OverallSyncProgress"),
+                new Layout("Performance")
+                    .SplitColumns(
+                        new Layout("SyncProgress"),
+                        new Layout("MemoryBenchmark")
+                    )
+            );
+
+        await AnsiConsole.Live(layout)
+            .StartAsync(async ctx =>
+            {
+                ICardanoChainProvider chainProvider = GetCardanoChainProvider();
+                Process processInfo = Process.GetCurrentProcess();
+
+                // Sync Progress
+                while (await _dashboardTimer.WaitForNextTickAsync())
+                {
+                    CurrentTip = await chainProvider.GetTipAsync();
+
+                    BarChart syncBarChart = new BarChart()
+                        .WithMaxValue(100.0)
+                        .Label("[darkorange3 bold underline]Syncing...[/]")
+                        .LeftAlignLabel();
+
+                    double overallProgress = 0.0;
+                    foreach (ReducerState state in _reducerStates.Values)
+                    {
+                        Point? currentIntersection = state.LatestIntersections.MaxBy(p => p.Slot);
+                        ulong startSlot = state.StartIntersection.Slot;
+                        ulong currentSlot = currentIntersection?.Slot ?? 0UL;
+                        ulong tipSlot = CurrentTip.Slot;
+
+                        ulong totalSlotsToSync = tipSlot - startSlot;
+                        ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
+                        double progress = tipSlot <= startSlot ? 100.0 : (double)totalSlotsSynced / totalSlotsToSync * 100.0;
+
+                        syncBarChart.AddItem(state.Name, Math.Round(progress, 2), GetProgressColor(progress));
+
+                        overallProgress += progress;
+                    }
+
+                    // Overall Progress
+                    overallProgress /= _reducerStates.Values.Count;
+                    FigletText progressText = new FigletText(FigletFont.Default, $"{Math.Round(overallProgress, 0)}%")
+                        .Centered()
+                        .Color(Color.Blue);
+
+                    Panel overallSyncPanel = new(progressText)
+                    {
+                        Border = BoxBorder.Rounded,
+                        Expand = true,
+                        Header = new PanelHeader("Overall Sync Progress", Justify.Center)
+                    };
+
+                    // Update memory and CPU statistics
+                    DateTime lastCpuCheck = DateTime.Now;
+                    TimeSpan lastCpuTotal = processInfo.TotalProcessorTime;
+                    processInfo.Refresh();
+
+                    // Get memory usage
+                    double memoryUsedMB = processInfo.WorkingSet64 / (1024.0 * 1024.0);
+                    double privateMemoryMB = processInfo.PrivateMemorySize64 / (1024.0 * 1024.0);
+                    double managedMemoryMB = GC.GetTotalMemory(false) / (1024.0 * 1024.0);
+
+                    // Calculate CPU usage
+                    DateTime currentTime = DateTime.Now;
+                    TimeSpan currentCpuTime = processInfo.TotalProcessorTime;
+
+                    double cpuUsage = 0;
+                    if (lastCpuTotal != TimeSpan.Zero)
+                    {
+                        TimeSpan cpuUsedSinceLastCheck = currentCpuTime - lastCpuTotal;
+                        TimeSpan timePassed = currentTime - lastCpuCheck;
+                        cpuUsage = cpuUsedSinceLastCheck.TotalMilliseconds /
+                                  (Environment.ProcessorCount * timePassed.TotalMilliseconds) * 100;
+                        cpuUsage = Math.Min(100, Math.Max(0, cpuUsage)); // Ensure it's between 0-100
+                    }
+
+                    // Store current values for next calculation
+                    lastCpuCheck = currentTime;
+                    lastCpuTotal = currentCpuTime;
+
+                    // Create Memory Bar Chart
+                    BarChart memoryChart = new BarChart()
+                        .Label("[bold underline]Memory Usage (MB)[/]")
+                        .CenterLabel()
+                        .WithMaxValue(GetEstimatedMaxMemory(memoryUsedMB, privateMemoryMB, managedMemoryMB))
+                        .AddItem("Working", Math.Round(memoryUsedMB, 1), Color.Green)
+                        .AddItem("Private", Math.Round(privateMemoryMB, 1), Color.Yellow)
+                        .AddItem("Managed", Math.Round(managedMemoryMB, 1), Color.Blue);
+
+                    // Create CPU Bar Chart
+                    BarChart cpuChart = new BarChart()
+                        .Label("[bold underline]CPU Usage (%)[/]")
+                        .CenterLabel()
+                        .WithMaxValue(100)
+                        .AddItem("Current", Math.Round(cpuUsage, 1), CardanoIndexWorker<T>.GetCpuColor(cpuUsage));
+
+                    // Create the combined panel
+                    Panel systemMonitorPanel = new(
+                        new Rows(
+                            memoryChart,
+                            new Rule("[bold]System Stats[/]"),
+                            cpuChart,
+                            new Markup($"[bold]Threads: [cyan]{processInfo.Threads.Count}[/] | Handles: [magenta]{processInfo.HandleCount}[/][/]")
+                        )
+                    )
+                    {
+                        Border = BoxBorder.Rounded,
+                        Padding = new Padding(1, 0, 1, 0),
+                        Header = new PanelHeader("System Resources", Justify.Center)
+                    };
+
+                    // Update the layouts
+                    layout["MemoryBenchmark"].Update(systemMonitorPanel);
+                    layout["SyncProgress"].Update(syncBarChart);
+                    layout["OverallSyncProgress"].Update(overallSyncPanel);
+
+                    ctx.Refresh();
+                }
+            });
+    }
+
+    private static Color GetCpuColor(double percentage)
+    {
+        if (percentage < 30) return Color.Green;
+        if (percentage < 70) return Color.Yellow;
+        return Color.Red;
+    }
+
+    private static double GetEstimatedMaxMemory(double workingSetMB, double privateMB, double managedMB)
+    {
+        try
+        {
+            GCMemoryInfo memInfo = GC.GetGCMemoryInfo();
+            double totalPhysicalMemoryMB = memInfo.TotalAvailableMemoryBytes / (1024.0 * 1024.0);
+            double currentMax = Math.Max(Math.Max(workingSetMB, privateMB), managedMB);
+            return Math.Max(totalPhysicalMemoryMB, currentMax * 2);
+        }
+        catch
+        {
+            double currentMax = Math.Max(Math.Max(workingSetMB, privateMB), managedMB);
+            return currentMax * 1.5;
+        }
+    }
+
+    private static Color GetProgressColor(double value) =>
+         value switch
+         {
+             <= 20 => Color.Red3_1,
+             <= 40 => Color.DarkOrange3_1,
+             <= 60 => Color.Orange3,
+             <= 80 => Color.DarkSeaGreen,
+             _ => Color.MediumSpringGreen
+         };
+
 
     private async Task StartReducerStateSync(CancellationToken stoppingToken)
     {

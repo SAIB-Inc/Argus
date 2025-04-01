@@ -26,7 +26,7 @@
         "Slot": 57371845,
         "Hash": "20a81db38339bf6ee9b1d7e22b22c0ac4d887d332bbf4f3005db4848cd647743"
     },
-    "SyncSettings":
+    "Sync":
     {
         "Rollback": 
         {
@@ -51,11 +51,13 @@
         },
         "Dashboard":
         {
-            "TuiMode": true
+            "TuiMode": true,
+            "RefreshInterval": 5000,
+            "DisplayType": "Full"
         },
         "State":
         {
-            "ReducerStateSyncIntervalSeconds": 10
+            "ReducerStateSyncInterval": 5000
         }
     }
 }

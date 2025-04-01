@@ -13,12 +13,12 @@ namespace Argus.Sync.Providers;
 
 public class U5CProvider(string url, Dictionary<string, string> header) : ICardanoChainProvider
 {
-    public Task<Point> GetTipAsync(CancellationToken? stoppingToken = null)
+    public Task<Point> GetTipAsync(ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         throw new NotImplementedException();
     }
 
-    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, CancellationToken? stoppingToken = null)
+    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
 
         var client = new SyncServiceClient(
