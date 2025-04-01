@@ -1,26 +1,35 @@
-using Argus.Sync.Example.Models.Cardano.Common;
 using Chrysalis.Cbor.Serialization.Attributes;
 using Chrysalis.Cbor.Types;
 
 namespace Argus.Sync.Example.Models.Cardano.Sundae;
 
+[CborSerializable]
+[CborList]
+public partial record AssetClass(
+    [CborOrder(0)]
+    byte[] PolicyId,
+
+    [CborOrder(1)]
+    byte[] AssetName
+) : CborBase;
+
 
 [CborSerializable]
-[CborUnion]
-public abstract partial record AssetClass : CborBase;
+[CborList]
+public partial record AssetClassTuple(
+    [CborOrder(0)]
+    AssetClass AssetX,
 
-[CborSerializable]
-public partial record AssetClassIndefinite(CborIndefList<CborBytes> Value) : AssetClass;
+    [CborOrder(1)]
+    AssetClass AssetY
+) : CborBase;
 
-[CborSerializable]
-public partial record AssetClassDefinite(CborDefList<CborBytes> Value) : AssetClass;
+// [CborSerializable]
+// [CborUnion]
+// public abstract partial record AssetClassTuple : CborBase;
 
-[CborSerializable]
-[CborUnion]
-public abstract partial record AssetClassTuple : CborBase;
+// [CborSerializable]
+// public partial record AssetClassTupleIndef(CborDefList<AssetClass> Value) : AssetClassTuple;
 
-[CborSerializable]
-public partial record AssetClassTupleIndef(CborDefList<AssetClass> Value) : AssetClassTuple;
-
-[CborSerializable]
-public partial record AssetClassTupleDef(CborIndefList<AssetClass> Value) : AssetClassTuple;
+// [CborSerializable]
+// public partial record AssetClassTupleDef(CborIndefList<AssetClass> Value) : AssetClassTuple;

@@ -222,6 +222,26 @@ namespace Argus.Sync.Example.Migrations
                     b.ToTable("PricesByToken", "public");
                 });
 
+            modelBuilder.Entity("Argus.Sync.Example.Models.Royalty", b =>
+                {
+                    b.Property<string>("PolicyId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Share")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.HasKey("PolicyId");
+
+                    b.ToTable("Royalties", "public");
+                });
+
             modelBuilder.Entity("Argus.Sync.Example.Models.TransactionTest", b =>
                 {
                     b.Property<string>("TxHash")
@@ -260,6 +280,17 @@ namespace Argus.Sync.Example.Migrations
                     b.Property<decimal>("Index")
                         .HasColumnType("numeric(20,0)");
 
+                    b.Property<decimal>("Fee")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.PrimitiveCollection<byte[][]>("InputsRaw")
+                        .IsRequired()
+                        .HasColumnType("bytea[]");
+
+                    b.PrimitiveCollection<byte[][]>("OutputsRaw")
+                        .IsRequired()
+                        .HasColumnType("bytea[]");
+
                     b.Property<byte[]>("Raw")
                         .IsRequired()
                         .HasColumnType("bytea");
@@ -269,7 +300,33 @@ namespace Argus.Sync.Example.Migrations
 
                     b.HasKey("TxHash", "Index");
 
-                    b.ToTable("TxBySlot", "public");
+                    b.ToTable("TxsBySlot", "public");
+                });
+
+            modelBuilder.Entity("Argus.Sync.Example.Models.UtxoByAddress", b =>
+                {
+                    b.Property<string>("Address")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<string>("TxHash")
+                        .HasColumnType("text");
+
+                    b.Property<int>("TxIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("BlockNumber")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<byte[]>("RawData")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("Address", "Slot", "TxHash", "TxIndex");
+
+                    b.ToTable("UtxosByAddress", "public");
                 });
 
             modelBuilder.Entity("Argus.Sync.Example.Models.UtxoByAddress", b =>

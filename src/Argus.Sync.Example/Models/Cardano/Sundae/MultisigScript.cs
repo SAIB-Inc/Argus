@@ -14,24 +14,24 @@ public partial record Signature(byte[] KeyHash) : MultisigScript;
 
 [CborSerializable]
 [CborConstr(1)]
-public record AllOf(CborIndefList<MultisigScript> Scripts) : MultisigScript;
+public partial record AllOf(CborIndefList<MultisigScript> Scripts) : MultisigScript;
 
 [CborSerializable]
 [CborConstr(2)]
-public record AnyOf(CborIndefList<MultisigScript> Scripts) : MultisigScript;
+public partial record AnyOf(CborIndefList<MultisigScript> Scripts) : MultisigScript;
 
 [CborSerializable]
 [CborConstr(3)]
-public record AtLeast(ulong Required, CborIndefList<MultisigScript> Scripts) : MultisigScript;
+public partial record AtLeast(ulong Required, CborIndefList<MultisigScript> Scripts) : MultisigScript;
 
 [CborSerializable]
 [CborConstr(4)]
-public record Before(PosixTime Time) : MultisigScript;
+public partial record Before(PosixTime Time) : MultisigScript;
 
 [CborSerializable]
 [CborConstr(5)]
-public record After(PosixTime Time) : MultisigScript;
+public partial record After(PosixTime Time) : MultisigScript;
 
 [CborSerializable]
 [CborConstr(6)]
-public record Script(byte[] ScriptHash) : MultisigScript;
+public partial record Script(byte[] ScriptHash) : MultisigScript;

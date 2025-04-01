@@ -1,6 +1,4 @@
-using Argus.Sync.Example.Models.Cardano.Common;
 using Argus.Sync.Example.Models.Cardano.Sundae;
-using Chrysalis.Cbor.Serialization;
 using Chrysalis.Cbor.Serialization.Attributes;
 using Chrysalis.Cbor.Types;
 
@@ -13,9 +11,8 @@ public partial record OrderDatum(
     byte[] Owner,
 
     [CborOrder(1)]
-    // AssetClass Asset,
-    CborIndefList<CborBytes> Asset,
-
+    AssetClass Asset,
+    
     [CborOrder(2)]
     ulong Quantity
 ) : CborBase;

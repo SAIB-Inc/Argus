@@ -13,12 +13,14 @@ using Argus.Sync.Reducers;
 using Argus.Sync.Example.Extensions;
 using Argus.Sync.Example.Models.Cardano.Sundae;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
+using Argus.Sync.Utils;
 
 namespace Argus.Sync.Example.Reducers;
 
 public class SundaePriceByTokenReducer(
     IDbContextFactory<TestDbContext> dbContextFactory
-)
+) 
+: IReducer<PriceByToken>
 {
     private readonly string SundaeSwapScriptHash = "e0302560ced2fdcbfcb2602697df970cd0d6a38f94b32703f51c312b";
 
@@ -53,7 +55,7 @@ public class SundaePriceByTokenReducer(
             PriceByToken tokenPriceHistory = new(
                 tp.Value.outRef,
                 slot,
-                string.Empty, // ADA always
+                string.Empty,
                 subject,
                 tp.Value.adaReserve,
                 tp.Value.otherTokenReserve,
@@ -81,20 +83,25 @@ public class SundaePriceByTokenReducer(
                         string? outputAddressPkh = Convert.ToHexStringLower(new WalletAddress(o.Address()).GetPaymentKeyHash() ?? []);
                         if (string.IsNullOrEmpty(outputAddressPkh) || outputAddressPkh != SundaeSwapScriptHash) return [];
 
-                        (DatumType Type, byte[]? Data)? datumInfo = o.DatumInfo();
+                        byte[]? datum = o.Datum();
 
-                        if (!datumInfo.HasValue) return [];
+                        if (datum is null) return [];
 
-                        SundaeSwapLiquidityPool? liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(datumInfo.Value.Data ?? []) ?? null;
+                        SundaeSwapLiquidityPool? liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(datum ?? []) ?? null;
 
                         if (liquidityPool is null) return [];
 
                         AssetClassTuple assets = liquidityPool.Assets;
 
-                        (string TokenPolicy, string TokenName) assetX = GetTokenTuple(assets, 0);
-                        (string TokenPolicy, string TokenName) assetY = GetTokenTuple(assets, 1);
+                        AssetClass? tokenX = assets.AssetX;
+                        string tokenXPolicy = Convert.ToHexStringLower(tokenX.PolicyId);
+                        string tokenXName = Convert.ToHexStringLower(tokenX.AssetName);
 
-                        if (assetX.TokenPolicy == string.Empty || assetY.TokenPolicy == string.Empty)
+                        AssetClass? tokenY = assets.AssetY;
+                        string tokenYPolicy = Convert.ToHexStringLower(tokenY.PolicyId);
+                        string tokenYName = Convert.ToHexStringLower(tokenY.AssetName);
+
+                        if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
                         {
                             Value? outputAmount = o.Amount();
                             if (outputAmount is null) return [];
@@ -105,10 +112,10 @@ public class SundaePriceByTokenReducer(
                             if (adaReserve < 10_000 && excludeLowReserves) return [];
 
                             string otherTokenPolicy =
-                                assetX.TokenPolicy == string.Empty ? assetY.TokenPolicy : assetX.TokenPolicy;
+                                tokenXPolicy == string.Empty ? tokenXPolicy : tokenYPolicy;
 
                             string otherTokenName =
-                                assetX.TokenName == string.Empty ? assetY.TokenName : assetX.TokenName;
+                                tokenYName == string.Empty ? tokenYName : tokenXName;
 
                             ulong otherTokenReserve = o.Amount().QuantityOf(otherTokenPolicy + otherTokenName) ?? 0UL;
 
@@ -117,7 +124,6 @@ public class SundaePriceByTokenReducer(
 
                             return new[] { (otherTokenSubject, (outRef, adaReserve, otherTokenReserve)) };
                         }
-
                         return [];
                     });
             })
@@ -126,20 +132,6 @@ public class SundaePriceByTokenReducer(
             .GroupBy(x => x.otherTokenSubject)
             .Select(g => g.First())
             .ToDictionary();
-    }
-
-    private static (string TokenPolicy, string TokenName) GetTokenTuple(AssetClassTuple assetClass, int index)
-    {
-        if (index < 0 || index >= assetClass.AssetClassTuple()?.Count)
-        {
-            throw new ArgumentOutOfRangeException(nameof(index), $"Invalid index {index} for AssetClassTuple.");
-        }
-
-        AssetClass? tokenDetails = assetClass.AssetClassTuple()?[index].AssetClass();
-        string tokenPolicy = Convert.ToHexStringLower(tokenDetails?.AssetClassValue()?[0].Value!);
-        string tokenName = Convert.ToHexStringLower(tokenDetails?.AssetClassValue()?[1].Value!);
-
-        return (tokenPolicy, tokenName);
     }
 }
 

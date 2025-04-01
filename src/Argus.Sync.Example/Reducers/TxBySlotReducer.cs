@@ -1,3 +1,4 @@
+using Argus.Sync.Example.Extensions;
 using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
 using Chrysalis.Cbor.Extensions.Cardano.Core;
@@ -16,7 +17,7 @@ public class TxBySlotReducer(IDbContextFactory<TestDbContext> dbContextFactory)
     {
         await using TestDbContext dbContext = await dbContextFactory.CreateDbContextAsync();
 
-        IQueryable<TxBySlot> rollbackEntries = dbContext.TxBySlot
+        IQueryable<TxBySlot> rollbackEntries = dbContext.TxsBySlot
             .Where(e => e.Slot >= slot);
 
         dbContext.RemoveRange(rollbackEntries);
@@ -32,16 +33,21 @@ public class TxBySlotReducer(IDbContextFactory<TestDbContext> dbContextFactory)
 
         ulong slot = block.Header().HeaderBody().Slot();
 
-        IEnumerable<TxBySlot> txBySlotEntries = block
-            .TransactionBodies()
+        List<TxBySlot>? txBySlotEntries = [.. block.TransactionBodies()
+            .Where(tx => tx.Outputs().All(output => output.Datum() is null))
                 .Select((tx, index) => new TxBySlot(
                     tx.Hash().ToLowerInvariant(),
                     (ulong)index,
                     slot,
-                    tx.Raw.HasValue ? tx.Raw.Value.ToArray() : []
-                ));
+                    tx.Raw!.Value.ToArray(),
+                    [.. tx.Inputs().Select(input => input.Raw.HasValue ? input.Raw.Value.ToArray() : [])],
+                    [.. tx.Outputs().Select(output => output.Raw.HasValue ? output.Raw.Value.ToArray() : [])],
+                    tx.Fee()
+                ))];
 
-        dbContext.TxBySlot.AddRange(txBySlotEntries);
+        if (!txBySlotEntries.Any()) return;
+
+        dbContext.TxsBySlot.AddRange(txBySlotEntries);
         await dbContext.SaveChangesAsync();
     }
 }

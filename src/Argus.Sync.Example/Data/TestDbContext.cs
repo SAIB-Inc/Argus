@@ -10,11 +10,12 @@ public class TestDbContext
 {
     public DbSet<BlockTest> BlockTests => Set<BlockTest>();
     public DbSet<TransactionTest> TransactionTests => Set<TransactionTest>();
-    public DbSet<TxBySlot> TxBySlot => Set<TxBySlot>();
+    public DbSet<TxBySlot> TxsBySlot => Set<TxBySlot>();
     public DbSet<OutputBySlot> OutputBySlot => Set<OutputBySlot>();
     public DbSet<PriceByToken> PricesByToken => Set<PriceByToken>();
     public DbSet<OrderBySlot> OrdersBySlot => Set<OrderBySlot>();
     public DbSet<OwnerBySlot> AssetOwnerBySlot => Set<OwnerBySlot>();
+    public DbSet<Royalty> Royalties => Set<Royalty>();
     public DbSet<UtxoByAddress> UtxosByAddress => Set<UtxoByAddress>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -48,7 +49,7 @@ public class TestDbContext
 
         modelBuilder.Entity<OrderBySlot>(entity =>
         {
-            entity.HasKey(e =>  new { e.TxHash, e.TxIndex });
+            entity.HasKey(e => new { e.TxHash, e.TxIndex });
         });
 
         modelBuilder.Entity<BalanceByAddress>(entity =>
@@ -58,12 +59,17 @@ public class TestDbContext
 
         modelBuilder.Entity<OwnerBySlot>(entity =>
         {
-            entity.HasKey(e =>  new { e.Address, e.Subject, e.Slot, e.OutRef });
+            entity.HasKey(e => new { e.Address, e.Subject, e.Slot, e.OutRef });
+        });
+
+        modelBuilder.Entity<Royalty>(entity =>
+        {
+            entity.HasKey(e => e.PolicyId);
         });
 
         modelBuilder.Entity<UtxoByAddress>(entity =>
         {
-            entity.HasKey(e =>  new { e.Address, e.Slot, e.TxHash, e.TxIndex });
+            entity.HasKey(e => new { e.Address, e.Slot, e.TxHash, e.TxIndex });
         });
     }
 }

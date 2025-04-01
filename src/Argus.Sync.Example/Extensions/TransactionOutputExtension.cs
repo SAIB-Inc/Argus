@@ -1,5 +1,9 @@
+using System.Formats.Cbor;
 using Argus.Sync.Example.Models.Enums;
+using CborSerialization;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Common;
+using Chrysalis.Cbor.Serialization;
+using Chrysalis.Cbor.Types;
 using Chrysalis.Cbor.Types.Cardano.Core.Common;
 using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
 
@@ -11,7 +15,14 @@ public static class TransactionOutputExtension
     {
         (DatumType DatumType, byte[]? RawData) datum = transactionOutput.DatumInfo();
 
-        return datum.RawData;
+        if (datum.DatumType != DatumType.Inline)
+            return datum.RawData;
+
+        CborReader reader = new(datum.RawData);
+        reader.ReadTag();
+        ReadOnlyMemory<byte> blockBytes = reader.ReadByteString();
+
+        return blockBytes.ToArray();
     }
 
     public static (DatumType DatumType, byte[]? RawData) DatumInfo(this TransactionOutput transactionOutput)

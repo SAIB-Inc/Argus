@@ -7,7 +7,7 @@ namespace Argus.Sync.Example.Models.Cardano.Sundae;
 
 [CborSerializable]
 [CborConstr(0)]
-public record SundaeSwapLiquidityPool(
+public partial record SundaeSwapLiquidityPool(
     [CborOrder(0)]
     byte[] Identifer,
 

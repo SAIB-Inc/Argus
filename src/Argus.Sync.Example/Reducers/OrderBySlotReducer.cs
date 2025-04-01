@@ -1,13 +1,12 @@
 using System.Linq.Expressions;
 using Argus.Sync.Example.Extensions;
 using Argus.Sync.Example.Models;
-using Argus.Sync.Example.Models.Cardano.Common;
 using Argus.Sync.Example.Models.Cardano.OrderBook;
 using Argus.Sync.Example.Models.Cardano.Sundae;
 using Argus.Sync.Example.Models.Enums;
-using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
 using Chrysalis.Cbor.Extensions.Cardano.Core;
+using Chrysalis.Cbor.Extensions.Cardano.Core.Common;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
 using Chrysalis.Cbor.Serialization;
@@ -21,7 +20,8 @@ namespace Argus.Sync.Example.Reducers;
 
 public class OrderBySlotReducer(
     IDbContextFactory<TestDbContext> dbContextFactory
-)
+) 
+// : IReducer<OrderBySlot>
 {
     readonly string _orderBookScriptHash = "0f45963b8e895bd46839bbcf34185993440f26e3f07c668bd2026f92";
     public async Task RollBackwardAsync(ulong slot)
@@ -92,7 +92,11 @@ public class OrderBySlotReducer(
             .GroupBy(e => (e.TxHash, e.TxIndex))
             .Select(g => g.First())];
 
-        ProcessInputs(block, allEntries, dbContext);
+        List<TransactionInput> inputs = [.. transactions
+            .SelectMany(tx => tx.Inputs())
+            .Where(input => inputOutRefs.Any(inputRef => Convert.ToHexStringLower(input.TransactionId()) == inputRef.txHash && input.Index == inputRef.index))];
+
+        ProcessInputs(block, inputs, allEntries, dbContext);
 
         await dbContext.SaveChangesAsync();
     }
@@ -100,7 +104,7 @@ public class OrderBySlotReducer(
     private void ProcessOutputs(TransactionBody tx, TestDbContext dbContext, Block block)
     {
         ulong slot = block.Header().HeaderBody().Slot();
-        string txHash = tx.Hash();
+        string txHash = tx.Hash().ToLowerInvariant();
 
         tx.Outputs().Select((output, index) => new { Output = output, Index = (ulong)index })
             .ToList().ForEach(e =>
@@ -113,16 +117,11 @@ public class OrderBySlotReducer(
 
                 if (pkh != _orderBookScriptHash) return;
 
-                string datumHex = "d8799f581cc05cb5c5f43aac9d9e057286e094f60d09ae61e8962ad5c42196180c9f4040ff1a00989680ff";
-                var datum = new OrderDatum(Convert.FromHexString("c05cb5c5f43aac9d9e057286e094f60d09ae61e8962ad5c42196180c"), new([new([]), new([])]), 10000000UL);
+                OrderDatum? orderDatum = CborSerializer.Deserialize<OrderDatum>(e.Output.Datum());
+                AssetClass asset = orderDatum.Asset;
 
-                var hex = CborSerializer.Serialize(datum);
-                
-                OrderDatum? orderDatum = CborSerializer.Deserialize<OrderDatum>(Convert.FromHexString(datumHex));
-                List<CborBytes>? asset = [];
-
-                string policyId = Convert.ToHexStringLower(asset?[0].Value ?? []);
-                string assetName = Convert.ToHexStringLower(asset?[1].Value ?? []);
+                string policyId = Convert.ToHexStringLower(asset.PolicyId);
+                string assetName = Convert.ToHexStringLower(asset.AssetName);
 
                 OrderBySlot orderBySlotHistory = new(
                     txHash,
@@ -144,33 +143,34 @@ public class OrderBySlotReducer(
             });
     }
 
-    private static void ProcessInputs(Block block, List<OrderBySlot> orderBySlotEntries, TestDbContext dbContext)
+    private static void ProcessInputs(Block block, List<TransactionInput> inputs, List<OrderBySlot> orderBySlotEntries, TestDbContext dbContext)
     {
         if (!orderBySlotEntries.Any()) return;
 
         List<TransactionBody> transactions = [.. block.TransactionBodies()];
-        IEnumerable<(byte[]? RedeemerRaw, TransactionInput Input, TransactionBody Tx)> inputRedeemers = transactions.GetInputRedeemerTuple(block);
         ulong currentSlot = block.Header().HeaderBody().Slot();
 
         orderBySlotEntries.ForEach(entry =>
         {
-            (byte[]? RedeemerRaw, TransactionInput Input, TransactionBody Tx) = inputRedeemers
-                .FirstOrDefault(ir => Convert.ToHexStringLower(ir.Input.TransactionId()) == entry.TxHash && ir.Input.Index == entry.TxIndex);
-
-            bool isSold = IsAcceptOrCancelRedeemer(entry, inputRedeemers);
+            TransactionInput? existingInput = inputs
+                .FirstOrDefault(input => Convert.ToHexStringLower(input.TransactionId()) == entry.TxHash && input.Index() == entry.TxIndex);
+            
+            if (existingInput is null) return;
+            
+            bool isSold = IsAcceptOrCancelRedeemer(existingInput?.Redeemer(block)?.Data.Raw() ?? []);
 
             OrderBySlot? localEntry = dbContext.OrdersBySlot.Local
                 .FirstOrDefault(e => e.TxHash == entry.TxHash && e.TxIndex == entry.TxIndex);
 
-            Address? executorAddress = new(Tx.Outputs().Last().Address()); // TODO
-            string executorAddressBech32 = executorAddress?.ToBech32() ?? string.Empty;
+            // Address? executorAddress = new(Tx.Outputs().Last().Address()); // TODO
+            // string executorAddressBech32 = executorAddress?.ToBech32() ?? string.Empty;
 
             OrderBySlot updatedEntry = entry with
             {
                 SpentSlot = currentSlot,
                 Status = isSold ? OrderStatus.Sold : OrderStatus.Cancelled,
-                BuyerAddress = isSold ? executorAddressBech32 : null,
-                SpentTxHash = isSold ? Tx.Hash() : null
+                BuyerAddress = isSold ? null : null,
+                SpentTxHash = isSold ? Convert.ToHexString(existingInput!.TransactionId()) : null
             };
 
             if (localEntry is not null)
@@ -181,18 +181,9 @@ public class OrderBySlotReducer(
     }
 
     public static bool IsAcceptOrCancelRedeemer(
-        OrderBySlot order, 
-        IEnumerable<(byte[]? RedeemerRaw, 
-        TransactionInput Input, 
-        TransactionBody Tx)> inputRedeemers
+        byte[]? redeemerRaw
     )
     {
-        // Get the input that spent this listing
-        byte[]? redeemerRaw = inputRedeemers
-            .Where(ir => Convert.ToHexStringLower(ir.Input.TransactionId()) == order.TxHash && ir.Input.Index() == order.TxIndex)
-            .Select(ir => ir.RedeemerRaw)
-            .FirstOrDefault();
-
         if (redeemerRaw is null) return false;
 
         try
