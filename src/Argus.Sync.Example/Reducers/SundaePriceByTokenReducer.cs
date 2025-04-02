@@ -19,8 +19,7 @@ namespace Argus.Sync.Example.Reducers;
 
 public class SundaePriceByTokenReducer(
     IDbContextFactory<TestDbContext> dbContextFactory
-) 
-: IReducer<PriceByToken>
+) : IReducer<PriceByToken>
 {
     private readonly string SundaeSwapScriptHash = "e0302560ced2fdcbfcb2602697df970cd0d6a38f94b32703f51c312b";
 
@@ -53,7 +52,7 @@ public class SundaePriceByTokenReducer(
             string subject = tp.Key;
 
             PriceByToken tokenPriceHistory = new(
-                tp.Value.outRef,
+                tp.Value.outRef.ToLowerInvariant(),
                 slot,
                 string.Empty,
                 subject,
@@ -69,72 +68,82 @@ public class SundaePriceByTokenReducer(
     }
 
     protected Dictionary<string, (string outRef, ulong adaReserve, ulong otherTokenReserve)> ProcessOutputs(
-        IEnumerable<TransactionBody> transactions,
-        bool excludeLowReserves = false
-    )
+        IEnumerable<TransactionBody> transactions)
     {
         return transactions
             .SelectMany((tx, txIndex) =>
             {
                 string txHash = tx.Hash();
-                return tx.Outputs()
-                    .SelectMany(o =>
-                    {
-                        string? outputAddressPkh = Convert.ToHexStringLower(new WalletAddress(o.Address()).GetPaymentKeyHash() ?? []);
-                        if (string.IsNullOrEmpty(outputAddressPkh) || outputAddressPkh != SundaeSwapScriptHash) return [];
 
-                        byte[]? datum = o.Datum();
+                return tx.Outputs().SelectMany(o =>
+                {
+                    if (!TryExtractAddressHash(o, out string? outputAddressPkh) ||
+                        outputAddressPkh != SundaeSwapScriptHash) return [];
 
-                        if (datum is null) return [];
+                    if (!TryDeserializeLiquidityPool(o.Datum(), out SundaeSwapLiquidityPool? liquidityPool)) return [];
 
-                        SundaeSwapLiquidityPool? liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(datum ?? []) ?? null;
+                    AssetClassTuple assets = liquidityPool.Assets;
 
-                        if (liquidityPool is null) return [];
+                    (string tokenXPolicy, string tokenXName) =
+                        (Convert.ToHexStringLower(assets.AssetX.PolicyId), Convert.ToHexStringLower(assets.AssetX.AssetName));
 
-                        AssetClassTuple assets = liquidityPool.Assets;
+                    (string tokenYPolicy, string tokenYName) =
+                        (Convert.ToHexStringLower(assets.AssetY.PolicyId), Convert.ToHexStringLower(assets.AssetY.AssetName));
 
-                        AssetClass? tokenX = assets.AssetX;
-                        string tokenXPolicy = Convert.ToHexStringLower(tokenX.PolicyId);
-                        string tokenXName = Convert.ToHexStringLower(tokenX.AssetName);
+                    if (!string.IsNullOrEmpty(tokenXPolicy) && !string.IsNullOrEmpty(tokenYPolicy)) return [];
 
-                        AssetClass? tokenY = assets.AssetY;
-                        string tokenYPolicy = Convert.ToHexStringLower(tokenY.PolicyId);
-                        string tokenYName = Convert.ToHexStringLower(tokenY.AssetName);
+                    Value outputAmount = o.Amount();
+                    ulong adaReserve = outputAmount.Lovelace();
 
-                        if (tokenXPolicy == string.Empty || tokenYPolicy == string.Empty)
-                        {
-                            Value? outputAmount = o.Amount();
-                            if (outputAmount is null) return [];
+                    if (adaReserve < 10_000) return [];
 
-                            ulong adaReserve = outputAmount.Lovelace();
+                    string otherTokenPolicy = string.IsNullOrEmpty(tokenXPolicy) ? tokenYPolicy : tokenXPolicy;
+                    string otherTokenName = string.IsNullOrEmpty(tokenXName) ? tokenYName : tokenXName;
 
-                            // if reserve is less than 10k ada, skip
-                            if (adaReserve < 10_000 && excludeLowReserves) return [];
+                    ulong otherTokenReserve = outputAmount.QuantityOf(otherTokenPolicy + otherTokenName) ?? 0UL;
 
-                            string otherTokenPolicy =
-                                tokenXPolicy == string.Empty ? tokenXPolicy : tokenYPolicy;
+                    string otherTokenSubject = otherTokenPolicy + otherTokenName;
+                    string outRef = $"{txHash}{txIndex}";
 
-                            string otherTokenName =
-                                tokenYName == string.Empty ? tokenYName : tokenXName;
-
-                            ulong otherTokenReserve = o.Amount().QuantityOf(otherTokenPolicy + otherTokenName) ?? 0UL;
-
-                            string otherTokenSubject = otherTokenPolicy + otherTokenName;
-                            string outRef = txHash + txIndex;
-
-                            return new[] { (otherTokenSubject, (outRef, adaReserve, otherTokenReserve)) };
-                        }
-                        return [];
-                    });
+                    return new[] { (otherTokenSubject, (outRef, adaReserve, otherTokenReserve)) };
+                });
             })
-            .Where(kvp => !string.IsNullOrEmpty(kvp.otherTokenSubject))
-            .Select(tpd => tpd)
             .GroupBy(x => x.otherTokenSubject)
-            .Select(g => g.First())
-            .ToDictionary();
+            .ToDictionary(
+                g => g.Key,
+                g => g.First().Item2
+            );
+    }
+
+    private static bool TryExtractAddressHash(TransactionOutput output, out string addressHash)
+    {
+        addressHash = string.Empty;
+        try
+        {
+            WalletAddress address = new(output.Address());
+            addressHash = Convert.ToHexStringLower(address.GetPaymentKeyHash()!);
+            return !string.IsNullOrEmpty(addressHash);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryDeserializeLiquidityPool(byte[]? datum, out SundaeSwapLiquidityPool liquidityPool)
+    {
+        liquidityPool = null!;
+        if (datum is null) return false;
+        try
+        {
+            liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(datum);
+            return liquidityPool is not null;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
-
-
 
 public record TokenIdentifier(string PolicyId, string AssetName);

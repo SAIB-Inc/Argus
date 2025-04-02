@@ -69,7 +69,7 @@ public class TestDbContext
 
         modelBuilder.Entity<UtxoByAddress>(entity =>
         {
-            entity.HasKey(e => new { e.Address, e.Slot, e.TxHash, e.TxIndex });
+            entity.HasKey(e => new { e.Address, e.Slot, e.TxHash, e.TxIndex, e.Status });
         });
     }
 }

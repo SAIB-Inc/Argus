@@ -1,5 +1,3 @@
-using Argus.Sync.Data.Models;
-using Chrysalis.Cbor.Serialization;
 using Chrysalis.Cbor.Serialization.Attributes;
 using Chrysalis.Cbor.Types;
 
