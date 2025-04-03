@@ -40,7 +40,7 @@ public class CardanoIndexWorker<T>(
     private readonly bool _rollbackModeEnabled = configuration.GetValue("Sync:Rollback:Enabled", false);
 
     private readonly bool _tuiMode = configuration.GetValue("Sync:Dashboard:TuiMode", true);
-    private readonly PeriodicTimer _dashboardTimer = new(TimeSpan.FromMilliseconds(Math.Max(configuration.GetValue("Sync:Dashboard:RefreshInterval", 1000), 3000)));
+    private readonly PeriodicTimer _dashboardTimer = new(TimeSpan.FromMilliseconds(Math.Max(configuration.GetValue("Sync:Dashboard:RefreshInterval", 1000), 2000)));
     private readonly PeriodicTimer _dbSyncTimer = new(TimeSpan.FromMilliseconds(configuration.GetValue("Sync:State:ReducerStateSyncInterval", 10000)));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
