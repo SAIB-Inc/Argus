@@ -1,5 +1,3 @@
-
-
 using Argus.Sync.Data.Models;
 using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
 
