@@ -9,6 +9,7 @@ public class TestDbContext
 ) : CardanoDbContext(options, configuration)
 {
     public DbSet<BlockTest> BlockTests => Set<BlockTest>();
+    public DbSet<TransactionTest> TransactionTests => Set<TransactionTest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -18,6 +19,11 @@ public class TestDbContext
         modelBuilder.Entity<BlockTest>(entity =>
         {
             entity.HasKey(e => e.BlockHash);
+        });
+
+        modelBuilder.Entity<TransactionTest>(entity =>
+        {
+            entity.HasKey(e => new { e.TxHash, e.TxIndex });
         });
     }
 }

@@ -5,24 +5,23 @@ using Argus.Sync.Extensions;
 using Argus.Sync.Reducers;
 using Chrysalis.Cbor.Extensions.Cardano.Core;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
+using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
 using Chrysalis.Cbor.Types.Cardano.Core;
 using Chrysalis.Cbor.Types.Cardano.Core.Header;
 using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
 
-public class BlockTestReducer(
-    IDbContextFactory<TestDbContext> dbContextFactory
-) : IReducer<BlockTest>
+public class TransactionTestReducer(IDbContextFactory<TestDbContext> dbContextFactory) : IReducer<TransactionTest>
 {
     public async Task RollBackwardAsync(ulong slot)
     {
         using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        dbContext.BlockTests.RemoveRange(
-            dbContext
-                .BlockTests
+        dbContext.TransactionTests.RemoveRange(
+            dbContext.TransactionTests
                 .AsNoTracking()
-                .Where(b => b.Slot >= slot)
+                .Where(t => t.Slot >= slot
+            )
         );
 
         await dbContext.SaveChangesAsync();
@@ -30,12 +29,18 @@ public class BlockTestReducer(
 
     public async Task RollForwardAsync(Block block)
     {
+        ulong slot = block.Header().HeaderBody().Slot();
         string blockHash = block.Header().Hash();
         ulong blockNumber = block.Header().HeaderBody().BlockNumber();
-        ulong slot = block.Header().HeaderBody().Slot();
 
         using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        dbContext.BlockTests.Add(new BlockTest(blockHash, blockNumber, slot, DateTime.UtcNow));
+
+        ulong index = 0;
+        foreach (var tx in block.TransactionBodies())
+        {
+            string txHash = tx.Hash();
+            dbContext.TransactionTests.Add(new TransactionTest(txHash, index++, slot, blockHash, blockNumber, tx.Raw?.ToArray() ?? [], DateTimeOffset.UtcNow));
+        }
 
         await dbContext.SaveChangesAsync();
     }

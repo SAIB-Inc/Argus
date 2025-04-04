@@ -17,17 +17,17 @@ public static class ServiceCollectionExtensions
         {
             Assembly? contextAssembly = typeof(T).Assembly;
             options
-            .UseNpgsql(
-                configuration.GetConnectionString("CardanoContext"),
-                    x =>
-                    {
-                        x.MigrationsAssembly(contextAssembly!.FullName);
-                        x.CommandTimeout(commandTimout);
-                        x.MigrationsHistoryTable(
-                            "__EFMigrationsHistory",
-                            configuration!.GetConnectionString("CardanoContextSchema")
-                        );
-                    }
+                .UseNpgsql(
+                    configuration.GetConnectionString("CardanoContext"),
+                        x =>
+                        {
+                            x.MigrationsAssembly(contextAssembly!.FullName);
+                            x.CommandTimeout(commandTimout);
+                            x.MigrationsHistoryTable(
+                                "__EFMigrationsHistory",
+                                configuration!.GetConnectionString("CardanoContextSchema")
+                            );
+                        }
                 );
         });
 

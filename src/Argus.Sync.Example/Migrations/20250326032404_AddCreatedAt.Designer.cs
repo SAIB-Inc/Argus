@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -10,9 +11,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    partial class TestDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250326032404_AddCreatedAt")]
+    partial class AddCreatedAt
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -27,18 +30,23 @@ namespace Argus.Sync.Example.Migrations
                     b.Property<string>("Name")
                         .HasColumnType("text");
 
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("LatestIntersectionsJson")
+                    b.Property<string>("Hash")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("StartIntersectionJson")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.HasKey("Name", "Slot");
 
-                    b.HasKey("Name");
+                    b.HasIndex("Slot")
+                        .IsDescending();
+
+                    b.HasIndex("Name", "Slot")
+                        .IsDescending(false, true);
 
                     b.ToTable("ReducerStates", "public");
                 });
@@ -51,45 +59,12 @@ namespace Argus.Sync.Example.Migrations
                     b.Property<decimal>("BlockNumber")
                         .HasColumnType("numeric(20,0)");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<decimal>("Slot")
                         .HasColumnType("numeric(20,0)");
 
                     b.HasKey("BlockHash");
 
                     b.ToTable("BlockTests", "public");
-                });
-
-            modelBuilder.Entity("Argus.Sync.Example.Models.TransactionTest", b =>
-                {
-                    b.Property<string>("TxHash")
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("TxIndex")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<string>("BlockHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("BlockNumber")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<byte[]>("RawTx")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("TxHash", "TxIndex");
-
-                    b.ToTable("TransactionTests", "public");
                 });
 #pragma warning restore 612, 618
         }
