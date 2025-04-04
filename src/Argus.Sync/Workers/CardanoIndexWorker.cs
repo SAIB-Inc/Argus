@@ -58,55 +58,67 @@ public class CardanoIndexWorker<T>(
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
     {
-        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
-        ReducerState reducerState = await GetReducerStateAsync(reducerName, stoppingToken);
-        _reducerStates[reducerName] = reducerState;
-
-        IEnumerable<Point> intersections = reducerState.LatestIntersections;
-        bool rollbackMode = _rollbackModeEnabled;
-
-        if (reducerState is null)
+        try
         {
-            logger.LogError("Failed to get the initial intersection for {Reducer}", reducerName);
-            throw new Exception($"Failed to determine chainsync intersection for {reducerName}");
-        }
+            string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+            ReducerState reducerState = await GetReducerStateAsync(reducerName, stoppingToken);
+            _reducerStates[reducerName] = reducerState;
 
-        if (_rollbackModeEnabled)
-        {
-            rollbackMode = configuration.GetValue($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:Enabled", true);
+            IEnumerable<Point> intersections = reducerState.LatestIntersections;
+            bool rollbackMode = _rollbackModeEnabled;
 
-            if (rollbackMode)
+            if (reducerState is null)
             {
-                string? defaultRollbackHash = configuration.GetValue<string>("CardanoIndexReducers:RollbackMode:RollbackHash");
-                ulong? defaultRollbackSlot = configuration.GetValue<ulong>("CardanoIndexReducers:RollbackMode:Slot");
-                string? selfRollbackHash = configuration.GetValue<string>($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:RollbackHash");
-                ulong? selfRollbackSlot = configuration.GetValue<ulong>($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:RollbackSlot");
-                string rollbackHash = selfRollbackHash ?? defaultRollbackHash ?? throw new Exception("Rollback hash not configured");
-                ulong rollbackSlot = selfRollbackSlot ?? defaultRollbackSlot ?? throw new Exception("Rollback slot not configured");
+                logger.LogError("Failed to get the initial intersection for {Reducer}", reducerName);
+                throw new Exception($"Failed to determine chainsync intersection for {reducerName}");
+            }
 
-                Point rollbackIntersection = new(rollbackHash, rollbackSlot);
-                intersections = [rollbackIntersection];
+            if (_rollbackModeEnabled)
+            {
+                rollbackMode = configuration.GetValue($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:Enabled", true);
+
+                if (rollbackMode)
+                {
+                    string? defaultRollbackHash = configuration.GetValue<string>("CardanoIndexReducers:RollbackMode:RollbackHash");
+                    ulong? defaultRollbackSlot = configuration.GetValue<ulong>("CardanoIndexReducers:RollbackMode:Slot");
+                    string? selfRollbackHash = configuration.GetValue<string>($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:RollbackHash");
+                    ulong? selfRollbackSlot = configuration.GetValue<ulong>($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:RollbackSlot");
+                    string rollbackHash = selfRollbackHash ?? defaultRollbackHash ?? throw new Exception("Rollback hash not configured");
+                    ulong rollbackSlot = selfRollbackSlot ?? defaultRollbackSlot ?? throw new Exception("Rollback slot not configured");
+
+                    Point rollbackIntersection = new(rollbackHash, rollbackSlot);
+                    intersections = [rollbackIntersection];
+                }
+            }
+
+            ICardanoChainProvider chainProvider = GetCardanoChainProvider();
+            await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersections, _networkMagic, stoppingToken))
+            {
+                Task reducerTask = nextResponse.Action switch
+                {
+                    NextResponseAction.RollForward => ProcessRollforwardAsync(reducer, nextResponse),
+                    NextResponseAction.RollBack => ProcessRollbackAsync(reducer, nextResponse, rollbackMode, stoppingToken),
+                    _ => throw new Exception($"Next response error received. {nextResponse}"),
+                };
+
+                await reducerTask;
+
+                if (rollbackMode)
+                {
+                    await UpdateReducerStatesAsync(stoppingToken);
+                    logger.LogInformation("Rollback successfully completed. Please disable rollback mode to start syncing.");
+                    Environment.Exit(0);
+                }
             }
         }
-
-        ICardanoChainProvider chainProvider = GetCardanoChainProvider();
-        await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersections, _networkMagic, stoppingToken))
+        catch (OperationCanceledException)
         {
-            Task reducerTask = nextResponse.Action switch
-            {
-                NextResponseAction.RollForward => ProcessRollforwardAsync(reducer, nextResponse),
-                NextResponseAction.RollBack => ProcessRollbackAsync(reducer, nextResponse, rollbackMode, stoppingToken),
-                _ => throw new Exception($"Next response error received. {nextResponse}"),
-            };
-
-            await reducerTask;
-
-            if (rollbackMode)
-            {
-                await UpdateReducerStatesAsync(stoppingToken);
-                logger.LogInformation("Rollback successfully completed. Please disable rollback mode to start syncing.");
-                Environment.Exit(0);
-            }
+            logger.LogInformation("Reducer {Reducer} sync operation was cancelled.", ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType()));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error occurred while syncing reducer {Reducer}", ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType()));
+            throw;
         }
     }
 
@@ -254,6 +266,7 @@ public class CardanoIndexWorker<T>(
     {
         if (_tuiMode)
         {
+            await Task.Delay(500);
             if (configuration.GetValue<string>("Sync:Dashboard:DisplayType") == "Full")
             {
                 _ = Task.Run(StartSyncFullDashboardTracker);
