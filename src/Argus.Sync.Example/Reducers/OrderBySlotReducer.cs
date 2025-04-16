@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using Argus.Sync.Example.Extensions;
 using Argus.Sync.Example.Models;
+using Argus.Sync.Example.Models.Cardano.Common;
 using Argus.Sync.Example.Models.Cardano.OrderBook;
 using Argus.Sync.Example.Models.Cardano.Sundae;
 using Argus.Sync.Example.Models.Enums;
@@ -173,6 +174,8 @@ public class OrderBySlotReducer(
                 SpentTxHash = isSold ? Convert.ToHexString(existingInput!.TransactionId()) : null
             };
 
+
+
             if (localEntry is not null)
                 dbContext.Entry(localEntry).CurrentValues.SetValues(updatedEntry);
             else
@@ -188,7 +191,7 @@ public class OrderBySlotReducer(
 
         try
         {
-            AcceptRedeemer? crashrBuyRedeemer = CborSerializer.Deserialize<AcceptRedeemer>(redeemerRaw);
+            AcceptRedeemer? buyRedeemer = CborSerializer.Deserialize<AcceptRedeemer>(redeemerRaw);
             return true;
         }
         catch { }

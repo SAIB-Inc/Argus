@@ -1,35 +1,31 @@
+using Argus.Sync.Example.Extensions;
 using Argus.Sync.Example.Models;
+using Argus.Sync.Example.Models.Cardano.Minswap;
 using Argus.Sync.Example.Models.Enums;
+using Argus.Sync.Reducers;
 using Chrysalis.Cbor.Extensions.Cardano.Core;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Common;
+using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Serialization;
+using Chrysalis.Cbor.Types.Cardano.Core;
 using Chrysalis.Cbor.Types.Cardano.Core.Common;
 using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
 using Microsoft.EntityFrameworkCore;
-using WalletAddress = Chrysalis.Wallet.Models.Addresses.Address;
-using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
-using Argus.Sync.Reducers;
-using Argus.Sync.Example.Extensions;
-using Argus.Sync.Example.Models.Cardano.Sundae;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Argus.Sync.Utils;
 
-namespace Argus.Sync.Example.Reducers;
+namespace Argus.Sync.Example.Reducers.PriceReducers;
 
-public class SundaePriceByTokenReducer(
-    IDbContextFactory<TestDbContext> dbContextFactory
-) : IReducer<PriceByToken>
+public class MinswapPriceByTokenReducer(
+    IDbContextFactory<TestDbContext> dbContextFactory,
+    IConfiguration configuration
+) : TokenPriceBaseReducer(configuration)
 {
-    private readonly string SundaeSwapScriptHash = "e0302560ced2fdcbfcb2602697df970cd0d6a38f94b32703f51c312b";
-
     public async Task RollBackwardAsync(ulong slot)
     {
         await using TestDbContext dbContext = await dbContextFactory.CreateDbContextAsync();
 
         IQueryable<PriceByToken> rollbackTokenEntries = dbContext.PricesByToken
             .AsNoTracking()
-            .Where(b => b.Slot >= slot && b.PlatformType == TokenPricePlatformType.SundaeSwap);
+            .Where(b => b.Slot >= slot && b.PlatformType == TokenPricePlatformType.Minswap);
 
         dbContext.PricesByToken.RemoveRange(rollbackTokenEntries);
         await dbContext.SaveChangesAsync();
@@ -38,7 +34,9 @@ public class SundaePriceByTokenReducer(
     public async Task RollForwardAsync(Block block)
     {
         await using TestDbContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
         IEnumerable<TransactionBody> transactions = block.TransactionBodies();
+        if (!transactions.Any()) return;
 
         Dictionary<string, (string outRef, ulong adaReserve, ulong otherTokenReserve)> tokenPricesDict =
            ProcessOutputs(transactions);
@@ -46,19 +44,18 @@ public class SundaePriceByTokenReducer(
         if (!tokenPricesDict.Any()) return;
 
         ulong slot = block.Header().HeaderBody().Slot();
-
         tokenPricesDict.ToList().ForEach(tp =>
         {
             string subject = tp.Key;
 
             PriceByToken tokenPriceHistory = new(
-                tp.Value.outRef.ToLowerInvariant(),
-                slot,
-                string.Empty,
-                subject,
-                tp.Value.adaReserve,
-                tp.Value.otherTokenReserve,
-                TokenPricePlatformType.SundaeSwap
+                OutRef: tp.Value.outRef.ToLowerInvariant(),
+                Slot: slot,
+                TokenXSubject: string.Empty,
+                TokenYSubject: subject,
+                TokenXPrice: tp.Value.adaReserve,
+                TokenYPrice: tp.Value.otherTokenReserve,
+                PlatformType: TokenPricePlatformType.Minswap
             );
 
             dbContext.PricesByToken.Add(tokenPriceHistory);
@@ -78,17 +75,15 @@ public class SundaePriceByTokenReducer(
                 return tx.Outputs().SelectMany(o =>
                 {
                     if (!TryExtractAddressHash(o, out string? outputAddressPkh) ||
-                        outputAddressPkh != SundaeSwapScriptHash) return [];
+                        outputAddressPkh != MinswapScriptHash) return [];
 
-                    if (!TryDeserializeLiquidityPool(o.Datum(), out SundaeSwapLiquidityPool? liquidityPool)) return [];
-
-                    AssetClassTuple assets = liquidityPool.Assets;
+                    if (!TryDeserializeLiquidityPool(o.Datum(), out MinswapLiquidityPool liquidityPool)) return [];
 
                     (string tokenXPolicy, string tokenXName) =
-                        (Convert.ToHexStringLower(assets.AssetX.PolicyId), Convert.ToHexStringLower(assets.AssetX.AssetName));
+                        (Convert.ToHexStringLower(liquidityPool.AssetX.PolicyId), Convert.ToHexStringLower(liquidityPool.AssetX.AssetName));
 
                     (string tokenYPolicy, string tokenYName) =
-                        (Convert.ToHexStringLower(assets.AssetY.PolicyId), Convert.ToHexStringLower(assets.AssetY.AssetName));
+                        (Convert.ToHexStringLower(liquidityPool.AssetY.PolicyId), Convert.ToHexStringLower(liquidityPool.AssetY.AssetName));
 
                     if (!string.IsNullOrEmpty(tokenXPolicy) && !string.IsNullOrEmpty(tokenYPolicy)) return [];
 
@@ -114,36 +109,4 @@ public class SundaePriceByTokenReducer(
                 g => g.First().Item2
             );
     }
-
-    private static bool TryExtractAddressHash(TransactionOutput output, out string addressHash)
-    {
-        addressHash = string.Empty;
-        try
-        {
-            WalletAddress address = new(output.Address());
-            addressHash = Convert.ToHexStringLower(address.GetPaymentKeyHash()!);
-            return !string.IsNullOrEmpty(addressHash);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool TryDeserializeLiquidityPool(byte[]? datum, out SundaeSwapLiquidityPool liquidityPool)
-    {
-        liquidityPool = null!;
-        if (datum is null) return false;
-        try
-        {
-            liquidityPool = CborSerializer.Deserialize<SundaeSwapLiquidityPool>(datum);
-            return liquidityPool is not null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 }
-
-public record TokenIdentifier(string PolicyId, string AssetName);

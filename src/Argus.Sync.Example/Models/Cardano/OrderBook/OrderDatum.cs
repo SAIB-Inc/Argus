@@ -1,3 +1,4 @@
+using Argus.Sync.Example.Models.Cardano.Common;
 using Argus.Sync.Example.Models.Cardano.Sundae;
 using Chrysalis.Cbor.Serialization.Attributes;
 using Chrysalis.Cbor.Types;

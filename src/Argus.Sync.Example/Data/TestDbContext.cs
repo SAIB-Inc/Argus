@@ -13,6 +13,7 @@ public class TestDbContext
     public DbSet<TxBySlot> TxsBySlot => Set<TxBySlot>();
     public DbSet<OutputBySlot> OutputBySlot => Set<OutputBySlot>();
     public DbSet<PriceByToken> PricesByToken => Set<PriceByToken>();
+    public DbSet<PriceBySubject> PricesBySubject => Set<PriceBySubject>();
     public DbSet<OrderBySlot> OrdersBySlot => Set<OrderBySlot>();
     public DbSet<OwnerBySlot> AssetOwnerBySlot => Set<OwnerBySlot>();
     public DbSet<Royalty> Royalties => Set<Royalty>();
@@ -45,6 +46,11 @@ public class TestDbContext
         modelBuilder.Entity<PriceByToken>(e =>
         {
             e.HasKey(e => new { e.OutRef, e.Slot, e.TokenXSubject, e.TokenYSubject, e.PlatformType });
+        });
+
+        modelBuilder.Entity<PriceBySubject>(e =>
+        {
+            e.HasKey(e => new { e.OutRef, e.Slot, e.Subject });
         });
 
         modelBuilder.Entity<OrderBySlot>(entity =>

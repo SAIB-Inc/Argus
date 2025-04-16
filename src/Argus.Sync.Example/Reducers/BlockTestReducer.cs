@@ -11,6 +11,7 @@ namespace Argus.Sync.Example.Reducers;
 public class BlockTestReducer(
     IDbContextFactory<TestDbContext> dbContextFactory
 )
+// : IReducer<TxBySlot>
 {
     public async Task RollBackwardAsync(ulong slot)
     {

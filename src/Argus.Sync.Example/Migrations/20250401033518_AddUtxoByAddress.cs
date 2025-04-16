@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Argus.Sync.Example.Migrations
 {
     /// <inheritdoc />
-    public partial class AddUtxoByAddress2 : Migration
+    public partial class AddUtxoByAddress : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -139,6 +139,21 @@ namespace Argus.Sync.Example.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Royalties",
+                schema: "public",
+                columns: table => new
+                {
+                    PolicyId = table.Column<string>(type: "text", nullable: false),
+                    Address = table.Column<string>(type: "text", nullable: false),
+                    Share = table.Column<decimal>(type: "numeric", nullable: false),
+                    Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Royalties", x => x.PolicyId);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "TransactionTests",
                 schema: "public",
                 columns: table => new
@@ -157,18 +172,21 @@ namespace Argus.Sync.Example.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "TxBySlot",
+                name: "TxsBySlot",
                 schema: "public",
                 columns: table => new
                 {
                     TxHash = table.Column<string>(type: "text", nullable: false),
                     Index = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
                     Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
-                    Raw = table.Column<byte[]>(type: "bytea", nullable: false)
+                    Raw = table.Column<byte[]>(type: "bytea", nullable: false),
+                    Fee = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
+                    InputsRaw = table.Column<byte[][]>(type: "bytea[]", nullable: false),
+                    OutputsRaw = table.Column<byte[][]>(type: "bytea[]", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_TxBySlot", x => new { x.TxHash, x.Index });
+                    table.PrimaryKey("PK_TxsBySlot", x => new { x.TxHash, x.Index });
                 });
 
             migrationBuilder.CreateTable(
@@ -181,7 +199,7 @@ namespace Argus.Sync.Example.Migrations
                     Slot = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
                     Address = table.Column<string>(type: "text", nullable: false),
                     BlockNumber = table.Column<decimal>(type: "numeric(20,0)", nullable: false),
-                    RawData = table.Column<byte[]>(type: "bytea", nullable: false)
+                    Raw = table.Column<byte[]>(type: "bytea", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -221,11 +239,15 @@ namespace Argus.Sync.Example.Migrations
                 schema: "public");
 
             migrationBuilder.DropTable(
+                name: "Royalties",
+                schema: "public");
+
+            migrationBuilder.DropTable(
                 name: "TransactionTests",
                 schema: "public");
 
             migrationBuilder.DropTable(
-                name: "TxBySlot",
+                name: "TxsBySlot",
                 schema: "public");
 
             migrationBuilder.DropTable(

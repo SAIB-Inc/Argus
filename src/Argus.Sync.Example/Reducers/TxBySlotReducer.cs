@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Argus.Sync.Example.Reducers;
 
 public class TxBySlotReducer(IDbContextFactory<TestDbContext> dbContextFactory) 
-: IReducer<TxBySlot>
+// : IReducer<TxBySlot>
 {
     public async Task RollBackwardAsync(ulong slot)
     {

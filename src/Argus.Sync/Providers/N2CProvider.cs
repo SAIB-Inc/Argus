@@ -23,7 +23,7 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
     private static async Task SendHandshakeMessageAsync(NodeClient client, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         stoppingToken ??= new CancellationTokenSource().Token;
-        ProposeVersions proposeVersion = HandshakeMessages.ProposeVersions(VersionTables.N2C_V10_AND_ABOVE());
+        ProposeVersions proposeVersion = HandshakeMessages.ProposeVersions(VersionTables.N2C_V10_AND_ABOVE(networkMagic));
         CborWriter writer = new();
         ProposeVersions.Write(writer, proposeVersion);
         HandshakeMessage handshakeMessage = await client.Handshake!.SendAsync(proposeVersion, stoppingToken.Value);

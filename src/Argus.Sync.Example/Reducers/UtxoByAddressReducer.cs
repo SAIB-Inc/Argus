@@ -14,7 +14,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Argus.Sync.Example.Reducers;
 
 public class UtxoByAddressReducer(IDbContextFactory<TestDbContext> dbContextFactory
-) : IReducer<UtxoByAddress>
+) 
+// : IReducer<UtxoByAddress>
 {
     public async Task RollBackwardAsync(ulong slot)
     {

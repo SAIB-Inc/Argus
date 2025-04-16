@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -10,9 +11,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Argus.Sync.Example.Migrations
 {
     [DbContext(typeof(TestDbContext))]
-    partial class TestDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250401033518_AddUtxoByAddress")]
+    partial class AddUtxoByAddress
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -194,31 +197,6 @@ namespace Argus.Sync.Example.Migrations
                     b.ToTable("AssetOwnerBySlot", "public");
                 });
 
-            modelBuilder.Entity("Argus.Sync.Example.Models.PriceBySubject", b =>
-                {
-                    b.Property<string>("OutRef")
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<string>("Subject")
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("Price")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<decimal?>("SpentSlot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.HasKey("OutRef", "Slot", "Subject");
-
-                    b.ToTable("PricesBySubject", "public");
-                });
-
             modelBuilder.Entity("Argus.Sync.Example.Models.PriceByToken", b =>
                 {
                     b.Property<string>("OutRef")
@@ -339,10 +317,7 @@ namespace Argus.Sync.Example.Migrations
                     b.Property<string>("TxHash")
                         .HasColumnType("text");
 
-                    b.Property<decimal>("TxIndex")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<int>("Status")
+                    b.Property<int>("TxIndex")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("BlockNumber")
@@ -351,10 +326,7 @@ namespace Argus.Sync.Example.Migrations
                     b.Property<byte[]>("Raw")
                         .HasColumnType("bytea");
 
-                    b.Property<decimal?>("SpentSlot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("Address", "Slot", "TxHash", "TxIndex", "Status");
+                    b.HasKey("Address", "Slot", "TxHash", "TxIndex");
 
                     b.ToTable("UtxosByAddress", "public");
                 });

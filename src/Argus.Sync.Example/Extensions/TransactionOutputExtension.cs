@@ -1,13 +1,22 @@
 using System.Formats.Cbor;
 using Argus.Sync.Example.Models.Enums;
 using CborSerialization;
+using Chrysalis.Cbor.Extensions;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Common;
+using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
 using Chrysalis.Cbor.Serialization;
 using Chrysalis.Cbor.Types;
 using Chrysalis.Cbor.Types.Cardano.Core.Common;
 using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
 
 namespace Argus.Sync.Example.Extensions;
+
+public enum DatumType
+{
+    Inline,
+    Hash,
+    None
+}
 
 public static class TransactionOutputExtension
 {
