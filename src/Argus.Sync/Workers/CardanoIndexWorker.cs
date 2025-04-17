@@ -13,7 +13,6 @@ using Spectre.Console;
 using NextResponse = Argus.Sync.Data.Models.NextResponse;
 using Chrysalis.Cbor.Extensions.Cardano.Core;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Argus.Sync.Extensions;
 using System.Diagnostics;
 
 namespace Argus.Sync.Workers;
@@ -267,7 +266,7 @@ public class CardanoIndexWorker<T>(
         if (_tuiMode)
         {
             await Task.Delay(500);
-            if (configuration.GetValue<string>("Sync:Dashboard:DisplayType") == "Full")
+            if (configuration.GetValue<string>("Sync:Dashboard:DisplayType")?.Equals("full", StringComparison.InvariantCultureIgnoreCase) is not null)
             {
                 _ = Task.Run(StartSyncFullDashboardTracker);
             }

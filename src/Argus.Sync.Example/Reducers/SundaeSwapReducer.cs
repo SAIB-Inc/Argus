@@ -21,14 +21,14 @@ using WalletAddress = Chrysalis.Wallet.Models.Addresses.Address;
 namespace Argus.Sync.Example.Reducers;
 
 public class SundaeSwapReducer(
-    IDbContextFactory<TestDbContext> dbContextFactory
+    IDbContextFactory<AppDbContext> dbContextFactory
 ) : IReducer<SundaeSwapLiquidityPool>
 {
     private readonly string _scriptHash = "e0302560ced2fdcbfcb2602697df970cd0d6a38f94b32703f51c312b";
 
     public async Task RollBackwardAsync(ulong slot)
     {
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
+        using AppDbContext dbContext = dbContextFactory.CreateDbContext();
         IQueryable<SundaeSwapLiquidityPool> dataToRollback = dbContext.SundaeSwapLiquidityPools.Where(p => p.Slot >= slot);
         dbContext.RemoveRange(dataToRollback);
         await dbContext.SaveChangesAsync();
@@ -37,7 +37,7 @@ public class SundaeSwapReducer(
     public async Task RollForwardAsync(Block block)
     {
         ulong slot = block.Header().HeaderBody().Slot();
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
+        using AppDbContext dbContext = dbContextFactory.CreateDbContext();
 
         IEnumerable<TransactionBody> transactions = block.TransactionBodies();
 
@@ -51,38 +51,15 @@ public class SundaeSwapReducer(
                 {
                     int outputIndex = outputs.IndexOf(output);
                     string outRef = txHash + "#" + outputIndex;
-                    string identifier = Convert.ToHexString(datum.Identifier).ToLowerInvariant();
-                    string assetXPolicyId = Convert.ToHexString(datum.Assets.AssetX.PolicyId).ToLowerInvariant();
-                    string assetXAssetName = Convert.ToHexString(datum.Assets.AssetX.AssetName).ToLowerInvariant();
-                    string assetYPolicyId = Convert.ToHexString(datum.Assets.AssetY.PolicyId).ToLowerInvariant();
-                    string assetYAssetName = Convert.ToHexString(datum.Assets.AssetY.AssetName).ToLowerInvariant();
-                    string lpTokenPolicyId = Convert.ToHexString(datum.Identifier).ToLowerInvariant();
-                    string lpTokenAssetName = Convert.ToHexString(datum.Identifier).ToLowerInvariant();
-                    string assetX = assetXPolicyId + "." + assetXAssetName;
-                    string assetY = assetYPolicyId + "." + assetYAssetName;
-                    assetX = assetX == "." ? "" : assetX;
-                    assetY = assetY == "." ? "" : assetY;
-                    assetXAssetName = string.IsNullOrEmpty(assetXPolicyId) ? "ada" : assetXAssetName;
-                    assetYAssetName = string.IsNullOrEmpty(assetYPolicyId) ? "ada" : assetYAssetName;
-                    var assetXReadableName = GetSafeAssetName(assetXAssetName);
-                    var assetYReadableName = GetSafeAssetName(assetYAssetName);
-                    var pair = assetXReadableName + "/" + assetYReadableName;
 
-                    string lpToken = lpTokenPolicyId + "." + lpTokenAssetName;
-                    ulong circulatingLp = datum.CirculatingLp;
+                    SundaeSwapLiquidityPool liquidityPool = ParseLiquidityPool(datum);
 
-
-                    SundaeSwapLiquidityPool liquidityPool = new(
-                        slot,
-                        outRef,
-                        identifier,
-                        assetX,
-                        assetY,
-                        pair,
-                        lpToken,
-                        circulatingLp,
-                        output.Raw?.ToArray()!
-                    );
+                    liquidityPool = liquidityPool with
+                    {
+                        Slot = slot,
+                        Outref = outRef,
+                        TxOutputRaw = output.Raw?.ToArray()!
+                    };
 
                     dbContext.SundaeSwapLiquidityPools.Add(liquidityPool);
                 }
@@ -109,7 +86,7 @@ public class SundaeSwapReducer(
             if (datumOption == null)
                 return false;
 
-            var inlineDatum = new CborEncodedValue(datumOption.Data());
+            CborEncodedValue inlineDatum = new CborEncodedValue(datumOption.Data());
             datum = SundaeSwapLiquidityPoolDatum.Read(inlineDatum.GetValue());
             return datum is not null;
         }
@@ -119,35 +96,61 @@ public class SundaeSwapReducer(
         }
     }
 
-    private static string GetSafeAssetName(string assetName)
+    private static string GetSafeAssetName(string policyId, string assetName)
     {
-        if (assetName == "ada")
+        if (string.IsNullOrEmpty(policyId))
             return "ada";
 
         try
         {
-            // Convert from hex to bytes
             byte[] bytes = Convert.FromHexString(assetName);
-
-            // Try UTF-8 conversion
             string decoded = Encoding.UTF8.GetString(bytes);
 
-            // Remove invalid characters
-            // This will filter out control characters and invalid UTF-8 replacement characters
-            string sanitized = new string(decoded.Where(c =>
+            string sanitized = new([.. decoded.Where(c =>
                 !char.IsControl(c) &&
                 c != '�' &&
                 c > 31 &&
-                c < 127).ToArray());
+                c < 127)]
+            );
 
             return string.IsNullOrWhiteSpace(sanitized)
-                ? $"asset_{assetName.Substring(0, Math.Min(8, assetName.Length))}" // Fallback if empty
+                ? $"{policyId}.{assetName}" // Fallback if empty
                 : sanitized.ToLower();
         }
         catch
         {
             // Fallback for any conversion errors
-            return $"asset_{assetName.Substring(0, Math.Min(8, assetName.Length))}";
+            return $"{policyId}.{assetName}";
         }
+    }
+
+    private static SundaeSwapLiquidityPool ParseLiquidityPool(SundaeSwapLiquidityPoolDatum datum)
+    {
+        string identifier = Convert.ToHexString(datum.Identifier).ToLowerInvariant();
+        string assetXPolicyId = Convert.ToHexString(datum.Assets.AssetX.PolicyId).ToLowerInvariant();
+        string assetXAssetName = Convert.ToHexString(datum.Assets.AssetX.AssetName).ToLowerInvariant();
+        string assetYPolicyId = Convert.ToHexString(datum.Assets.AssetY.PolicyId).ToLowerInvariant();
+        string assetYAssetName = Convert.ToHexString(datum.Assets.AssetY.AssetName).ToLowerInvariant();
+        string lpTokenPolicyId = Convert.ToHexString(datum.Identifier).ToLowerInvariant();
+        string lpTokenAssetName = Convert.ToHexString(datum.Identifier).ToLowerInvariant();
+        string assetX = string.IsNullOrEmpty(assetXPolicyId) ? "ada" : $"{assetXPolicyId}.{assetXAssetName}";
+        string assetY = string.IsNullOrEmpty(assetYPolicyId) ? "ada" : $"{assetYPolicyId}.{assetYAssetName}";
+        string assetXReadableName = GetSafeAssetName(assetXPolicyId, assetXAssetName);
+        string assetYReadableName = GetSafeAssetName(assetYPolicyId, assetYAssetName);
+        string pair = $"{assetXReadableName}/{assetYReadableName}";
+        string lpToken = lpTokenPolicyId + "." + lpTokenAssetName;
+        ulong circulatingLp = datum.CirculatingLp;
+
+        return new(
+            0,
+            string.Empty,
+            identifier,
+            assetX,
+            assetY,
+            pair,
+            lpToken,
+            circulatingLp,
+            []
+        );
     }
 }

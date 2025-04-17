@@ -2,7 +2,6 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -10,12 +9,10 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace Argus.Sync.Example.Migrations
 {
-    [DbContext(typeof(TestDbContext))]
-    [Migration("20250417033013_SundaeAddPair")]
-    partial class SundaeAddPair
+    [DbContext(typeof(AppDbContext))]
+    partial class AppDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -44,25 +41,6 @@ namespace Argus.Sync.Example.Migrations
                     b.HasKey("Name");
 
                     b.ToTable("ReducerStates", "public");
-                });
-
-            modelBuilder.Entity("Argus.Sync.Example.Models.BlockTest", b =>
-                {
-                    b.Property<string>("BlockHash")
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("BlockNumber")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("BlockHash");
-
-                    b.ToTable("BlockTests", "public");
                 });
 
             modelBuilder.Entity("Argus.Sync.Example.Models.SundaeSwapLiquidityPool", b =>
@@ -95,43 +73,13 @@ namespace Argus.Sync.Example.Migrations
                     b.Property<decimal>("Slot")
                         .HasColumnType("numeric(20,0)");
 
-                    b.Property<byte[]>("TxRaw")
+                    b.Property<byte[]>("TxOutputRaw")
                         .IsRequired()
                         .HasColumnType("bytea");
 
                     b.HasKey("Identifier", "Outref");
 
                     b.ToTable("SundaeSwapLiquidityPools", "public");
-                });
-
-            modelBuilder.Entity("Argus.Sync.Example.Models.TransactionTest", b =>
-                {
-                    b.Property<string>("TxHash")
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("TxIndex")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<string>("BlockHash")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("BlockNumber")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<byte[]>("RawTx")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<decimal>("Slot")
-                        .HasColumnType("numeric(20,0)");
-
-                    b.HasKey("TxHash", "TxIndex");
-
-                    b.ToTable("TransactionTests", "public");
                 });
 #pragma warning restore 612, 618
         }

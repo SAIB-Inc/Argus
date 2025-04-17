@@ -17,11 +17,11 @@ public record SundaeSwapLiquidityPool(
     string Pair,
     string LpToken,
     ulong CirculatingLp,
-    byte[] TxRaw
+    byte[] TxOutputRaw
 ) : IReducerModel
 {
     [NotMapped]
-    public TransactionOutput TxOutput => TransactionOutput.Read(TxRaw);
+    public TransactionOutput TxOutput => TransactionOutput.Read(TxOutputRaw);
 
     [NotMapped]
     public SundaeSwapLiquidityPoolDatum Datum => SundaeSwapLiquidityPoolDatum.Read(TxOutput.DatumOption()!.Data());

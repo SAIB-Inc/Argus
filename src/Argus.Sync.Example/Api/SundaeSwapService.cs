@@ -2,23 +2,22 @@ using System.Text;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Common;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Internal;
 
 namespace Argus.Sync.Example.Api;
 
-public class SundaeSwapService(IDbContextFactory<TestDbContext> dbContextFactory)
+public class SundaeSwapService(IDbContextFactory<AppDbContext> dbContextFactory)
 {
     public async Task<object> FetchPricesAsync(int limit = 10, string? pair = null)
     {
-        using TestDbContext dbContext = await dbContextFactory.CreateDbContextAsync();
-        var liquidityPoolsQuery = dbContext.SundaeSwapLiquidityPools.AsNoTracking();
+        using AppDbContext dbContext = await dbContextFactory.CreateDbContextAsync();
+        IQueryable<Models.SundaeSwapLiquidityPool> liquidityPoolsQuery = dbContext.SundaeSwapLiquidityPools.AsNoTracking();
 
         if (pair != null)
         {
             liquidityPoolsQuery = liquidityPoolsQuery.Where(p => p.Pair == pair);
         }
 
-        var liquidityPools = await liquidityPoolsQuery
+        List<Models.SundaeSwapLiquidityPool> liquidityPools = await liquidityPoolsQuery
             .OrderByDescending(p => p.Slot)
             .Take(limit)
             .ToListAsync();
@@ -33,6 +32,7 @@ public class SundaeSwapService(IDbContextFactory<TestDbContext> dbContextFactory
                     ? lp.TxOutput.Amount().Lovelace()
                     : lp.TxOutput.Amount().QuantityOf(lp.AssetX.Replace(".", "")
                 );
+
                 ulong? assetYReserve = assetY == "ada"
                     ? lp.TxOutput.Amount().Lovelace()
                     : lp.TxOutput.Amount().QuantityOf(lp.AssetY.Replace(".", "")

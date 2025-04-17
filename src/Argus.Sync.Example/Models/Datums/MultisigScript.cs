@@ -1,9 +1,10 @@
 using Chrysalis.Cbor.Serialization.Attributes;
 using Chrysalis.Cbor.Types;
 using Chrysalis.Cbor.Types.Cardano.Core.Common;
-using Npgsql.EntityFrameworkCore.PostgreSQL.Storage.Internal.Mapping;
 
 namespace Argus.Sync.Example.Models.Datums;
+
+// @TODO: Put Aiken code here
 
 [CborSerializable]
 [CborUnion]
