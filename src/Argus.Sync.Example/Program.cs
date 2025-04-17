@@ -15,9 +15,9 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-app.MapGet("/sundae/prices/latest", async (int limit, SundaeSwapService sundaeSwapService) =>
+app.MapGet("/sundae/prices/latest", async (SundaeSwapService sundaeSwapService, int limit = 10, string? pair = null) =>
 {
-    var result = await sundaeSwapService.FetchPricesAsync(limit);
+    var result = await sundaeSwapService.FetchPricesAsync(limit, pair);
     return Results.Ok(result);
 });
 

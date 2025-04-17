@@ -14,6 +14,7 @@ public record SundaeSwapLiquidityPool(
     string Identifier,
     string AssetX,
     string AssetY,
+    string Pair,
     string LpToken,
     ulong CirculatingLp,
     byte[] TxRaw

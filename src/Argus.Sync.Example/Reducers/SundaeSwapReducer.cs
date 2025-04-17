@@ -1,5 +1,6 @@
 
 
+using System.Text;
 using Argus.Sync.Example.Models;
 using Argus.Sync.Example.Models.Datums;
 using Argus.Sync.Extensions;
@@ -61,6 +62,12 @@ public class SundaeSwapReducer(
                     string assetY = assetYPolicyId + "." + assetYAssetName;
                     assetX = assetX == "." ? "" : assetX;
                     assetY = assetY == "." ? "" : assetY;
+                    assetXAssetName = string.IsNullOrEmpty(assetXPolicyId) ? "ada" : assetXAssetName;
+                    assetYAssetName = string.IsNullOrEmpty(assetYPolicyId) ? "ada" : assetYAssetName;
+                    var assetXReadableName = GetSafeAssetName(assetXAssetName);
+                    var assetYReadableName = GetSafeAssetName(assetYAssetName);
+                    var pair = assetXReadableName + "/" + assetYReadableName;
+
                     string lpToken = lpTokenPolicyId + "." + lpTokenAssetName;
                     ulong circulatingLp = datum.CirculatingLp;
 
@@ -71,6 +78,7 @@ public class SundaeSwapReducer(
                         identifier,
                         assetX,
                         assetY,
+                        pair,
                         lpToken,
                         circulatingLp,
                         output.Raw?.ToArray()!
@@ -108,6 +116,38 @@ public class SundaeSwapReducer(
         catch
         {
             return false;
+        }
+    }
+
+    private static string GetSafeAssetName(string assetName)
+    {
+        if (assetName == "ada")
+            return "ada";
+
+        try
+        {
+            // Convert from hex to bytes
+            byte[] bytes = Convert.FromHexString(assetName);
+
+            // Try UTF-8 conversion
+            string decoded = Encoding.UTF8.GetString(bytes);
+
+            // Remove invalid characters
+            // This will filter out control characters and invalid UTF-8 replacement characters
+            string sanitized = new string(decoded.Where(c =>
+                !char.IsControl(c) &&
+                c != '�' &&
+                c > 31 &&
+                c < 127).ToArray());
+
+            return string.IsNullOrWhiteSpace(sanitized)
+                ? $"asset_{assetName.Substring(0, Math.Min(8, assetName.Length))}" // Fallback if empty
+                : sanitized.ToLower();
+        }
+        catch
+        {
+            // Fallback for any conversion errors
+            return $"asset_{assetName.Substring(0, Math.Min(8, assetName.Length))}";
         }
     }
 }
