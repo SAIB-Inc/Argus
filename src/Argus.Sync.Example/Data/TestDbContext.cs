@@ -10,6 +10,7 @@ public class TestDbContext
 {
     public DbSet<BlockTest> BlockTests => Set<BlockTest>();
     public DbSet<TransactionTest> TransactionTests => Set<TransactionTest>();
+    public DbSet<SundaeSwapLiquidityPool> SundaeSwapLiquidityPools => Set<SundaeSwapLiquidityPool>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -24,6 +25,11 @@ public class TestDbContext
         modelBuilder.Entity<TransactionTest>(entity =>
         {
             entity.HasKey(e => new { e.TxHash, e.TxIndex });
+        });
+
+        modelBuilder.Entity<SundaeSwapLiquidityPool>(entity =>
+        {
+            entity.HasKey(e => new { e.Identifier, e.Outref });
         });
     }
 }
