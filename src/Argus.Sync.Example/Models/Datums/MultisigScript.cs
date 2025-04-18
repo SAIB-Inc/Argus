@@ -4,7 +4,16 @@ using Chrysalis.Cbor.Types.Cardano.Core.Common;
 
 namespace Argus.Sync.Example.Models.Datums;
 
-// @TODO: Put Aiken code here
+// Aiken type definition:
+// pub type MultisigScript {
+//   Signature { key_hash: ByteArray }
+//   AllOf { scripts: List<MultisigScript> }
+//   AnyOf { scripts: List<MultisigScript> }
+//   AtLeast { required: Int, scripts: List<MultisigScript> }
+//   Before { time: Int }
+//   After { time: Int }
+//   Script { script_hash: ByteArray }
+// }
 
 [CborSerializable]
 [CborUnion]
