@@ -8,8 +8,6 @@ builder.Services.AddCardanoIndexer<AppDbContext>(builder.Configuration);
 builder.Services.AddReducers<AppDbContext, IReducerModel>(builder.Configuration);
 builder.Services.AddScoped<SundaeSwapService>();
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
