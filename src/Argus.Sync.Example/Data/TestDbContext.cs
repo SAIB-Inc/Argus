@@ -10,6 +10,9 @@ public class TestDbContext
 {
     public DbSet<BlockTest> BlockTests => Set<BlockTest>();
     public DbSet<TransactionTest> TransactionTests => Set<TransactionTest>();
+    public DbSet<OutputBySlot> OutputsBySlot => Set<OutputBySlot>();
+    public DbSet<UtxoByAddress> UtxosByAddress => Set<UtxoByAddress>();
+    public DbSet<SundaePriceByToken> SundaePricesByToken => Set<SundaePriceByToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -24,6 +27,16 @@ public class TestDbContext
         modelBuilder.Entity<TransactionTest>(entity =>
         {
             entity.HasKey(e => new { e.TxHash, e.TxIndex });
+        });
+
+        modelBuilder.Entity<OutputBySlot>(entity =>
+        {
+            entity.HasKey(e => new { e.TxHash, e.TxIndex });
+        });
+
+        modelBuilder.Entity<UtxoByAddress>(entity =>
+        {
+            entity.HasKey(e => new { e.TxHash, e.TxIndex, e.Slot, e.Address });
         });
     }
 }
