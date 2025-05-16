@@ -239,7 +239,7 @@ public class MyDbContext(
 }
 ```
 
-### 3. Register the Database Context
+### 3. Register the Database Context and Reducers
 
 Add the DbContext to your dependency injection container:
 
