@@ -141,26 +141,7 @@ The CardanoIndexWorker manages the blockchain synchronization process:
   - LINQ-compatible data access
   - Easy to incorporate into ASP.NET applications
 
-## 📦 Installation
-
-To use Argus in your .NET project:
-
-1. Install Argus via NuGet:
-
-   ```bash
-   dotnet add package Argus.Sync --version 0.3.1-alpha
-   ```
-
-2. Install database dependencies:
-
-   ```bash
-   dotnet add package Microsoft.EntityFrameworkCore.Design
-   dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
-   ```
-
-3. Ensure you have a running PostgreSQL server instance.
-
-### Architecture Overview
+## Architecture Overview
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -181,6 +162,25 @@ To use Argus in your .NET project:
                                          │     Cardano Node    │
                                          └─────────────────────┘
 ```
+
+## 📦 Installation
+
+To use Argus in your .NET project:
+
+1. Install Argus via NuGet:
+
+   ```bash
+   dotnet add package Argus.Sync --version 0.3.1-alpha
+   ```
+
+2. Install database dependencies:
+
+   ```bash
+   dotnet add package Microsoft.EntityFrameworkCore.Design
+   dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
+   ```
+
+3. Ensure you have a running PostgreSQL server instance.
 
 ## 💾 Database Setup
 
