@@ -29,8 +29,7 @@ Argus is a .NET library that simplifies interactions with the Cardano blockchain
 - [What is Argus?](#-what-is-argus)
 - [Core Concepts](#-core-concepts)
 - [Key Features](#-key-features)
-- [Installation](#-installation)
-- [Database Setup](#-database-setup)
+- [Installation and Setup](#-installation-and-setup)
 - [Understanding Reducers](#-understanding-reducers)
 - [Configuration](#-configuration)
 - [Advanced Use Cases](#-advanced-use-cases)
@@ -141,69 +140,50 @@ The CardanoIndexWorker manages the blockchain synchronization process:
   - LINQ-compatible data access
   - Easy to incorporate into ASP.NET applications
 
-## Architecture Overview
+## 📦 Installation and Setup
+
+Setting up Argus involves the following steps:
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                      Your .NET Application                     │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│  ┌───────────────┐   ┌───────────────┐   ┌──────────────────┐  │
-│  │   DbContext   │◀──┤   Reducers    │◀──┤CardanoIndexWorker│  │
-│  └───────┬───────┘   └───────────────┘   └────────┬─────────┘  │
-│          │                                        │            │
-│  ┌───────▼───────┐                      ┌─────────▼──────────┐ │
-│  │   Database    │                      │   Chain Provider   │ │
-│  └───────────────┘                      └─────────┬──────────┘ │
-│                                                   │            │
-└───────────────────────────────────────────────────┼────────────┘
-                                                    │
-                                         ┌──────────▼──────────┐
-                                         │     Cardano Node    │
-                                         └─────────────────────┘
+┌────────────┐     ┌────────────────┐     ┌───────────────┐    ┌────────────────┐
+│ 1. Install │────▶│ 2. Define Data │────▶│ 3. Implement  │───▶│ 4. Configure   │
+│ Packages   │     │ Models & DB    │     │ Reducers      │    │ Application    │
+└────────────┘     └────────────────┘     └───────────────┘    └────────────────┘
+                                                                        │
+                                                                        ▼
+┌────────────────┐    ┌────────────────┐     ┌───────────────┐    ┌────────────────┐
+│ 8. Monitor     │◀───│ 7. Run Your    │◀────│ 6. Apply DB   │◀───│ 5. Register    │
+│ Synchronization│    │ Application    │     │ Migrations    │    │ Services       │
+└────────────────┘    └────────────────┘     └───────────────┘    └────────────────┘
 ```
 
-## 📦 Installation
+### 1. Install Required Packages
 
-To use Argus in your .NET project:
+Add Argus and its dependencies to your .NET project:
 
-1. Install Argus via NuGet:
+```bash
+dotnet add package Argus.Sync --version 0.3.1-alpha
+dotnet add package Microsoft.EntityFrameworkCore.Design
+dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
+```
 
-   ```bash
-   dotnet add package Argus.Sync --version 0.3.1-alpha
-   ```
+### 2. Define Your Data Models
 
-2. Install database dependencies:
-
-   ```bash
-   dotnet add package Microsoft.EntityFrameworkCore.Design
-   dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
-   ```
-
-3. Ensure you have a running PostgreSQL server instance.
-
-## 💾 Database Setup
-
-### 1. Define Your Entity Models
-
-Create model classes that implement `IReducerModel` to represent the blockchain data you want to store:
+Create model classes that represent the blockchain data you want to store:
 
 ```csharp
 // BlockInfo.cs
 using Argus.Sync.Data.Models;
 
-// Record types work well for Reducer models
 public record BlockInfo(
-    string Hash,         // Block hash
-    ulong Number,        // Block number
-    ulong Slot,         // Block slot number
-    DateTime CreatedAt   // Timestamp for when the record was created
+    string Hash,       // Block hash
+    ulong Number,      // Block number
+    ulong Slot,        // Block slot number
+    DateTime CreatedAt // Timestamp for when the record was created
 ) : IReducerModel;
 ```
 
-### 2. Create a Database Context
-
-Implement a `DbContext` that inherits from `CardanoDbContext`:
+Then create a database context to manage these models:
 
 ```csharp
 // MyDbContext.cs
@@ -211,13 +191,11 @@ using Argus.Sync.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
-// Interface for your DbContext
 public interface IMyDbContext
 {
     DbSet<BlockInfo> Blocks { get; }
 }
 
-// Implement the CardanoDbContext and your interface
 public class MyDbContext(
     DbContextOptions options,
     IConfiguration configuration
@@ -229,7 +207,6 @@ public class MyDbContext(
     {
         base.OnModelCreating(modelBuilder);
 
-        // Configure the entity
         modelBuilder.Entity<BlockInfo>(entity =>
         {
             entity.HasKey(e => e.Hash);
@@ -239,67 +216,17 @@ public class MyDbContext(
 }
 ```
 
-### 3. Register the Database Context and Reducers
+### 3. Implement Your Reducers
 
-Add the DbContext to your dependency injection container:
-
-```csharp
-// Program.cs
-services.AddDbContextFactory<MyDbContext>((serviceProvider, options) =>
-{
-    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-    options.UseNpgsql(
-        configuration.GetConnectionString("CardanoContext"),
-        npgsqlOptions => npgsqlOptions.MigrationsHistoryTable(
-            "__EFMigrationsHistory",
-            configuration.GetValue<string>("ConnectionStrings:CardanoContextSchema")
-        )
-    );
-});
-
-// Register the Cardano indexer and reducers
-services.AddCardanoIndexer<MyDbContext>(configuration);
-services.AddReducers<MyDbContext, IReducerModel>([typeof(BlockReducer)]);
-```
-
-### 4. Create and Apply Migrations
-
-Set up and update your database schema:
-
-```bash
-# Create the initial migration
-dotnet ef migrations add InitialMigration
-
-# Apply the migration to the database
-dotnet ef database update
-```
-
-## 📊 Understanding Reducers
-
-Reducers are the core component of Argus that determine what blockchain data to extract and how to store it. Each reducer performs a specific indexing task and implements the `IReducer<T>` interface.
-
-### How Reducers Work
-
-1. **Block Processing**: When a new block arrives, the `RollForwardAsync` method is called
-2. **Data Extraction**: The reducer extracts relevant data from the block
-3. **Database Storage**: The extracted data is stored in the database using Entity Framework
-4. **Rollback Handling**: If a chain reorganization occurs, the `RollBackwardAsync` method ensures data consistency
-
-### Types of Reducers
-
-You can create various types of reducers based on your application needs:
-
-- **Block Reducers**: Index basic block information
-- **Transaction Reducers**: Track all or specific transactions
-- **Smart Contract Reducers**: Monitor interactions with specific smart contracts
-- **Address Reducers**: Track balance changes for specific addresses
-- **Custom Business Logic Reducers**: Implement application-specific business rules
-
-### Example: Block Reducer
-
-A simple reducer that stores basic information about each block:
+Create reducers that process blockchain data according to your application's needs:
 
 ```csharp
+// BlockReducer.cs
+using Argus.Sync.Data;
+using Argus.Sync.Reducers;
+using Microsoft.EntityFrameworkCore;
+using Chrysalis.Cardano.Core;
+
 public class BlockReducer(IDbContextFactory<MyDbContext> dbContextFactory)
     : IReducer<BlockInfo>
 {
@@ -327,6 +254,121 @@ public class BlockReducer(IDbContextFactory<MyDbContext> dbContextFactory)
     }
 }
 ```
+
+### 4. Configure Your Application
+
+Create an `appsettings.json` file with necessary configuration:
+
+```json
+{
+  "ConnectionStrings": {
+    "CardanoContext": "Host=localhost;Database=argus;Username=postgres;Password=password;Port=5432",
+    "CardanoContextSchema": "cardanoindexer"
+  },
+  "CardanoNodeConnection": {
+    "ConnectionType": "UnixSocket",
+    "UnixSocket": {
+      "Path": "/path/to/node.socket"
+    },
+    "NetworkMagic": 764824073, // Mainnet: 764824073, Testnet: 1097911063
+    "MaxRollbackSlots": 1000,
+    "RollbackBuffer": 10,
+    "Slot": 139522569,
+    "Hash": "3fd9925888302fca267c580d8fe6ebc923380d0b984523a1dfbefe88ef089b66"
+  },
+  "Sync": {
+    "Dashboard": {
+      "TuiMode": true,
+      "RefreshInterval": 5000,
+      "DisplayType": "sync"
+    }
+  }
+}
+```
+
+### 5. Register Services
+
+Register Argus services in your application:
+
+```csharp
+// Program.cs
+using Argus.Sync.Extensions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices((hostContext, services) =>
+    {
+        // Register the database context
+        services.AddDbContextFactory<MyDbContext>((serviceProvider, options) =>
+        {
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            options.UseNpgsql(
+                configuration.GetConnectionString("CardanoContext"),
+                npgsqlOptions => npgsqlOptions.MigrationsHistoryTable(
+                    "__EFMigrationsHistory",
+                    configuration.GetValue<string>("ConnectionStrings:CardanoContextSchema")
+                )
+            );
+        });
+
+        // Register Argus services
+        services.AddCardanoIndexer<MyDbContext>(hostContext.Configuration);
+        services.AddReducers<MyDbContext, IReducerModel>([typeof(BlockReducer)]);
+    })
+    .Build();
+```
+
+### 6. Create and Apply Database Migrations
+
+Generate and apply Entity Framework migrations:
+
+```bash
+# Create the initial migration
+dotnet ef migrations add InitialMigration
+
+# Apply the migration to the database
+dotnet ef database update
+```
+
+### 7. Run Your Application
+
+Start your application to begin synchronizing with the blockchain:
+
+```bash
+dotnet run
+```
+
+### 8. Monitor Synchronization
+
+Argus provides a built-in dashboard to monitor the synchronization process. The dashboard displays:
+
+- Progress for each reducer
+- System resource usage
+- Estimated completion time
+
+## 📊 Understanding Reducers
+
+Reducers are the core component of Argus that determine what blockchain data to extract and how to store it. Each reducer performs a specific indexing task and implements the `IReducer<T>` interface.
+
+### How Reducers Work
+
+1. **Block Processing**: When a new block arrives, the `RollForwardAsync` method is called
+2. **Data Extraction**: The reducer extracts relevant data from the block
+3. **Database Storage**: The extracted data is stored in the database using Entity Framework
+4. **Rollback Handling**: If a chain reorganization occurs, the `RollBackwardAsync` method ensures data consistency
+
+### Types of Reducers
+
+You can create various types of reducers based on your application needs:
+
+- **Block Reducers**: Index basic block information
+- **Transaction Reducers**: Track all or specific transactions
+- **Smart Contract Reducers**: Monitor interactions with specific smart contracts
+- **Address Reducers**: Track balance changes for specific addresses
+- **Custom Business Logic Reducers**: Implement application-specific business rules
 
 ## ⚙️ Configuration
 
