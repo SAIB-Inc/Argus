@@ -17,8 +17,10 @@ using Point = Argus.Sync.Data.Models.Point;
 
 namespace Argus.Sync.Providers;
 
-public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
+public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncDisposable
 {
+    private NodeClient? _tipQueryClient;
+    private readonly SemaphoreSlim _tipClientSemaphore = new(1, 1);
 
     public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
@@ -83,11 +85,52 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
     {
         stoppingToken ??= new CancellationTokenSource().Token;
 
-        NodeClient client = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
-        await client.StartAsync(networkMagic);
+        await _tipClientSemaphore.WaitAsync(stoppingToken.Value);
+        try
+        {
+            // Create connection if it doesn't exist
+            if (_tipQueryClient == null)
+            {
+                _tipQueryClient = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
+                await _tipQueryClient.StartAsync(networkMagic);
+            }
 
-        Tip tip = await client.LocalStateQuery!.GetTipAsync();
+            Tip tip = await _tipQueryClient.LocalStateQuery!.GetTipAsync();
+            return new(Convert.ToHexString(tip.Slot.Hash).ToLowerInvariant(), tip.Slot.Slot);
+        }
+        catch
+        {
+            // If connection fails, dispose and recreate on next call
+            if (_tipQueryClient is IDisposable disposable)
+                disposable.Dispose();
+            else if (_tipQueryClient is IAsyncDisposable asyncDisposable)
+                await asyncDisposable.DisposeAsync();
+            
+            _tipQueryClient = null;
+            throw;
+        }
+        finally
+        {
+            _tipClientSemaphore.Release();
+        }
+    }
 
-        return new(Convert.ToHexString(tip.Slot.Hash).ToLowerInvariant(), tip.Slot.Slot);
+    public async ValueTask DisposeAsync()
+    {
+        await _tipClientSemaphore.WaitAsync();
+        try
+        {
+            if (_tipQueryClient is IDisposable disposable)
+                disposable.Dispose();
+            else if (_tipQueryClient is IAsyncDisposable asyncDisposable)
+                await asyncDisposable.DisposeAsync();
+            
+            _tipQueryClient = null;
+        }
+        finally
+        {
+            _tipClientSemaphore.Release();
+            _tipClientSemaphore.Dispose();
+        }
     }
 }

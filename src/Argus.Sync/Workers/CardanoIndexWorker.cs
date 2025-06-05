@@ -40,14 +40,14 @@ public class CardanoIndexWorker<T>(
     private readonly bool _rollbackModeEnabled = configuration.GetValue("Sync:Rollback:Enabled", false);
 
     private readonly bool _tuiMode = configuration.GetValue("Sync:Dashboard:TuiMode", true);
-    private readonly PeriodicTimer _dashboardTimer = new(TimeSpan.FromMilliseconds(Math.Max(configuration.GetValue("Sync:Dashboard:RefreshInterval", 1000), 2000)));
-    private readonly PeriodicTimer _dbSyncTimer = new(TimeSpan.FromMilliseconds(configuration.GetValue("Sync:State:ReducerStateSyncInterval", 10000)));
+    private readonly TimeSpan _dashboardRefreshInterval = TimeSpan.FromMilliseconds(Math.Max(configuration.GetValue("Sync:Dashboard:RefreshInterval", 1000), 2000));
+    private readonly TimeSpan _dbSyncInterval = TimeSpan.FromMilliseconds(configuration.GetValue("Sync:State:ReducerStateSyncInterval", 10000));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!_rollbackModeEnabled)
         {
-            _ = Task.Run(InitDashboardAsync, stoppingToken);
+            _ = Task.Run(() => InitDashboardAsync(stoppingToken), stoppingToken);
             _ = Task.Run(async () => await StartReducerStateSync(stoppingToken), stoppingToken);
         }
 
@@ -262,31 +262,31 @@ public class CardanoIndexWorker<T>(
         return latestIntersections;
     }
 
-    private async Task InitDashboardAsync()
+    private async Task InitDashboardAsync(CancellationToken stoppingToken)
     {
         if (_tuiMode)
         {
-            await Task.Delay(500);
+            await Task.Delay(500, stoppingToken);
             if (configuration.GetValue<string>("Sync:Dashboard:DisplayType") == "Full")
             {
-                _ = Task.Run(StartSyncFullDashboardTracker);
+                _ = Task.Run(() => StartSyncFullDashboardTracker(stoppingToken), stoppingToken);
             }
             else
             {
-                _ = Task.Run(StartSyncProgressTrackerAsync);
+                _ = Task.Run(() => StartSyncProgressTrackerAsync(stoppingToken), stoppingToken);
             }
         }
         else
         {
-            _ = Task.Run(StartSyncProgressPlainTextTracker);
+            _ = Task.Run(() => StartSyncProgressPlainTextTracker(stoppingToken), stoppingToken);
         }
 
         await Task.CompletedTask;
     }
 
-    private async Task StartSyncProgressTrackerAsync()
+    private async Task StartSyncProgressTrackerAsync(CancellationToken cancellationToken)
     {
-        await Task.Delay(100);
+        await Task.Delay(100, cancellationToken);
         ICardanoChainProvider chainProvider = GetCardanoChainProvider();
 
         await AnsiConsole.Progress()
@@ -310,7 +310,7 @@ public class CardanoIndexWorker<T>(
                         return ctx.AddTask(reducerName);
                     })];
 
-                while (await _dashboardTimer.WaitForNextTickAsync())
+                while (!cancellationToken.IsCancellationRequested)
                 {
                     CurrentTip = await chainProvider.GetTipAsync();
 
@@ -333,17 +333,20 @@ public class CardanoIndexWorker<T>(
                             task.Value = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
                         }
                     }
+                    
+                    // Wait for next refresh interval
+                    await Task.Delay(_dashboardRefreshInterval, cancellationToken);
                 }
             }
         );
     }
 
-    private async Task StartSyncProgressPlainTextTracker()
+    private async Task StartSyncProgressPlainTextTracker(CancellationToken cancellationToken)
     {
-        await Task.Delay(100);
+        await Task.Delay(100, cancellationToken);
         ICardanoChainProvider chainProvider = GetCardanoChainProvider();
 
-        while (await _dashboardTimer.WaitForNextTickAsync())
+        while (!cancellationToken.IsCancellationRequested)
         {
             CurrentTip = await chainProvider.GetTipAsync();
 
@@ -418,10 +421,13 @@ public class CardanoIndexWorker<T>(
 
             string resourceStatsJson = JsonSerializer.Serialize(resourceStats);
             logger.LogInformation("[Resource]: {stats}", resourceStatsJson);
+            
+            // Wait for next refresh interval
+            await Task.Delay(_dashboardRefreshInterval, cancellationToken);
         }
     }
 
-    private async Task StartSyncFullDashboardTracker()
+    private async Task StartSyncFullDashboardTracker(CancellationToken cancellationToken)
     {
         var layout = new Layout("Main")
             .SplitRows(
@@ -440,7 +446,7 @@ public class CardanoIndexWorker<T>(
                 Process processInfo = Process.GetCurrentProcess();
 
                 // Sync Progress
-                while (await _dashboardTimer.WaitForNextTickAsync())
+                while (!cancellationToken.IsCancellationRequested)
                 {
                     CurrentTip = await chainProvider.GetTipAsync();
 
@@ -544,6 +550,9 @@ public class CardanoIndexWorker<T>(
                     layout["OverallSyncProgress"].Update(overallSyncPanel);
 
                     ctx.Refresh();
+                    
+                    // Wait for next refresh interval
+                    await Task.Delay(_dashboardRefreshInterval, cancellationToken);
                 }
             });
     }
@@ -584,9 +593,10 @@ public class CardanoIndexWorker<T>(
 
     private async Task StartReducerStateSync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested && await _dbSyncTimer.WaitForNextTickAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
         {
             await UpdateReducerStatesAsync(stoppingToken);
+            await Task.Delay(_dbSyncInterval, stoppingToken);
         }
     }
 }
