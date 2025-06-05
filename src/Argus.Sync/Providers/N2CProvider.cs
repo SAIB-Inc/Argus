@@ -17,15 +17,47 @@ using Point = Argus.Sync.Data.Models.Point;
 
 namespace Argus.Sync.Providers;
 
-public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
+public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncDisposable
 {
+    private NodeClient? _sharedClient;
+    private readonly SemaphoreSlim _clientSemaphore = new(1, 1);
+    private ulong _connectedNetworkMagic;
+
+    private async Task<NodeClient> GetOrCreateClientAsync(ulong networkMagic, CancellationToken cancellationToken)
+    {
+        await _clientSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            // Create connection if it doesn't exist or network magic changed
+            if (_sharedClient == null || _connectedNetworkMagic != networkMagic)
+            {
+                // Dispose existing client if network magic changed
+                if (_sharedClient != null)
+                {
+                    if (_sharedClient is IDisposable disposable)
+                        disposable.Dispose();
+                    else if (_sharedClient is IAsyncDisposable asyncDisposable)
+                        await asyncDisposable.DisposeAsync();
+                }
+
+                _sharedClient = await NodeClient.ConnectAsync(NodeSocketPath, cancellationToken);
+                await _sharedClient.StartAsync(networkMagic);
+                _connectedNetworkMagic = networkMagic;
+            }
+
+            return _sharedClient;
+        }
+        finally
+        {
+            _clientSemaphore.Release();
+        }
+    }
 
     public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         stoppingToken ??= new CancellationTokenSource().Token;
 
-        NodeClient client = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
-        await client.StartAsync(networkMagic);
+        NodeClient client = await GetOrCreateClientAsync(networkMagic, stoppingToken.Value);
 
         IEnumerable<CPoint> cIntersections = intersections.Select(p => new CPoint(p.Slot, Convert.FromHexString(p.Hash)));
 
@@ -83,11 +115,49 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider
     {
         stoppingToken ??= new CancellationTokenSource().Token;
 
-        NodeClient client = await NodeClient.ConnectAsync(NodeSocketPath, stoppingToken.Value);
-        await client.StartAsync(networkMagic);
+        try
+        {
+            NodeClient client = await GetOrCreateClientAsync(networkMagic, stoppingToken.Value);
+            Tip tip = await client.LocalStateQuery!.GetTipAsync();
+            return new(Convert.ToHexString(tip.Slot.Hash).ToLowerInvariant(), tip.Slot.Slot);
+        }
+        catch
+        {
+            // If connection fails, dispose shared client so it gets recreated on next call
+            await _clientSemaphore.WaitAsync(stoppingToken.Value);
+            try
+            {
+                if (_sharedClient is IDisposable disposable)
+                    disposable.Dispose();
+                else if (_sharedClient is IAsyncDisposable asyncDisposable)
+                    await asyncDisposable.DisposeAsync();
+                
+                _sharedClient = null;
+            }
+            finally
+            {
+                _clientSemaphore.Release();
+            }
+            throw;
+        }
+    }
 
-        Tip tip = await client.LocalStateQuery!.GetTipAsync();
-
-        return new(Convert.ToHexString(tip.Slot.Hash).ToLowerInvariant(), tip.Slot.Slot);
+    public async ValueTask DisposeAsync()
+    {
+        await _clientSemaphore.WaitAsync();
+        try
+        {
+            if (_sharedClient is IDisposable disposable)
+                disposable.Dispose();
+            else if (_sharedClient is IAsyncDisposable asyncDisposable)
+                await asyncDisposable.DisposeAsync();
+            
+            _sharedClient = null;
+        }
+        finally
+        {
+            _clientSemaphore.Release();
+            _clientSemaphore.Dispose();
+        }
     }
 }
