@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text.Json;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Providers;
@@ -13,7 +12,6 @@ using Spectre.Console;
 using NextResponse = Argus.Sync.Data.Models.NextResponse;
 using Chrysalis.Cbor.Extensions.Cardano.Core;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Argus.Sync.Extensions;
 using System.Diagnostics;
 
 namespace Argus.Sync.Workers;
@@ -26,7 +24,9 @@ public class CardanoIndexWorker<T>(
 ) : BackgroundService where T : CardanoDbContext
 {
     private readonly ConcurrentDictionary<string, ReducerState> _reducerStates = [];
-    private Point CurrentTip = new(string.Empty, 0);
+    private ulong EffectiveTipSlot = 0;
+    private readonly ConcurrentDictionary<string, List<long>> _processingTimes = [];
+    private readonly ConcurrentDictionary<string, ulong> _latestSlots = [];
 
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);
     private readonly int _rollbackBuffer = configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
@@ -47,7 +47,19 @@ public class CardanoIndexWorker<T>(
     {
         if (!_rollbackModeEnabled)
         {
+            // Start initial tip query
+            _ = Task.Run(() => StartInitialTipQueryAsync(stoppingToken), stoppingToken);
+            
+            // Start TUI dashboard if enabled
             _ = Task.Run(() => InitDashboardAsync(stoppingToken), stoppingToken);
+            
+            // Start telemetry aggregation task only if TUI mode is disabled
+            if (!_tuiMode)
+            {
+                _ = Task.Run(() => StartTelemetryAggregationAsync(stoppingToken), stoppingToken);
+            }
+            
+            // Start reducer state sync
             _ = Task.Run(async () => await StartReducerStateSync(stoppingToken), stoppingToken);
         }
 
@@ -127,9 +139,17 @@ public class CardanoIndexWorker<T>(
         if (_rollbackModeEnabled) return;
 
         string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+        var stopwatch = Stopwatch.StartNew();
+        
         await reducer.RollForwardAsync(response.Block);
+        
+        stopwatch.Stop();
+        ulong slot = response.Block.Header().HeaderBody().Slot();
+        
+        // Send telemetry data non-blocking
+        RecordTelemetry(reducerName, stopwatch.ElapsedMilliseconds, slot);
 
-        Point recentIntersection = new(response.Block.Header().Hash(), response.Block.Header().HeaderBody().Slot());
+        Point recentIntersection = new(response.Block.Header().Hash(), slot);
         IEnumerable<Point> latestIntersections = UpdateLatestIntersections(_reducerStates[reducerName].LatestIntersections, recentIntersection);
         _reducerStates[reducerName] = _reducerStates[reducerName] with
         {
@@ -156,7 +176,14 @@ public class CardanoIndexWorker<T>(
             throw new Exception($"Requested RollBack Slot {rollbackSlot} is more than {_maxRollbackSlots} slots behind current slot {_reducerStates[reducerName].LatestSlot}.");
         }
 
+        var stopwatch = Stopwatch.StartNew();
+        
         await reducer.RollBackwardAsync(rollbackSlot);
+        
+        stopwatch.Stop();
+        
+        // Record rollback telemetry
+        RecordTelemetry(reducerName, stopwatch.ElapsedMilliseconds, rollbackSlot);
 
         IEnumerable<Point> latestIntersections = _reducerStates[reducerName].LatestIntersections;
         latestIntersections = latestIntersections.Where(i => i.Slot < rollbackSlot);
@@ -186,7 +213,7 @@ public class CardanoIndexWorker<T>(
 
         ReducerState? state = await dbContext.ReducerStates
             .AsNoTracking()
-            .Where(state => state.Name == reducerName)
+            .Where(s => s.Name == reducerName)
             .FirstOrDefaultAsync(cancellationToken: stoppingToken);
 
         if (state is not null)
@@ -276,10 +303,6 @@ public class CardanoIndexWorker<T>(
                 _ = Task.Run(() => StartSyncProgressTrackerAsync(stoppingToken), stoppingToken);
             }
         }
-        else
-        {
-            _ = Task.Run(() => StartSyncProgressPlainTextTracker(stoppingToken), stoppingToken);
-        }
 
         await Task.CompletedTask;
     }
@@ -287,7 +310,6 @@ public class CardanoIndexWorker<T>(
     private async Task StartSyncProgressTrackerAsync(CancellationToken cancellationToken)
     {
         await Task.Delay(100, cancellationToken);
-        ICardanoChainProvider chainProvider = GetCardanoChainProvider();
 
         await AnsiConsole.Progress()
             .Columns(
@@ -312,28 +334,52 @@ public class CardanoIndexWorker<T>(
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    CurrentTip = await chainProvider.GetTipAsync();
+                    // Update effective tip to maximum processed slot across all reducers
+                    if (_latestSlots.Values.Count > 0)
+                    {
+                        EffectiveTipSlot = Math.Max(EffectiveTipSlot, _latestSlots.Values.Max());
+                    }
 
                     foreach (ProgressTask task in tasks)
                     {
-                        ReducerState state = _reducerStates[task.Description];
-                        ulong startSlot = state.StartIntersection.Slot;
-                        ulong currentSlot = state.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? 0UL;
-                        ulong tipSlot = CurrentTip.Slot;
+                        string reducerName = task.Description;
+                        
+                        // Load reducer state if not available
+                        if (!_reducerStates.ContainsKey(reducerName))
+                        {
+                            try
+                            {
+                                var reducerState = await GetReducerStateAsync(reducerName, cancellationToken);
+                                _reducerStates[reducerName] = reducerState;
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Failed to load reducer state for {Reducer}", reducerName);
+                                continue;
+                            }
+                        }
 
-                        if (tipSlot <= startSlot)
+                        ReducerState state = _reducerStates[reducerName];
+                        ulong startSlot = state.StartIntersection.Slot;
+                        
+                        // Use latest processed slot or latest intersection
+                        ulong currentSlot = _latestSlots.TryGetValue(reducerName, out var latestSlot) 
+                            ? latestSlot 
+                            : state.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? startSlot;
+
+                        if (EffectiveTipSlot <= startSlot)
                         {
                             task.Value = 100.0;
                         }
                         else
                         {
-                            ulong totalSlotsToSync = tipSlot - startSlot;
+                            ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
                             ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
                             double progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
-                            task.Value = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
+                            task.Value = progress;
                         }
                     }
-                    
+
                     // Wait for next refresh interval
                     await Task.Delay(_dashboardRefreshInterval, cancellationToken);
                 }
@@ -341,91 +387,6 @@ public class CardanoIndexWorker<T>(
         );
     }
 
-    private async Task StartSyncProgressPlainTextTracker(CancellationToken cancellationToken)
-    {
-        await Task.Delay(100, cancellationToken);
-        ICardanoChainProvider chainProvider = GetCardanoChainProvider();
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            CurrentTip = await chainProvider.GetTipAsync();
-
-            foreach (ReducerState state in _reducerStates.Values)
-            {
-                Point? currentIntersection = state.LatestIntersections.MaxBy(p => p.Slot);
-                ulong startSlot = state.StartIntersection.Slot;
-                ulong currentSlot = currentIntersection?.Slot ?? 0UL;
-                ulong tipSlot = CurrentTip.Slot;
-
-                ulong totalSlotsToSync = tipSlot - startSlot;
-                ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
-                double progress = tipSlot <= startSlot ? 100.0 : (double)totalSlotsSynced / totalSlotsToSync * 100.0;
-
-                var status = new
-                {
-                    ReducerName = state.Name,
-                    state.StartIntersection,
-                    CurrentIntersection = currentIntersection,
-                    SyncProgress = progress
-                };
-
-                string statusJson = JsonSerializer.Serialize(status);
-
-                logger.LogInformation("[{reducer}]: {status}", state.Name, statusJson);
-            }
-
-            Process processInfo = Process.GetCurrentProcess();
-            processInfo.Refresh();
-
-            DateTime lastCpuCheck = DateTime.Now;
-            TimeSpan lastCpuTotal = processInfo.TotalProcessorTime;
-
-            // Get memory usage
-            double memoryUsedMB = processInfo.WorkingSet64 / (1024.0 * 1024.0);
-            double privateMemoryMB = processInfo.PrivateMemorySize64 / (1024.0 * 1024.0);
-            double managedMemoryMB = GC.GetTotalMemory(false) / (1024.0 * 1024.0);
-
-            // Calculate CPU usage
-            DateTime currentTime = DateTime.Now;
-            TimeSpan currentCpuTime = processInfo.TotalProcessorTime;
-
-            double cpuUsage = 0;
-            if (lastCpuTotal != TimeSpan.Zero)
-            {
-                TimeSpan cpuUsedSinceLastCheck = currentCpuTime - lastCpuTotal;
-                TimeSpan timePassed = currentTime - lastCpuCheck;
-                cpuUsage = cpuUsedSinceLastCheck.TotalMilliseconds /
-                          (Environment.ProcessorCount * timePassed.TotalMilliseconds) * 100;
-                cpuUsage = Math.Min(100, Math.Max(0, cpuUsage)); // Ensure it's between 0-100
-            }
-
-            // Store current values for next calculation
-            lastCpuCheck = currentTime;
-            lastCpuTotal = currentCpuTime;
-
-            var resourceStats = new
-            {
-                Memory = new
-                {
-                    MemoryUsedMB = memoryUsedMB,
-                    PrivateMemoryMB = privateMemoryMB,
-                    ManagedMemoryMB = managedMemoryMB
-                },
-                CPU = new
-                {
-                    Usage = cpuUsage,
-                    ThreadCount = processInfo.Threads.Count,
-                    processInfo.HandleCount
-                }
-            };
-
-            string resourceStatsJson = JsonSerializer.Serialize(resourceStats);
-            logger.LogInformation("[Resource]: {stats}", resourceStatsJson);
-            
-            // Wait for next refresh interval
-            await Task.Delay(_dashboardRefreshInterval, cancellationToken);
-        }
-    }
 
     private async Task StartSyncFullDashboardTracker(CancellationToken cancellationToken)
     {
@@ -442,13 +403,16 @@ public class CardanoIndexWorker<T>(
         await AnsiConsole.Live(layout)
             .StartAsync(async ctx =>
             {
-                ICardanoChainProvider chainProvider = GetCardanoChainProvider();
                 Process processInfo = Process.GetCurrentProcess();
 
                 // Sync Progress
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    CurrentTip = await chainProvider.GetTipAsync();
+                    // Update effective tip to maximum processed slot across all reducers
+                    if (_latestSlots.Values.Count > 0)
+                    {
+                        EffectiveTipSlot = Math.Max(EffectiveTipSlot, _latestSlots.Values.Max());
+                    }
 
                     BarChart syncBarChart = new BarChart()
                         .WithMaxValue(100.0)
@@ -456,24 +420,57 @@ public class CardanoIndexWorker<T>(
                         .LeftAlignLabel();
 
                     double overallProgress = 0.0;
-                    foreach (ReducerState state in _reducerStates.Values)
+                    int validReducerCount = 0;
+                    
+                    foreach (var reducer in reducers)
                     {
-                        Point? currentIntersection = state.LatestIntersections.MaxBy(p => p.Slot);
+                        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+                        
+                        // Load reducer state if not available
+                        if (!_reducerStates.ContainsKey(reducerName))
+                        {
+                            try
+                            {
+                                var reducerState = await GetReducerStateAsync(reducerName, cancellationToken);
+                                _reducerStates[reducerName] = reducerState;
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Failed to load reducer state for {Reducer}", reducerName);
+                                continue;
+                            }
+                        }
+                        
+                        ReducerState state = _reducerStates[reducerName];
                         ulong startSlot = state.StartIntersection.Slot;
-                        ulong currentSlot = currentIntersection?.Slot ?? 0UL;
-                        ulong tipSlot = CurrentTip.Slot;
+                        
+                        // Use latest processed slot or latest intersection
+                        ulong currentSlot = _latestSlots.TryGetValue(reducerName, out var latestSlot) 
+                            ? latestSlot 
+                            : state.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? startSlot;
 
-                        ulong totalSlotsToSync = tipSlot - startSlot;
-                        ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
-                        double progress = tipSlot <= startSlot ? 100.0 : (double)totalSlotsSynced / totalSlotsToSync * 100.0;
+                        double progress;
+                        if (EffectiveTipSlot <= startSlot)
+                        {
+                            progress = 100.0;
+                        }
+                        else
+                        {
+                            ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
+                            ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
+                            progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
+                        }
 
                         syncBarChart.AddItem(state.Name, Math.Round(progress, 2), GetProgressColor(progress));
-
                         overallProgress += progress;
+                        validReducerCount++;
                     }
 
                     // Overall Progress
-                    overallProgress /= _reducerStates.Values.Count;
+                    if (validReducerCount > 0)
+                    {
+                        overallProgress /= validReducerCount;
+                    }
                     FigletText progressText = new FigletText(FigletFont.Default, $"{Math.Round(overallProgress, 0)}%")
                         .Centered()
                         .Color(Color.Blue);
@@ -550,7 +547,7 @@ public class CardanoIndexWorker<T>(
                     layout["OverallSyncProgress"].Update(overallSyncPanel);
 
                     ctx.Refresh();
-                    
+
                     // Wait for next refresh interval
                     await Task.Delay(_dashboardRefreshInterval, cancellationToken);
                 }
@@ -598,5 +595,125 @@ public class CardanoIndexWorker<T>(
             await UpdateReducerStatesAsync(stoppingToken);
             await Task.Delay(_dbSyncInterval, stoppingToken);
         }
+    }
+
+    private async Task StartInitialTipQueryAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            ICardanoChainProvider chainProvider = GetCardanoChainProvider();
+            Point initialTip = await chainProvider.GetTipAsync();
+            EffectiveTipSlot = initialTip.Slot;
+            logger.LogInformation("Initial tip established: Slot {InitialTipSlot}", initialTip.Slot);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to get initial tip");
+        }
+    }
+
+    private async Task StartTelemetryAggregationAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            // Update effective tip to maximum processed slot across all reducers
+            if (_latestSlots.Values.Count > 0)
+            {
+                EffectiveTipSlot = Math.Max(EffectiveTipSlot, _latestSlots.Values.Max());
+            }
+            
+            // Get all reducer names (from telemetry or from configured reducers)
+            var allReducerNames = new HashSet<string>();
+            foreach (var reducer in reducers)
+            {
+                allReducerNames.Add(ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType()));
+            }
+            
+            foreach (string reducerName in allReducerNames)
+            {
+                // Check if we have recent telemetry data
+                var times = _processingTimes.GetValueOrDefault(reducerName, []).ToArray();
+                bool hasRecentActivity = times.Length > 0;
+                
+                if (hasRecentActivity)
+                {
+                    // Show telemetry-based logs
+                    double avgTime = times.Average();
+                    ulong latestSlot = _latestSlots.TryGetValue(reducerName, out var slot) ? slot : 0;
+                    
+                    // Get start slot from reducer state
+                    var reducerState = _reducerStates.GetValueOrDefault(reducerName);
+                    ulong startSlot = reducerState?.StartIntersection.Slot ?? 0;
+                    
+                    double progress;
+                    if (EffectiveTipSlot <= startSlot)
+                    {
+                        progress = 100.0;
+                    }
+                    else
+                    {
+                        ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
+                        ulong totalSlotsSynced = latestSlot >= startSlot ? latestSlot - startSlot : 0;
+                        progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
+                    }
+                    
+                    logger.LogInformation("[{Reducer}]: {Progress:F1}% - Avg {AvgMs:F1}ms, Slot {Slot}/{EffectiveTip}, Processed {Count}", 
+                        reducerName, progress, avgTime, latestSlot, EffectiveTipSlot, times.Length);
+                        
+                    _processingTimes[reducerName].Clear();
+                }
+                else
+                {
+                    // No recent activity, check reducer state from memory or load from database
+                    var reducerState = _reducerStates.GetValueOrDefault(reducerName);
+                    if (reducerState == null)
+                    {
+                        // Load reducer state from database if not in memory yet
+                        try
+                        {
+                            reducerState = await GetReducerStateAsync(reducerName, stoppingToken);
+                            _reducerStates[reducerName] = reducerState;
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogWarning(ex, "Failed to load reducer state for {ReducerName}", reducerName);
+                            continue;
+                        }
+                    }
+                    
+                    if (reducerState != null)
+                    {
+                        ulong currentSlot = reducerState.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? reducerState.StartIntersection.Slot;
+                        ulong startSlot = reducerState.StartIntersection.Slot;
+                        
+                        double progress;
+                        if (EffectiveTipSlot <= startSlot)
+                        {
+                            progress = 100.0;
+                        }
+                        else
+                        {
+                            ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
+                            ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
+                            progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
+                        }
+                            
+                        logger.LogInformation("[{Reducer}]: {Progress:F1}% - Slot {Slot}/{EffectiveTip} (waiting for blocks)", 
+                            reducerName, progress, currentSlot, EffectiveTipSlot);
+                    }
+                }
+            }
+            
+            await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        }
+    }
+
+    private void RecordTelemetry(string reducerName, long elapsedMs, ulong slot)
+    {
+        _processingTimes.AddOrUpdate(reducerName, 
+            [elapsedMs], 
+            (key, list) => { list.Add(elapsedMs); return list; });
+            
+        _latestSlots[reducerName] = slot;
     }
 }

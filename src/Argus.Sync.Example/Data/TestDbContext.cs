@@ -2,6 +2,8 @@ using Argus.Sync.Data;
 using Argus.Sync.Example.Models;
 using Microsoft.EntityFrameworkCore;
 
+namespace Argus.Sync.Example.Data;
+
 public class TestDbContext
 (
     DbContextOptions<TestDbContext> options,
@@ -18,7 +20,7 @@ public class TestDbContext
 
         modelBuilder.Entity<BlockTest>(entity =>
         {
-            entity.HasKey(e => e.BlockHash);
+            entity.HasKey(b => new { b.Hash, b.Slot } );
         });
 
         modelBuilder.Entity<TransactionTest>(entity =>
