@@ -1,12 +1,9 @@
-
-
+using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Models;
-using Argus.Sync.Extensions;
 using Argus.Sync.Reducers;
 using Chrysalis.Cbor.Extensions.Cardano.Core;
 using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
 using Chrysalis.Cbor.Types.Cardano.Core;
-using Chrysalis.Cbor.Types.Cardano.Core.Header;
 using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;

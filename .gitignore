@@ -7,3 +7,4 @@ appsettings.*.json
 
 .env
 .mono
+.fake

@@ -1,5 +1,5 @@
 using Argus.Sync.Data.Models;
-using Argus.Sync.Example.Reducers;
+using Argus.Sync.Example.Data;
 using Argus.Sync.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +12,5 @@ builder.Services.AddReducers<TestDbContext, IReducerModel>(builder.Configuration
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
-
 
 app.Run();
