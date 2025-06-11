@@ -20,9 +20,9 @@ using Xunit.Abstractions;
 namespace Argus.Sync.Tests.EndToEnd;
 
 /// <summary>
-/// Integration test of CardanoIndexWorker with factory pattern.
-/// Tests complete workflow: MockChainProviderFactory -> CardanoIndexWorker -> Reducers -> Database
-/// Validates worker rollback handling and factory pattern integration.
+/// Integration test validating CardanoIndexWorker factory pattern.
+/// Simplified test that focuses on factory injection while maintaining consistency with ReducerDirectTest.
+/// Tests: MockChainProviderFactory -> CardanoIndexWorker -> Reducers -> Database
 /// </summary>
 public class CardanoIndexWorkerTest : IAsyncLifetime
 {
@@ -57,61 +57,19 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
     [Fact]
     public async Task CardanoIndexWorker_WithFactoryPattern_ShouldProcessBlocksAndRollbacks()
     {
-        // Setup test environment
         var testBlocks = await SetupTestEnvironmentAsync();
-        if (testBlocks == null) return; // Skip if no test data
-        
-        // Analyze block contents
+        if (testBlocks == null) return;
+
         LogBlockContentsAnalysis(testBlocks);
+
+        // Start factory-based chain sync - this is the key difference from ReducerDirectTest
+        var chainSyncTask = StartFactoryBasedChainSyncAsync();
+        await Task.Delay(1000); // Allow worker to initialize
         
-        // Create worker with factory pattern
-        var worker = CreateCardanoIndexWorkerWithFactory();
-        
-        // Create cancellation token for controlled execution
-        using var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        
-        try
-        {
-            // Start worker execution in background task
-            var workerTask = Task.Run(() => worker.StartAsync(cancellationTokenSource.Token), cancellationTokenSource.Token);
-            
-            // Wait for worker to initialize
-            await Task.Delay(1000, cancellationTokenSource.Token);
-            _output.WriteLine("✅ CardanoIndexWorker started with MockChainProviderFactory");
-            
-            // Execute rollforward phase through factory
-            await ExecuteRollForwardPhaseAsync(testBlocks, cancellationTokenSource.Token);
-            
-            // Verify rollforward results
-            await VerifyRollForwardPhaseAsync();
-            
-            // Execute rollback phase through factory
-            await ExecuteRollBackPhaseAsync(cancellationTokenSource.Token);
-            
-            // Verify final state
-            await VerifyFinalStateAsync();
-            
-            // Complete all mock providers to signal end
-            foreach (var provider in _mockFactory!.CreatedProviders)
-            {
-                provider.CompleteChainSync();
-            }
-            
-            // Wait for worker to complete naturally or timeout
-            await Task.WhenAny(workerTask, Task.Delay(5000, cancellationTokenSource.Token));
-            
-            LogTestCompletionSummary();
-        }
-        catch (Exception ex)
-        {
-            _output.WriteLine($"❌ Test failed with exception: {ex.Message}");
-            throw;
-        }
-        finally
-        {
-            // Ensure cancellation
-            cancellationTokenSource.Cancel();
-        }
+        await ExecuteRollForwardPhaseAsync(testBlocks);
+        await VerifyRollForwardPhaseAsync();
+        await ExecuteRollBackPhaseAsync();
+        await CompleteTestAndVerifyAsync(chainSyncTask);
     }
 
     #region Setup and Configuration
@@ -137,76 +95,39 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         return Task.FromResult<Block[]?>(testBlocks);
     }
 
-    private CardanoIndexWorker<TestDbContext> CreateCardanoIndexWorkerWithFactory()
+    private (BlockTestReducer, TransactionTestReducer) CreateReducers()
     {
-        // Create configuration
-        var configuration = CreateTestConfiguration();
-        
-        // Create logger with more verbose logging to debug issues
-        var loggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.AddConsole()
-                   .SetMinimumLevel(LogLevel.Information)
-                   .AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Warning)
-                   .AddFilter("Argus.Sync", LogLevel.Debug);
-        });
-        var logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
-        
-        // Create db context factory
         var dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
-        
-        // Create reducers
-        var blockReducer = new BlockTestReducer(dbContextFactory);
-        var txReducer = new TransactionTestReducer(dbContextFactory);
-        var reducers = new List<IReducer<IReducerModel>> { blockReducer, txReducer };
-        
-        // Use the mock factory created in setup
-        
-        // CRITICAL: Instantiation of CardanoIndexWorker with factory
-        return new CardanoIndexWorker<TestDbContext>(
-            configuration,
-            logger,
-            dbContextFactory,
-            reducers,
-            _mockFactory!
-        );
+        return (new BlockTestReducer(dbContextFactory), new TransactionTestReducer(dbContextFactory));
     }
 
-    private IConfiguration CreateTestConfiguration()
+    private CardanoIndexWorker<TestDbContext> CreateCardanoIndexWorkerWithFactory()
     {
-        // Create a temporary provider to get first block info for intersection
-        var testDataDir = Path.Combine(Directory.GetCurrentDirectory(), "TestData");
-        var tempProvider = new MockChainSyncProvider(testDataDir);
+        var configuration = CreateMinimalTestConfiguration();
+        var logger = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning))
+            .CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        var dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        var (blockReducer, txReducer) = CreateReducers();
+        var reducers = new List<IReducer<IReducerModel>> { blockReducer, txReducer };
+
+        return new CardanoIndexWorker<TestDbContext>(configuration, logger, dbContextFactory, reducers, _mockFactory!);
+    }
+
+    private IConfiguration CreateMinimalTestConfiguration()
+    {
+        // Minimal configuration for factory pattern testing
+        var tempProvider = new MockChainSyncProvider(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
         var firstBlock = tempProvider.AvailableBlocks.First();
-        var firstBlockSlot = firstBlock.Header().HeaderBody().Slot();
-        var firstBlockHash = firstBlock.Header().Hash();
         
-        var configurationBuilder = new ConfigurationBuilder();
-        configurationBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+        return new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            // Database connection - use test database
             ["ConnectionStrings:CardanoContext"] = _databaseManager!.DbContext.Database.GetConnectionString(),
-            ["ConnectionStrings:CardanoContextSchema"] = "public",
-            
-            // Cardano node connection - CRITICAL: Use first test block as starting point
-            ["CardanoNodeConnection:ConnectionType"] = "MockProvider",
-            ["CardanoNodeConnection:NetworkMagic"] = "2",
-            ["CardanoNodeConnection:Hash"] = firstBlockHash,
-            ["CardanoNodeConnection:Slot"] = firstBlockSlot.ToString(),
-            ["CardanoNodeConnection:MaxRollbackSlots"] = "500000", // Large limit for testing
-            ["CardanoNodeConnection:RollbackBuffer"] = "10",
-            
-            // Sync configuration - disable TUI and telemetry for testing
-            ["Sync:Dashboard:TuiMode"] = "false",
-            ["Sync:Dashboard:RefreshInterval"] = "30000", // Very slow for testing
-            ["Sync:State:ReducerStateSyncInterval"] = "1000", // Fast state sync for testing
-            ["Sync:Rollback:Enabled"] = "false",
-            
-            // CRITICAL: Disable Environment.Exit() for testing
-            ["Sync:Worker:ExitOnCompletion"] = "false"
-        });
-        
-        return configurationBuilder.Build();
+            ["CardanoNodeConnection:Hash"] = firstBlock.Header().Hash(),
+            ["CardanoNodeConnection:Slot"] = firstBlock.Header().HeaderBody().Slot().ToString(),
+            ["Sync:Worker:ExitOnCompletion"] = "false", // Critical for testing
+            ["Sync:State:ReducerStateSyncInterval"] = "1000", // Fast state sync
+            ["Sync:Dashboard:TuiMode"] = "false" // Disable TUI for clean test output
+        }).Build();
     }
 
     #endregion
@@ -266,9 +187,30 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
 
     #endregion
 
+    #region Chain Sync Execution
+
+    private Task StartFactoryBasedChainSyncAsync()
+    {
+        var worker = CreateCardanoIndexWorkerWithFactory();
+        return Task.Run(async () =>
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try
+            {
+                await worker.StartAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when test completes
+            }
+        });
+    }
+
+    #endregion
+
     #region Test Execution
 
-    private async Task ExecuteRollForwardPhaseAsync(Block[] testBlocks, CancellationToken cancellationToken)
+    private async Task ExecuteRollForwardPhaseAsync(Block[] testBlocks)
     {
         _output.WriteLine("\n=== Phase 1: Worker RollForward via Factory Pattern ===");
         
@@ -285,7 +227,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
             }
             
             // Wait for worker to process the block
-            await WaitForBlockProcessing(i + 1, cancellationToken);
+            await WaitForBlockProcessing(i + 1);
             
             // Store block details after processing (like ReducerDirectTest does)
             var blockInfo = ExtractBlockInfo(block);
@@ -293,7 +235,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
             _blockDetails[blockInfo.Slot] = new BlockDetails(blockInfo.Hash, blockInfo.Height, blockInfo.TxCount, txHashes);
             
             // Give a moment for state sync to complete
-            await Task.Delay(1500, cancellationToken);
+            await Task.Delay(1500);
             
             await VerifyWorkerProcessedBlock(slot);
             await VerifyMemoryDatabaseConsistency();
@@ -302,7 +244,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         _processedBlocks = testBlocks.Length;
     }
 
-    private async Task ExecuteRollBackPhaseAsync(CancellationToken cancellationToken)
+    private async Task ExecuteRollBackPhaseAsync()
     {
         _output.WriteLine("\n=== Phase 2: Worker RollBack via Factory Pattern ===");
         
@@ -319,7 +261,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
             {
                 await provider.TriggerRollBackAsync(rollbackSlot, RollBackType.Exclusive);
             }
-            await Task.Delay(1000, cancellationToken); // Give worker time to process rollback
+            await Task.Delay(1000); // Give worker time to process rollback
             
             // Calculate expected rollback slot based on worker logic: block.slot + 1 for Exclusive
             var expectedWorkerRollbackSlot = rollbackSlot + 1;
@@ -340,7 +282,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         {
             await provider.TriggerRollBackAsync(finalRollbackSlot, RollBackType.Inclusive);
         }
-        await Task.Delay(1000, cancellationToken);
+        await Task.Delay(1000);
         
         // Update memory state for final rollback (Inclusive type removes block at exact slot)
         UpdateMemoryStateForRollback(finalRollbackSlot, finalRollbackSlot);
@@ -350,16 +292,16 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
 
     #region Verification
 
-    private async Task WaitForBlockProcessing(int targetBlockCount, CancellationToken cancellationToken)
+    private async Task WaitForBlockProcessing(int targetBlockCount)
     {
         const int maxWait = 100;
         var attempts = 0;
         
-        while (attempts < maxWait && !cancellationToken.IsCancellationRequested)
+        while (attempts < maxWait)
         {
             try
             {
-                var currentCount = await _databaseManager!.DbContext.BlockTests.CountAsync(cancellationToken);
+                var currentCount = await _databaseManager!.DbContext.BlockTests.CountAsync();
                 if (currentCount >= targetBlockCount) 
                 {
                     _output.WriteLine($"  ✅ CardanoIndexWorker processed block {targetBlockCount}");
@@ -371,7 +313,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
                 _output.WriteLine($"  ⚠️ Database check failed: {ex.Message}");
             }
             
-            await Task.Delay(100, cancellationToken);
+            await Task.Delay(100);
             attempts++;
         }
         
@@ -398,17 +340,9 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
             .CountAsync(t => t.Slot == slot);
         Assert.Equal(expectedBlock.TxCount, txsInDb);
         
-        // Verify ReducerState was created and managed by worker
+        // Verify ReducerState management (optional - may be async)
         var reducerStates = await _databaseManager.DbContext.ReducerStates.CountAsync();
-        _output.WriteLine($"  📊 ReducerStates count: {reducerStates}");
-        
-        if (reducerStates == 0)
-        {
-            _output.WriteLine("  ⚠️ No ReducerStates found - worker may not have completed state sync yet");
-        }
-        
-        // For now, let's not assert on ReducerState since it might be async
-        // Assert.True(reducerStates >= 1); // Should have state for BlockTestReducer
+        _output.WriteLine($"  📊 ReducerStates: {reducerStates}");
         
         _output.WriteLine($"  ✅ Worker verification passed for slot {slot}: {txsInDb} transactions");
     }
@@ -497,12 +431,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         var reducerStates = await _databaseManager.DbContext.ReducerStates.ToListAsync();
         
         _output.WriteLine($"✅ Worker RollForward phase complete: {finalBlocks} blocks");
-        _output.WriteLine($"📊 ReducerState management: {reducerStates.Count} reducer states found");
-        
-        if (reducerStates.Count == 0)
-        {
-            _output.WriteLine("⚠️ No ReducerStates persisted yet - background sync may not have completed");
-        }
+        _output.WriteLine($"📊 ReducerState management: {reducerStates.Count} reducer states");
     }
 
     private async Task VerifyFinalStateAsync()
@@ -516,7 +445,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         var reducerStates = await _databaseManager.DbContext.ReducerStates.CountAsync();
         
         _output.WriteLine("✅ Worker final state: 0 blocks");
-        _output.WriteLine($"📊 ReducerStates found: {reducerStates}");
+        _output.WriteLine($"📊 ReducerStates: {reducerStates}");
     }
 
     #endregion
@@ -542,15 +471,20 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         }
     }
 
-    private void LogTestCompletionSummary()
+    private async Task CompleteTestAndVerifyAsync(Task chainSyncTask)
     {
-        _output.WriteLine("\n✅ CardanoIndexWorker Test completed successfully!");
-        _output.WriteLine("✅ Factory Pattern: MockChainProviderFactory successfully injected into worker");
-        _output.WriteLine("✅ Direct Instantiation: Avoided HostedService complexity while testing real worker");
-        _output.WriteLine("✅ Worker Pipeline: MockProvider -> CardanoIndexWorker -> Reducers -> Database verified");
-        _output.WriteLine("✅ Trigger Control: External triggers controlled complete chain sync workflow");
-        _output.WriteLine("✅ ReducerState Management: Worker properly managed reducer state persistence");
-        _output.WriteLine("✅ Production Path: Tested actual CardanoIndexWorker code with factory injection");
+        // Complete all mock providers to signal end
+        foreach (var provider in _mockFactory!.CreatedProviders)
+        {
+            provider.CompleteChainSync();
+        }
+        
+        await Task.WhenAny(chainSyncTask, Task.Delay(5000));
+        await VerifyFinalStateAsync();
+        
+        _output.WriteLine("\n✅ Factory pattern test completed successfully!");
+        _output.WriteLine("✅ MockChainProviderFactory integration verified");
+        _output.WriteLine("✅ Final state: 0 blocks with 0 transactions");
     }
 
     #endregion
