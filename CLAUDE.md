@@ -70,8 +70,15 @@ Argus consists of several core components:
    - Coordinates multiple reducers
    - Handles block processing and rollbacks
    - Provides monitoring capabilities
+   - Uses `IChainProviderFactory` for provider creation
 
-4. **Database Context** - Inherits from `CardanoDbContext`:
+4. **Chain Provider Factory** - Dynamic provider creation pattern:
+   - `IChainProviderFactory` interface for provider injection
+   - `ConfigurationChainProviderFactory` for production use
+   - `MockChainProviderFactory` for testing scenarios
+   - Enables testing CardanoIndexWorker without bypassing it
+
+5. **Database Context** - Inherits from `CardanoDbContext`:
    - Configure models for Entity Framework
    - Define relationships and constraints
    - Handles database operations
@@ -94,6 +101,8 @@ Configuration is managed through appsettings.json files with these key sections:
 2. **CardanoNodeConnection** - Blockchain connection settings
 3. **CardanoIndexReducers** - Reducer-specific configuration
 4. **Sync** - Dashboard and monitoring settings
+   - `Sync:Worker:ExitOnCompletion` - Set to false for testing to disable Environment.Exit()
+   - `Sync:State:ReducerStateSyncInterval` - State sync frequency (1000ms recommended for tests)
 
 ### Database Setup
 Argus uses Entity Framework Core with PostgreSQL. The setup involves:
@@ -138,6 +147,14 @@ TestData/
 2. **Block Processing**: Yields `NextResponseAction.RollForward` with real block data
 3. **Real CBOR Data**: Uses actual era-tagged blocks downloaded from Cardano mainnet
 
+### Factory Pattern Testing
+
+**MockChainProviderFactory** enables testing CardanoIndexWorker directly:
+- Creates separate `MockChainSyncProvider` instances for each reducer
+- Prevents concurrency issues by isolating provider state
+- Allows external test control through trigger methods
+- Tests complete pipeline: `MockProvider -> CardanoIndexWorker -> Reducers -> Database`
+
 ### Test Structure
 
 **Organized Test Architecture**:
@@ -147,10 +164,11 @@ Tests/
 │   ├── TestDatabaseManager.cs     # Database setup/cleanup
 │   └── BlockTestDataLoader.cs     # Unified block loading
 ├── Mocks/
-│   └── MockChainSyncProvider.cs   # Ouroboros protocol simulation
+│   ├── MockChainSyncProvider.cs       # Ouroboros protocol simulation
+│   └── MockChainProviderFactory.cs    # Factory for separate provider instances
 ├── EndToEnd/
-│   ├── SingleBlockRollForwardRollbackTest.cs    # Single block tests
-│   └── MultipleBlocksPartialRollbackTest.cs     # Multiple block tests
+│   ├── CardanoIndexWorkerTest.cs      # Worker factory pattern integration test
+│   └── ReducerDirectTest.cs           # Direct reducer testing
 ├── DataGeneration/
 │   ├── BlockCborDownloadTest.cs           # Download single blocks
 │   ├── MultipleBlockCborDownloadTest.cs   # Download 100 consecutive blocks
@@ -174,6 +192,12 @@ dotnet test --filter "FullyQualifiedName~DataGeneration.MultipleBlockCborDownloa
 ```bash
 # Run all end-to-end tests
 dotnet test --filter "FullyQualifiedName~EndToEnd"
+
+# Test CardanoIndexWorker with factory pattern
+dotnet test --filter "FullyQualifiedName~CardanoIndexWorkerTest" --logger "console;verbosity=detailed"
+
+# Test direct reducer logic
+dotnet test --filter "FullyQualifiedName~ReducerDirectTest" --logger "console;verbosity=detailed"
 
 # Run specific test with detailed output
 dotnet test --filter "FullyQualifiedName~SingleBlockRollForwardRollbackTest" --logger "console;verbosity=detailed"

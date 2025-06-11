@@ -15,11 +15,11 @@ using Xunit.Abstractions;
 namespace Argus.Sync.Tests.EndToEnd;
 
 /// <summary>
-/// Comprehensive end-to-end test that validates blockchain sync with real Cardano data.
+/// Direct reducer test that validates blockchain sync with real Cardano data.
 /// Tests rollforward processing of 5 blocks followed by progressive rollback operations.
-/// Includes detailed block content analysis and memory-database state verification.
+/// Bypasses CardanoIndexWorker to directly test reducer logic and rollback semantics.
 /// </summary>
-public class UnifiedFiveBlockTest : IAsyncLifetime
+public class ReducerDirectTest : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
     private TestDatabaseManager? _databaseManager;
@@ -34,7 +34,7 @@ public class UnifiedFiveBlockTest : IAsyncLifetime
     private bool _rollbackReceived;
     private int _rollbackCount;
 
-    public UnifiedFiveBlockTest(ITestOutputHelper output)
+    public ReducerDirectTest(ITestOutputHelper output)
     {
         _output = output;
     }
@@ -54,7 +54,7 @@ public class UnifiedFiveBlockTest : IAsyncLifetime
     }
 
     [Fact]
-    public async Task FiveBlocks_RollForwardThenRollBack_ShouldVerifyPerBlockAndPerRollback()
+    public async Task ReducerDirect_FiveBlocksRollForwardAndRollback_ShouldProcessCorrectly()
     {
         // Setup test environment
         var (mockProvider, blockReducer, txReducer, testBlocks) = await SetupTestEnvironmentAsync();
