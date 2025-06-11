@@ -74,8 +74,8 @@ public class MockChainSyncProvider : ICardanoChainProvider
     public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersection, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         // Send initial rollback to establish intersection (standard Ouroboros behavior)
-        var dummyBlock = _availableBlocks.First();
-        yield return new NextResponse(NextResponseAction.RollBack, RollBackType.Exclusive, dummyBlock);
+        var intersectionBlock = _availableBlocks.First();
+        yield return new NextResponse(NextResponseAction.RollBack, RollBackType.Exclusive, intersectionBlock);
         
         // Then wait for external control signals - test must trigger all subsequent events
         await foreach (var response in _controlReader.ReadAllAsync(stoppingToken ?? CancellationToken.None))
@@ -121,14 +121,23 @@ public class MockChainSyncProvider : ICardanoChainProvider
     /// </summary>
     public async Task TriggerRollBackAsync(ulong rollbackSlot, RollBackType rollbackType = RollBackType.Exclusive)
     {
-        // For testing purposes, use any available block as a reference
-        // The test logic will use the actual rollbackSlot, not the block's slot
-        var referenceBlock = _availableBlocks.First();
-
-        // Create a response with the reference block
-        var response = new NextResponse(NextResponseAction.RollBack, rollbackType, referenceBlock);
+        // Find the block that matches the rollback slot for proper CardanoIndexWorker compatibility
+        var rollbackBlock = _availableBlocks.FirstOrDefault(b => b.Header().HeaderBody().Slot() == rollbackSlot);
         
-        // Store the actual intended rollback slot for this response
+        if (rollbackBlock is null)
+        {
+            // If exact slot not found, use the closest block at or before the rollback slot
+            rollbackBlock = _availableBlocks
+                .Where(b => b.Header().HeaderBody().Slot() <= rollbackSlot)
+                .OrderByDescending(b => b.Header().HeaderBody().Slot())
+                .FirstOrDefault() ?? _availableBlocks.First();
+                
+        }
+
+        // Create a response with the appropriate block for CardanoIndexWorker
+        var response = new NextResponse(NextResponseAction.RollBack, rollbackType, rollbackBlock);
+        
+        // Store the actual intended rollback slot for ReducerDirectTest compatibility
         _rollbackSlotOverrides[response] = rollbackSlot;
 
         await _controlWriter.WriteAsync(response);

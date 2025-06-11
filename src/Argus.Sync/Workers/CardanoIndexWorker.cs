@@ -20,7 +20,8 @@ public class CardanoIndexWorker<T>(
     IConfiguration configuration,
     ILogger<CardanoIndexWorker<T>> logger,
     IDbContextFactory<T> dbContextFactory,
-    IEnumerable<IReducer<IReducerModel>> reducers
+    IEnumerable<IReducer<IReducerModel>> reducers,
+    IChainProviderFactory chainProviderFactory
 ) : BackgroundService where T : CardanoDbContext
 {
     private readonly ConcurrentDictionary<string, ReducerState> _reducerStates = [];
@@ -31,13 +32,10 @@ public class CardanoIndexWorker<T>(
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);
     private readonly int _rollbackBuffer = configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
     private readonly ulong _networkMagic = configuration.GetValue("CardanoNodeConnection:NetworkMagic", 2UL);
-    private readonly string _connectionType = configuration.GetValue<string>("CardanoNodeConnection:ConnectionType") ?? throw new Exception("Connection type not configured.");
-    private readonly string? _socketPath = configuration.GetValue<string?>("CardanoNodeConnection:UnixSocket:Path");
-    private readonly string? _gRPCEndpoint = configuration.GetValue<string?>("CardanoNodeConnection:gRPC:Endpoint");
-    private readonly string? _apiKey = configuration.GetValue<string?>("CardanoNodeConnection:gRPC:ApiKey");
     private readonly string _defaultStartHash = configuration.GetValue<string>("CardanoNodeConnection:Hash") ?? throw new Exception("Default start hash not configured.");
     private readonly ulong _defaultStartSlot = configuration.GetValue<ulong?>("CardanoNodeConnection:Slot") ?? throw new Exception("Default start slot not configured.");
     private readonly bool _rollbackModeEnabled = configuration.GetValue("Sync:Rollback:Enabled", false);
+    private readonly bool _exitOnCompletion = configuration.GetValue("Sync:Worker:ExitOnCompletion", true);
 
     private readonly bool _tuiMode = configuration.GetValue("Sync:Dashboard:TuiMode", true);
     private readonly TimeSpan _dashboardRefreshInterval = TimeSpan.FromMilliseconds(Math.Max(configuration.GetValue("Sync:Dashboard:RefreshInterval", 1000), 2000));
@@ -65,7 +63,7 @@ public class CardanoIndexWorker<T>(
 
         await Task.WhenAny(reducers.Select(reducer => StartReducerChainSyncAsync(reducer, stoppingToken)));
 
-        Environment.Exit(0);
+        Exit();
     }
 
     private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
@@ -103,7 +101,7 @@ public class CardanoIndexWorker<T>(
                 }
             }
 
-            ICardanoChainProvider chainProvider = GetCardanoChainProvider();
+            ICardanoChainProvider chainProvider = chainProviderFactory.CreateProvider();
             await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersections, _networkMagic, stoppingToken))
             {
                 Task reducerTask = nextResponse.Action switch
@@ -119,7 +117,8 @@ public class CardanoIndexWorker<T>(
                 {
                     await UpdateReducerStatesAsync(stoppingToken);
                     logger.LogInformation("Rollback successfully completed. Please disable rollback mode to start syncing.");
-                    Environment.Exit(0);
+                    Exit();
+                    return;
                 }
             }
         }
@@ -193,19 +192,6 @@ public class CardanoIndexWorker<T>(
         };
     }
 
-    private ICardanoChainProvider GetCardanoChainProvider() => _connectionType switch
-    {
-        "UnixSocket" => new N2CProvider(_socketPath ?? throw new InvalidOperationException("Socket path is not configured.")),
-        "TCP" => throw new NotImplementedException("TCP connection type is not yet implemented."),
-        "gRPC" => new U5CProvider(
-            _gRPCEndpoint ?? throw new Exception("gRPC endpoint is not configured."),
-            new Dictionary<string, string>
-            {
-                { "dmtr-api-key", _apiKey ?? throw new Exception("Demeter API key is missing") }
-            }
-        ),
-        _ => throw new Exception("Invalid chain provider")
-    };
 
     private async Task<ReducerState> GetReducerStateAsync(string reducerName, CancellationToken stoppingToken)
     {
@@ -601,7 +587,7 @@ public class CardanoIndexWorker<T>(
     {
         try
         {
-            ICardanoChainProvider chainProvider = GetCardanoChainProvider();
+            ICardanoChainProvider chainProvider = chainProviderFactory.CreateProvider();
             Point initialTip = await chainProvider.GetTipAsync();
             EffectiveTipSlot = initialTip.Slot;
             logger.LogInformation("Initial tip established: Slot {InitialTipSlot}", initialTip.Slot);
@@ -715,5 +701,18 @@ public class CardanoIndexWorker<T>(
             (key, list) => { list.Add(elapsedMs); return list; });
             
         _latestSlots[reducerName] = slot;
+    }
+
+    /// <summary>
+    /// Conditionally exits the application based on configuration.
+    /// In production (ExitOnCompletion=true), terminates the process.
+    /// In testing (ExitOnCompletion=false), allows graceful completion.
+    /// </summary>
+    private void Exit()
+    {
+        if (_exitOnCompletion)
+        {
+            Environment.Exit(0);
+        }
     }
 }
