@@ -38,7 +38,12 @@ public class TestDatabaseManager : IAsyncDisposable
         // Setup DI container
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
-        services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+        services.AddLogging(builder => 
+        {
+            builder.AddConsole()
+                   .SetMinimumLevel(LogLevel.Warning)
+                   .AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Warning);
+        });
         
         // Add database context
         services.AddDbContextFactory<TestDbContext>(options =>

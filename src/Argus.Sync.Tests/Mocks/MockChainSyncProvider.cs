@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Providers;
 using Argus.Sync.Utils;
@@ -9,12 +10,16 @@ namespace Argus.Sync.Tests.Mocks;
 
 /// <summary>
 /// Mock chain sync provider that implements only ICardanoChainProvider interface.
-/// Discovers all available blocks from TestData/Blocks/ directory and yields them via chain sync.
-/// Consumer controls how many blocks to process by breaking out of the async enumerable.
+/// Pure manual control mode - chain sync waits for external triggers for rollforward/rollback events.
+/// Test controls exactly when blocks are delivered through trigger methods.
 /// </summary>
 public class MockChainSyncProvider : ICardanoChainProvider
 {
     private readonly List<Block> _availableBlocks;
+    private readonly Channel<NextResponse> _controlChannel;
+    private readonly ChannelWriter<NextResponse> _controlWriter;
+    private readonly ChannelReader<NextResponse> _controlReader;
+    private readonly Dictionary<NextResponse, ulong> _rollbackSlotOverrides = new();
 
     public MockChainSyncProvider(string testDataDirectory)
     {
@@ -24,6 +29,10 @@ public class MockChainSyncProvider : ICardanoChainProvider
         {
             throw new InvalidOperationException($"No blocks found in {testDataDirectory}");
         }
+
+        _controlChannel = Channel.CreateUnbounded<NextResponse>();
+        _controlWriter = _controlChannel.Writer;
+        _controlReader = _controlChannel.Reader;
     }
 
     private static List<Block> DiscoverAllBlocks(string testDataDirectory)
@@ -64,23 +73,14 @@ public class MockChainSyncProvider : ICardanoChainProvider
 
     public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersection, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
-        // First, yield rollback to intersection point (standard Ouroboros behavior)
-        // Use the first available block as dummy for rollback
+        // Send initial rollback to establish intersection (standard Ouroboros behavior)
         var dummyBlock = _availableBlocks.First();
         yield return new NextResponse(NextResponseAction.RollBack, RollBackType.Exclusive, dummyBlock);
         
-        // Then yield all available blocks one by one
-        // Consumer controls how many to process by breaking out of the loop
-        foreach (var block in _availableBlocks)
+        // Then wait for external control signals - test must trigger all subsequent events
+        await foreach (var response in _controlReader.ReadAllAsync(stoppingToken ?? CancellationToken.None))
         {
-            yield return new NextResponse(NextResponseAction.RollForward, null, block);
-            await Task.Yield(); // Allow consumer to process
-            
-            // Check cancellation
-            if (stoppingToken?.IsCancellationRequested == true)
-            {
-                yield break;
-            }
+            yield return response;
         }
     }
 
@@ -99,4 +99,63 @@ public class MockChainSyncProvider : ICardanoChainProvider
             lastBlock.Header().HeaderBody().Slot()
         );
     }
+
+    // Control methods for triggering chain sync events
+    
+    /// <summary>
+    /// Triggers rollforward of a specific block by slot.
+    /// </summary>
+    public async Task TriggerRollForwardAsync(ulong slot)
+    {
+        var block = _availableBlocks.FirstOrDefault(b => b.Header().HeaderBody().Slot() == slot);
+        if (block is null)
+        {
+            throw new InvalidOperationException($"No block found with slot {slot}");
+        }
+
+        await _controlWriter.WriteAsync(new NextResponse(NextResponseAction.RollForward, null, block));
+    }
+
+    /// <summary>
+    /// Triggers rollback to a specific slot.
+    /// </summary>
+    public async Task TriggerRollBackAsync(ulong rollbackSlot, RollBackType rollbackType = RollBackType.Exclusive)
+    {
+        // For testing purposes, use any available block as a reference
+        // The test logic will use the actual rollbackSlot, not the block's slot
+        var referenceBlock = _availableBlocks.First();
+
+        // Create a response with the reference block
+        var response = new NextResponse(NextResponseAction.RollBack, rollbackType, referenceBlock);
+        
+        // Store the actual intended rollback slot for this response
+        _rollbackSlotOverrides[response] = rollbackSlot;
+
+        await _controlWriter.WriteAsync(response);
+    }
+
+    /// <summary>
+    /// Gets the actual intended rollback slot for a response, or falls back to the block's slot.
+    /// </summary>
+    public ulong GetActualRollbackSlot(NextResponse response)
+    {
+        if (_rollbackSlotOverrides.TryGetValue(response, out var overrideSlot))
+        {
+            return overrideSlot;
+        }
+        return response.Block?.Header().HeaderBody().Slot() ?? 0;
+    }
+
+    /// <summary>
+    /// Completes the chain sync, causing the async enumerable to end.
+    /// </summary>
+    public void CompleteChainSync()
+    {
+        _controlWriter.Complete();
+    }
+
+    /// <summary>
+    /// Gets the available blocks for test verification.
+    /// </summary>
+    public IReadOnlyList<Block> AvailableBlocks => _availableBlocks.AsReadOnly();
 }

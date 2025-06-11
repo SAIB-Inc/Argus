@@ -289,3 +289,147 @@ The worker handles the rollback type semantics, so reducers receive the correct 
 4. **Flexible Block Loading**: Use `BlockTestDataLoader` for different test scenarios
 5. **Protocol Compliance**: Follow Ouroboros mini-protocol (rollback → rollforward)
 6. **Rollback Testing**: Test both exclusive and inclusive rollback scenarios when applicable
+
+## Enhanced Block Content Logging and Memory State Verification
+
+Argus testing infrastructure includes comprehensive block content analysis and memory-database state consistency verification to ensure data integrity throughout the sync lifecycle.
+
+### Trigger-Based Chain Sync Control
+
+**MockChainSyncProvider** supports manual trigger-based control for precise test scenarios:
+
+```csharp
+// Create controllable mock provider
+var mockProvider = new MockChainSyncProvider(testDataDir);
+
+// Trigger specific rollforward operations
+await mockProvider.TriggerRollForwardAsync(slot);
+
+// Trigger rollback with rollback type control
+await mockProvider.TriggerRollBackAsync(rollbackSlot, RollBackType.Exclusive);
+
+// Complete chain sync when done
+mockProvider.CompleteChainSync();
+```
+
+**Key Features**:
+- **Pure Manual Control**: No automatic block processing - test controls all events
+- **Rollback Slot Override**: Can rollback to arbitrary slots using override mechanism
+- **Channel-Based Communication**: Uses .NET Channels for thread-safe trigger coordination
+
+### Block Content Analysis
+
+**Detailed Block Information Logging**:
+```
+=== Block Contents Analysis ===
+Block 1: Slot 82801348, Height 3314966, 1 txs, 2333 bytes, Hash 6afb5d5fb8f11608...
+  Tx 0: Hash 81895e16c2537281..., 4 inputs, 5 outputs
+Block 2: Slot 82916704, Height 3319101, 0 txs, 862 bytes, Hash 842ed25ecf3b6102...
+Block 3: Slot 82916750, Height 3319102, 3 txs, 6001 bytes, Hash 9cca31b8bfb4647f...
+  Tx 0: Hash 8dba283a27025fdc..., 2 inputs, 2 outputs
+  Tx 1: Hash 315ae904930b0938..., 1 inputs, 2 outputs
+  Tx 2: Hash 39c0da40bfaba92e..., 3 inputs, 3 outputs
+```
+
+**Technical Implementation**:
+```csharp
+// Block size calculation using CBOR serialization
+var blockSize = CborSerializer.Serialize(block).Length;
+
+// Transaction hash extraction using Chrysalis extensions
+var txHash = tx.Hash(); // Uses Blake2b-256 via Chrysalis.Cbor.Extensions.Cardano.Core.Transaction
+
+// Input/output counting with proper enumeration
+var inputCount = tx.Inputs()?.Count() ?? 0;
+var outputCount = tx.Outputs()?.Count() ?? 0;
+```
+
+### Memory-Database State Verification
+
+**In-Memory State Tracking**:
+```csharp
+// Store detailed block information for verification
+var blockDetails = new Dictionary<ulong, (string hash, ulong height, int txCount, List<string> txHashes)>();
+
+// During rollforward - collect transaction hashes
+var txHashes = new List<string>();
+if (txCount > 0)
+{
+    var txBodies = response.Block.TransactionBodies();
+    if (txBodies != null)
+    {
+        txHashes.AddRange(txBodies.Select(tx => tx.Hash()));
+    }
+}
+blockDetails[slot] = (hash, height, txCount, txHashes);
+```
+
+**State Consistency Verification**:
+```csharp
+// Per-block verification during rollforward
+var dbBlocksForMemCheck = await _databaseManager.DbContext.BlockTests
+    .OrderBy(b => b.Slot)
+    .Select(b => new { b.Slot, b.Hash, b.Height })
+    .ToListAsync();
+
+// Verify all DB blocks exist in memory with correct details
+foreach (var dbBlock in dbBlocksForMemCheck)
+{
+    Assert.True(blockDetails.ContainsKey(dbBlock.Slot));
+    var memoryBlock = blockDetails[dbBlock.Slot];
+    Assert.Equal(memoryBlock.hash, dbBlock.Hash);
+    Assert.Equal(memoryBlock.height, dbBlock.Height);
+}
+```
+
+**Rollback State Management**:
+```csharp
+// Update in-memory state during rollbacks
+var slotsToRemove = blockDetails.Keys.Where(s => s >= normalizedRollbackSlot).ToList();
+foreach (var slotToRemove in slotsToRemove)
+{
+    blockDetails.Remove(slotToRemove);
+    _output.WriteLine($"  Removed slot {slotToRemove} from memory (rollback to {rollbackSlot})");
+}
+
+// Verify no extra blocks remain in memory
+Assert.Equal(dbBlocksAfterRollback.Count, blockDetails.Count);
+```
+
+### UnifiedFiveBlockTest Example
+
+**Complete Integration Test**:
+- **5 Rollforward Operations**: Each with per-block memory-database verification
+- **6 Rollback Operations**: Including final complete database cleanup
+- **Real Conway Era Blocks**: Uses actual Cardano mainnet CBOR data
+- **Transaction-Level Tracking**: Verifies individual transaction hashes
+- **Trigger-Based Control**: External test control of all chain sync events
+
+**Key Test Commands**:
+```bash
+# Run enhanced test with detailed logging
+dotnet test --filter "FullyQualifiedName~UnifiedFiveBlockTest" --logger "console;verbosity=detailed"
+```
+
+**Verification Outputs**:
+```
+✅ Per-block verification: 3 blocks, 6 transactions in DB
+✅ Memory-DB state consistency verified for slot 82916750
+✅ Per-rollback verification passed
+✅ Memory-DB state consistency verified after rollback
+✅ Final state: 0 blocks with 0 transactions (complete rollback)
+```
+
+### Key Technical Dependencies
+
+**Required Namespaces**:
+```csharp
+using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction; // For tx.Hash()
+using Chrysalis.Cbor.Serialization; // For CborSerializer.Serialize()
+```
+
+**Block and Transaction Properties**:
+- **BlockTest Model**: `Hash`, `Height`, `Slot`, `CreatedAt`
+- **TransactionTest Model**: `TxHash`, `TxIndex`, `Slot`, `BlockHash`, `BlockHeight`, `RawTx`, `CreatedAt`
+
+This enhanced testing approach ensures complete data integrity validation throughout the entire blockchain sync lifecycle, providing confidence in both the sync worker implementation and the underlying state management systems.
