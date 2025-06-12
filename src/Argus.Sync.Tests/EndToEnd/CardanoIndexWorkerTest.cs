@@ -103,6 +103,10 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
 
     private CardanoIndexWorker<TestDbContext> CreateCardanoIndexWorkerWithFactory()
     {
+        // Clear any existing ReducerStates to ensure clean test
+        _databaseManager!.DbContext.ReducerStates.RemoveRange(_databaseManager.DbContext.ReducerStates);
+        _databaseManager.DbContext.SaveChanges();
+        
         var configuration = CreateMinimalTestConfiguration();
         var logger = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning))
             .CreateLogger<CardanoIndexWorker<TestDbContext>>();
