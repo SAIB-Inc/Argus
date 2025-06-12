@@ -101,11 +101,11 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         return (new BlockTestReducer(dbContextFactory), new TransactionTestReducer(dbContextFactory));
     }
 
-    private CardanoIndexWorker<TestDbContext> CreateCardanoIndexWorkerWithFactory()
+    private async Task<CardanoIndexWorker<TestDbContext>> CreateCardanoIndexWorkerWithFactoryAsync()
     {
         // Clear any existing ReducerStates to ensure clean test
         _databaseManager!.DbContext.ReducerStates.RemoveRange(_databaseManager.DbContext.ReducerStates);
-        _databaseManager.DbContext.SaveChanges();
+        await _databaseManager.DbContext.SaveChangesAsync();
         
         var configuration = CreateMinimalTestConfiguration();
         var logger = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning))
@@ -193,10 +193,10 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
 
     #region Chain Sync Execution
 
-    private Task StartFactoryBasedChainSyncAsync()
+    private async Task StartFactoryBasedChainSyncAsync()
     {
-        var worker = CreateCardanoIndexWorkerWithFactory();
-        return Task.Run(async () =>
+        var worker = await CreateCardanoIndexWorkerWithFactoryAsync();
+        await Task.Run(async () =>
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             try
