@@ -21,19 +21,27 @@ public static class ArgusUtil
 
     public static Block? DeserializeBlockWithEra(ReadOnlyMemory<byte> blockCbor)
     {
-        CborReader reader = new(blockCbor, CborConformanceMode.Lax);
-        reader.ReadTag();
-        reader = new(reader.ReadByteString(), CborConformanceMode.Lax);
-        reader.ReadStartArray();
-        Era era = (Era)reader.ReadInt32();
-        ReadOnlyMemory<byte> blockBytes = reader.ReadEncodedValue(true);
-
-        return era switch
+        try
         {
-            Era.Shelley or Era.Allegra or Era.Mary or Era.Alonzo => AlonzoCompatibleBlock.Read(blockBytes),
-            Era.Babbage => BabbageBlock.Read(blockBytes),
-            Era.Conway => ConwayBlock.Read(blockBytes),
-            _ => throw new NotSupportedException($"Unsupported era: {era}")
-        };
+            CborReader reader = new(blockCbor, CborConformanceMode.Lax);
+            
+            // In Chrysalis 0.7.10, the structure is directly [era, block] without the tag wrapper
+            reader.ReadStartArray();
+            Era era = (Era)reader.ReadInt32();
+            ReadOnlyMemory<byte> blockBytes = reader.ReadEncodedValue(true);
+
+            return era switch
+            {
+                Era.Shelley or Era.Allegra or Era.Mary or Era.Alonzo => AlonzoCompatibleBlock.Read(blockBytes),
+                Era.Babbage => BabbageBlock.Read(blockBytes),
+                Era.Conway => ConwayBlock.Read(blockBytes),
+                _ => throw new NotSupportedException($"Unsupported era: {era}")
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ArgusUtil] Error deserializing block: {ex.Message}");
+            throw;
+        }
     }
 }
