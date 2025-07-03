@@ -25,7 +25,19 @@ public static class ArgusUtil
         {
             CborReader reader = new(blockCbor, CborConformanceMode.Lax);
             
-            // In Chrysalis 0.7.10, the structure is directly [era, block] without the tag wrapper
+            // N2C format: Tag(24, ByteString([era, block]))
+            // Read and verify tag 24
+            var tag = reader.ReadTag();
+            if (tag != CborTag.EncodedCborDataItem)
+            {
+                throw new InvalidOperationException($"Expected CBOR tag 24, got {tag}");
+            }
+            
+            // Read the byte string containing [era, block]
+            var innerBytes = reader.ReadByteString();
+            
+            // Now read the actual array from the inner bytes
+            reader = new CborReader(innerBytes, CborConformanceMode.Lax);
             reader.ReadStartArray();
             Era era = (Era)reader.ReadInt32();
             ReadOnlyMemory<byte> blockBytes = reader.ReadEncodedValue(true);
