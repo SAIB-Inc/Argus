@@ -33,6 +33,7 @@ public class ReducerDirectTest : IAsyncLifetime
     private int _processedBlocks;
     private bool _rollbackReceived;
     private int _rollbackCount;
+    private readonly SemaphoreSlim _dbSemaphore = new(1, 1);
 
     public ReducerDirectTest(ITestOutputHelper output)
     {
@@ -51,6 +52,7 @@ public class ReducerDirectTest : IAsyncLifetime
         {
             await _databaseManager.DisposeAsync();
         }
+        _dbSemaphore?.Dispose();
     }
 
     [Fact]
@@ -230,24 +232,35 @@ public class ReducerDirectTest : IAsyncLifetime
 
     private async Task VerifyPerBlockStateAsync()
     {
-        var currentDbBlocks = await _databaseManager!.DbContext.BlockTests.CountAsync();
-        var currentDbTxs = await _databaseManager.DbContext.TransactionTests.CountAsync();
-        var expectedTotalTxs = _blockTxCounts.Values.Sum();
-        
-        Assert.Equal(_processedBlocks, currentDbBlocks);
-        Assert.Equal(expectedTotalTxs, currentDbTxs);
-        
-        await VerifyMemoryDatabaseConsistencyAsync();
-        
-        _output.WriteLine($"  ✅ Per-block verification: {currentDbBlocks} blocks, {currentDbTxs} transactions in DB");
-        _output.WriteLine($"  ✅ Memory-DB state consistency verified for slot {_blockSlots.Last()}");
+        await _dbSemaphore.WaitAsync();
+        try
+        {
+            var currentDbBlocks = await _databaseManager!.DbContext.BlockTests.CountAsync();
+            var currentDbTxs = await _databaseManager.DbContext.TransactionTests.CountAsync();
+            var expectedTotalTxs = _blockTxCounts.Values.Sum();
+            
+            Assert.Equal(_processedBlocks, currentDbBlocks);
+            Assert.Equal(expectedTotalTxs, currentDbTxs);
+            
+            await VerifyMemoryDatabaseConsistencyAsync();
+            
+            _output.WriteLine($"  ✅ Per-block verification: {currentDbBlocks} blocks, {currentDbTxs} transactions in DB");
+            _output.WriteLine($"  ✅ Memory-DB state consistency verified for slot {_blockSlots.Last()}");
+        }
+        finally
+        {
+            _dbSemaphore.Release();
+        }
     }
 
     private async Task VerifyRollbackStateAsync(ulong rollbackSlot)
     {
-        var currentBlocks = await _databaseManager!.DbContext.BlockTests.CountAsync();
-        var currentTxs = await _databaseManager.DbContext.TransactionTests.CountAsync();
-        var remainingSlots = await GetRemainingSlots();
+        await _dbSemaphore.WaitAsync();
+        try
+        {
+            var currentBlocks = await _databaseManager!.DbContext.BlockTests.CountAsync();
+            var currentTxs = await _databaseManager.DbContext.TransactionTests.CountAsync();
+            var remainingSlots = await GetRemainingSlots();
         
         var expectedRemainingSlots = _blockSlots.Where(s => s <= rollbackSlot).OrderBy(s => s).ToArray();
         var expectedBlocks = expectedRemainingSlots.Length;
@@ -269,10 +282,16 @@ public class ReducerDirectTest : IAsyncLifetime
         
         _output.WriteLine("✅ Per-rollback verification passed");
         _output.WriteLine("✅ Memory-DB state consistency verified after rollback");
+        }
+        finally
+        {
+            _dbSemaphore.Release();
+        }
     }
 
     private async Task VerifyMemoryDatabaseConsistencyAsync()
     {
+        // Note: This method should be called while already holding the semaphore
         var dbBlocks = await _databaseManager!.DbContext.BlockTests
             .OrderBy(b => b.Slot)
             .Select(b => new { b.Slot, b.Hash, b.Height })
@@ -318,15 +337,7 @@ public class ReducerDirectTest : IAsyncLifetime
         
         while (attempts < maxWait)
         {
-            try
-            {
-                var currentCount = await _databaseManager!.DbContext.BlockTests.CountAsync();
-                if (currentCount >= targetBlockCount) break;
-            }
-            catch
-            {
-                // Database might be temporarily busy, continue waiting
-            }
+            if (_processedBlocks >= targetBlockCount) break;
             
             await Task.Delay(100);
             attempts++;
@@ -439,6 +450,7 @@ public class ReducerDirectTest : IAsyncLifetime
 
     private async Task<List<ulong>> GetRemainingSlots()
     {
+        // Note: This method should be called while already holding the semaphore
         return await _databaseManager!.DbContext.BlockTests
             .Select(b => b.Slot)
             .OrderBy(s => s)
