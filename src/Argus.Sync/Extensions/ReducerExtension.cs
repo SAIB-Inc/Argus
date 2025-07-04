@@ -32,12 +32,12 @@ public static class ReducerExtensions
 
         foreach (Type reducerType in optInList)
         {
-            IEnumerable<Type> dependencies = ReducerDependencyResolver.GetReducerDependencies(reducerType);
+            Type? dependency = ReducerDependencyResolver.GetReducerDependency(reducerType);
 
-            foreach (Type dependency in dependencies)
+            if (dependency != null)
             {
-                IEnumerable<Type> subDependencies = ReducerDependencyResolver.GetReducerDependencies(dependency);
-                if (subDependencies.Contains(reducerType))
+                Type? subDependency = ReducerDependencyResolver.GetReducerDependency(dependency);
+                if (subDependency == reducerType)
                 {
                     throw new ArgumentException(
                         $"Circular dependency detected: {ArgusUtil.GetTypeNameWithoutGenerics(reducerType)} <-> {ArgusUtil.GetTypeNameWithoutGenerics(dependency)}"
@@ -157,12 +157,12 @@ public static class ReducerExtensions
 
     private static void ValidateReducerDependencies(Type reducerType)
     {
-        Type[] dependencies = ReducerDependencyResolver.GetReducerDependencies(reducerType);
+        Type? dependency = ReducerDependencyResolver.GetReducerDependency(reducerType);
 
-        foreach (Type dependency in dependencies)
+        if (dependency != null)
         {
-            Type[] subDependencies = ReducerDependencyResolver.GetReducerDependencies(dependency);
-            if (subDependencies.Contains(reducerType))
+            Type? subDependency = ReducerDependencyResolver.GetReducerDependency(dependency);
+            if (subDependency == reducerType)
             {
                 throw new ArgumentException(
                     $"Circular dependency detected: {ArgusUtil.GetTypeNameWithoutGenerics(reducerType)} <-> {ArgusUtil.GetTypeNameWithoutGenerics(dependency)}"

@@ -3,12 +3,12 @@ namespace Argus.Sync.Reducers;
 
 public static class ReducerDependencyResolver
 {
-    public static Type[] GetReducerDependencies(Type reducerType)
+    public static Type? GetReducerDependency(Type reducerType)
     {
         // Check if the attribute is applied to the reducerType
         ReducerDependsAttribute? attribute = reducerType.GetCustomAttribute<ReducerDependsAttribute>();
 
-        // If the attribute exists, return the types specified in it
-        return attribute?.Types ?? [];
+        // If the attribute exists, return the single dependency type
+        return attribute?.DependencyType;
     }
 }

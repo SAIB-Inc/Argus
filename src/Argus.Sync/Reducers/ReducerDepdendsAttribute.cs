@@ -1,7 +1,7 @@
 namespace Argus.Sync.Reducers;
 
 [AttributeUsage(AttributeTargets.Class)]
-public class ReducerDependsAttribute(params Type[] types) : Attribute
+public class ReducerDependsAttribute(Type dependencyType) : Attribute
 {
-    public Type[] Types { get; } = types;
+    public Type DependencyType { get; } = dependencyType ?? throw new ArgumentNullException(nameof(dependencyType));
 }
