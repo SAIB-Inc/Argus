@@ -17,7 +17,6 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.6" />
     <PackageReference Include="CborSerializer" Version="1.0.10" />
-    <PackageReference Include="Pallas.NET" Version="0.4.0" />
     <PackageReference Include="Spectre.Console" Version="0.50.0" />
     <PackageReference Include="Utxorpc.Sdk" Version="1.1.0-alpha" />
     <PackageReference Include="NSec.Cryptography" Version="25.4.0" />

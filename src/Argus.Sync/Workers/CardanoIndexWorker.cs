@@ -28,6 +28,13 @@ public class CardanoIndexWorker<T>(
     private ulong EffectiveTipSlot = 0;
     private readonly ConcurrentDictionary<string, List<long>> _processingTimes = [];
     private readonly ConcurrentDictionary<string, ulong> _latestSlots = [];
+    
+    // Dependency graph structures
+    private readonly Dictionary<string, IReducer<IReducerModel>> _reducersByName = [];
+    private readonly Dictionary<string, List<string>> _dependentReducers = []; // parent -> dependents
+    private readonly Dictionary<string, string?> _reducerDependency = []; // reducer -> its single dependency
+    private readonly HashSet<string> _rootReducers = [];
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastStartPointChecks = [];
 
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);
     private readonly int _rollbackBuffer = configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
@@ -41,8 +48,60 @@ public class CardanoIndexWorker<T>(
     private readonly TimeSpan _dashboardRefreshInterval = TimeSpan.FromMilliseconds(Math.Max(configuration.GetValue("Sync:Dashboard:RefreshInterval", 1000), 2000));
     private readonly TimeSpan _dbSyncInterval = TimeSpan.FromMilliseconds(configuration.GetValue("Sync:State:ReducerStateSyncInterval", 10000));
 
+    private void BuildDependencyGraph()
+    {
+        // Build reducer lookup and initialize dependency structures
+        foreach (var reducer in reducers)
+        {
+            var reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+            _reducersByName[reducerName] = reducer;
+            _dependentReducers[reducerName] = [];
+            _reducerDependency[reducerName] = null;
+        }
+
+        // Build dependency mappings
+        foreach (var reducer in reducers)
+        {
+            var reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+            var dependency = ReducerDependencyResolver.GetReducerDependency(reducer.GetType());
+            
+            if (dependency != null)
+            {
+                var dependencyName = ArgusUtil.GetTypeNameWithoutGenerics(dependency);
+                
+                // Validate dependency exists
+                if (!_reducersByName.ContainsKey(dependencyName))
+                {
+                    throw new InvalidOperationException($"Reducer {reducerName} depends on {dependencyName}, but {dependencyName} is not registered.");
+                }
+                
+                // Add to dependency mappings (single dependency only)
+                _reducerDependency[reducerName] = dependencyName;
+                _dependentReducers[dependencyName].Add(reducerName);
+            }
+        }
+
+        // Identify root reducers (those with no dependencies)
+        foreach (var reducerName in _reducersByName.Keys)
+        {
+            if (_reducerDependency[reducerName] == null)
+            {
+                _rootReducers.Add(reducerName);
+            }
+        }
+
+        logger.LogInformation("Dependency graph built: {RootCount} root reducers, {TotalCount} total reducers", 
+            _rootReducers.Count, _reducersByName.Count);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Build dependency graph first
+        BuildDependencyGraph();
+        
+        // Initialize state for all reducers (including dependents)
+        await InitializeAllReducerStatesAsync(stoppingToken);
+        
         if (!_rollbackModeEnabled)
         {
             // Start initial tip query
@@ -61,7 +120,20 @@ public class CardanoIndexWorker<T>(
             _ = Task.Run(async () => await StartReducerStateSync(stoppingToken), stoppingToken);
         }
 
-        await Task.WhenAny(reducers.Select(reducer => StartReducerChainSyncAsync(reducer, stoppingToken)));
+        // Only start chain sync for root reducers (those with no dependencies)
+        var rootReducerInstances = _rootReducers.Select(name => _reducersByName[name]).ToList();
+        
+        if (rootReducerInstances.Count == 0)
+        {
+            logger.LogWarning("No root reducers found. All reducers have dependencies, which may indicate a circular dependency.");
+            Exit();
+            return;
+        }
+
+        logger.LogInformation("Starting chain sync for {Count} root reducers: {Reducers}", 
+            rootReducerInstances.Count, string.Join(", ", _rootReducers));
+
+        await Task.WhenAny(rootReducerInstances.Select(reducer => StartReducerChainSyncAsync(reducer, stoppingToken)));
 
         Exit();
     }
@@ -154,6 +226,9 @@ public class CardanoIndexWorker<T>(
         {
             LatestIntersections = latestIntersections
         };
+        
+        // Forward to dependent reducers
+        await ForwardToDependentsAsync(reducer, response, NextResponseAction.RollForward);
     }
 
     private async Task ProcessRollbackAsync(IReducer<IReducerModel> reducer, NextResponse response, bool rollbackMode, CancellationToken stoppingToken)
@@ -190,8 +265,352 @@ public class CardanoIndexWorker<T>(
         {
             LatestIntersections = latestIntersections
         };
+        
+        // Forward rollback to dependent reducers
+        await ForwardToDependentsAsync(reducer, response, NextResponseAction.RollBack);
     }
 
+    private async Task ForwardToDependentsAsync(IReducer<IReducerModel> parentReducer, NextResponse response, NextResponseAction action)
+    {
+        var parentName = ArgusUtil.GetTypeNameWithoutGenerics(parentReducer.GetType());
+        
+        if (!_dependentReducers.TryGetValue(parentName, out var dependentNames) || dependentNames.Count == 0)
+        {
+            return; // No dependents to forward to
+        }
+
+        var slot = response.Block.Header().HeaderBody().Slot();
+        
+        // Process all dependents in parallel
+        var tasks = dependentNames
+            .Where(dependentName => ShouldProcessBlock(dependentName, slot))
+            .Select(dependentName => ProcessDependentAsync(dependentName, response, action));
+        
+        await Task.WhenAll(tasks);
+    }
+    
+    private async Task ProcessDependentAsync(string dependentName, NextResponse response, NextResponseAction action)
+    {
+        var dependentReducer = _reducersByName[dependentName];
+        var slot = response.Block.Header().HeaderBody().Slot();
+        
+        try
+        {
+            // Dynamic runtime adjustment check
+            await CheckAndAdjustDependentStartPointAsync(dependentName);
+            
+            var stopwatch = Stopwatch.StartNew();
+            
+            if (action == NextResponseAction.RollForward)
+            {
+                await dependentReducer.RollForwardAsync(response.Block);
+                
+                // Update dependent state
+                if (_reducerStates.TryGetValue(dependentName, out var currentState))
+                {
+                    Point recentIntersection = new(response.Block.Header().Hash(), slot);
+                    IEnumerable<Point> latestIntersections = UpdateLatestIntersections(currentState.LatestIntersections, recentIntersection);
+                    _reducerStates[dependentName] = currentState with
+                    {
+                        LatestIntersections = latestIntersections
+                    };
+                }
+            }
+            else if (action == NextResponseAction.RollBack)
+            {
+                ulong rollbackSlot = response.RollBackType switch
+                {
+                    RollBackType.Exclusive => response.Block.Header().HeaderBody().Slot() + 1UL,
+                    RollBackType.Inclusive => response.Block.Header().HeaderBody().Slot(),
+                    _ => 0
+                };
+                
+                await dependentReducer.RollBackwardAsync(rollbackSlot);
+                
+                // Update dependent state
+                if (_reducerStates.TryGetValue(dependentName, out var currentState))
+                {
+                    IEnumerable<Point> latestIntersections = currentState.LatestIntersections.Where(i => i.Slot < rollbackSlot);
+                    _reducerStates[dependentName] = currentState with
+                    {
+                        LatestIntersections = latestIntersections
+                    };
+                }
+            }
+            
+            stopwatch.Stop();
+            RecordTelemetry(dependentName, stopwatch.ElapsedMilliseconds, slot);
+            
+            // Recursively forward to dependents of this dependent
+            await ForwardToDependentsAsync(dependentReducer, response, action);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error forwarding {Action} to dependent reducer {Dependent} at slot {Slot}", 
+                action, dependentName, slot);
+            throw;
+        }
+    }
+
+    private async Task InitializeAllReducerStatesAsync(CancellationToken stoppingToken)
+    {
+        // First, load all reducer states
+        foreach (var (reducerName, reducer) in _reducersByName)
+        {
+            var state = await GetReducerStateAsync(reducerName, stoppingToken);
+            _reducerStates[reducerName] = state;
+        }
+        
+        // Then adjust dependent start points in topological order
+        var processedDependents = new HashSet<string>();
+        await AdjustAllDependentStartPointsAsync(processedDependents, stoppingToken);
+    }
+    
+    private async Task AdjustAllDependentStartPointsAsync(HashSet<string> processedDependents, CancellationToken stoppingToken)
+    {
+        // Process all dependents in topological order (dependencies first)
+        var dependentsToProcess = _reducersByName.Keys
+            .Where(r => !_rootReducers.Contains(r) && !processedDependents.Contains(r))
+            .ToList();
+            
+        foreach (var dependentName in dependentsToProcess)
+        {
+            await AdjustDependentStartPointRecursivelyAsync(dependentName, processedDependents, stoppingToken);
+        }
+    }
+    
+    private async Task AdjustDependentStartPointRecursivelyAsync(
+        string dependentName, 
+        HashSet<string> processedDependents,
+        CancellationToken stoppingToken)
+    {
+        if (processedDependents.Contains(dependentName))
+            return;
+            
+        var dependency = _reducerDependency[dependentName];
+        if (dependency == null) 
+        {
+            processedDependents.Add(dependentName);
+            return;
+        }
+        
+        // First ensure the dependency is processed (recursive call)
+        if (!_rootReducers.Contains(dependency) && !processedDependents.Contains(dependency))
+        {
+            await AdjustDependentStartPointRecursivelyAsync(dependency, processedDependents, stoppingToken);
+        }
+        
+        // Now adjust this dependent's start point
+        await AdjustDependentStartPointAsync(dependentName, stoppingToken);
+        processedDependents.Add(dependentName);
+    }
+    
+    private Task AdjustDependentStartPointAsync(string dependentName, CancellationToken stoppingToken)
+    {
+        var dependency = _reducerDependency[dependentName];
+        if (dependency == null) return Task.CompletedTask;
+        
+        if (!_reducerStates.TryGetValue(dependency, out var depState))
+        {
+            logger.LogWarning("Dependency {Dependency} state not found for {Dependent}", dependency, dependentName);
+            return Task.CompletedTask;
+        }
+        
+        var dependentState = _reducerStates[dependentName];
+        
+        // Handle bootstrap case - if dependency hasn't processed any blocks yet
+        if (!depState.LatestIntersections.Any())
+        {
+            // If dependent also hasn't started, they can share the same default start point
+            if (!dependentState.LatestIntersections.Any())
+            {
+                logger.LogInformation("{Dependent} and {Dependency} both at initial state, no adjustment needed", 
+                    dependentName, dependency);
+                return Task.CompletedTask;
+            }
+            
+            // If dependent has already processed blocks but dependency hasn't, this is an error state
+            logger.LogWarning("{Dependent} has processed blocks but dependency {Dependency} hasn't started yet", 
+                dependentName, dependency);
+            return Task.CompletedTask;
+        }
+        
+        // Get the latest intersection point from dependency (with proper hash)
+        var dependencyLatestPoint = depState.LatestIntersections
+            .OrderByDescending(p => p.Slot)
+            .FirstOrDefault();
+            
+        if (dependencyLatestPoint == null || dependencyLatestPoint.Slot == 0)
+        {
+            logger.LogWarning("Dependency {Dependency} has invalid latest intersection", dependency);
+            return Task.CompletedTask;
+        }
+        
+        // Case 1: Dependent hasn't started yet or is behind dependency
+        if (dependentState.StartIntersection.Slot < dependencyLatestPoint.Slot)
+        {
+            var hashDisplay = dependencyLatestPoint.Hash.Length > 8 
+                ? dependencyLatestPoint.Hash[..8] + "..." 
+                : dependencyLatestPoint.Hash;
+            logger.LogInformation("Adjusting {Dependent} start point from slot {OldSlot} to {NewSlot} (hash: {Hash}) to match dependency {Dependency}", 
+                dependentName, 
+                dependentState.StartIntersection.Slot, 
+                dependencyLatestPoint.Slot,
+                hashDisplay,
+                dependency);
+                
+            // Use the actual intersection point from dependency (with proper hash)
+            _reducerStates[dependentName] = dependentState with
+            {
+                StartIntersection = dependencyLatestPoint
+            };
+        }
+        // Case 2: Dependent is ahead of dependency
+        else if (dependentState.StartIntersection.Slot > dependencyLatestPoint.Slot)
+        {
+            // Check if dependent has already processed blocks
+            if (dependentState.LatestIntersections.Any())
+            {
+                var dependentLatestSlot = dependentState.LatestSlot;
+                if (dependentLatestSlot > dependencyLatestPoint.Slot)
+                {
+                    logger.LogWarning("{Dependent} has already processed up to slot {DependentSlot} but dependency {Dependency} is only at slot {DependencySlot}. This indicates an inconsistent state!", 
+                        dependentName, dependentLatestSlot, dependency, dependencyLatestPoint.Slot);
+                }
+            }
+            else
+            {
+                logger.LogInformation("{Dependent} is configured to start at slot {StartSlot}, will wait for dependency {Dependency} to reach this point (currently at {CurrentSlot})", 
+                    dependentName, dependentState.StartIntersection.Slot, dependency, dependencyLatestPoint.Slot);
+            }
+        }
+        // Case 3: They're at the same slot
+        else
+        {
+            logger.LogDebug("{Dependent} and {Dependency} are synchronized at slot {Slot}", 
+                dependentName, dependency, dependencyLatestPoint.Slot);
+        }
+        
+        return Task.CompletedTask;
+    }
+    
+    private async Task CheckAndAdjustDependentStartPointAsync(string dependentName)
+    {
+        // Only check periodically to avoid overhead
+        var now = DateTimeOffset.UtcNow;
+        var lastCheckKey = $"LastStartPointCheck_{dependentName}";
+        
+        if (_lastStartPointChecks.TryGetValue(lastCheckKey, out var lastCheck))
+        {
+            // Check at most once per minute
+            if ((now - lastCheck).TotalMinutes < 1)
+                return;
+        }
+        
+        _lastStartPointChecks[lastCheckKey] = now;
+        
+        // Perform the adjustment check
+        var dependency = _reducerDependency[dependentName];
+        if (dependency == null) return;
+        
+        if (!_reducerStates.TryGetValue(dependency, out var depState) || 
+            !_reducerStates.TryGetValue(dependentName, out var dependentState))
+            return;
+            
+        // Check if dependency has significantly advanced since last adjustment
+        if (depState.LatestIntersections.Any())
+        {
+            var depLatestSlot = depState.LatestSlot;
+            
+            // If dependent hasn't started yet but dependency has advanced significantly
+            if (!dependentState.LatestIntersections.Any() && 
+                dependentState.StartIntersection.Slot < depLatestSlot - 1000) // More than 1000 slots behind
+            {
+                var newStartPoint = depState.LatestIntersections
+                    .OrderByDescending(p => p.Slot)
+                    .Skip(5) // Use a slightly older intersection for safety
+                    .FirstOrDefault();
+                    
+                if (newStartPoint != null && newStartPoint.Slot > dependentState.StartIntersection.Slot)
+                {
+                    logger.LogInformation("Dynamically adjusting {Dependent} start point from {OldSlot} to {NewSlot} as dependency {Dependency} has advanced significantly", 
+                        dependentName, dependentState.StartIntersection.Slot, newStartPoint.Slot, dependency);
+                        
+                    _reducerStates[dependentName] = dependentState with
+                    {
+                        StartIntersection = newStartPoint
+                    };
+                    
+                    // Persist the change
+                    await PersistReducerStateAsync(dependentName);
+                }
+            }
+        }
+    }
+    
+    private async Task PersistReducerStateAsync(string reducerName)
+    {
+        if (!_reducerStates.TryGetValue(reducerName, out var state))
+            return;
+            
+        try
+        {
+            await using var dbContext = await dbContextFactory.CreateDbContextAsync();
+            var existingState = await dbContext.ReducerStates
+                .FirstOrDefaultAsync(r => r.Name == reducerName);
+                
+            if (existingState != null)
+            {
+                existingState.StartIntersectionJson = state.StartIntersectionJson;
+                existingState.LatestIntersectionsJson = state.LatestIntersectionsJson;
+                await dbContext.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to persist reducer state for {Reducer}", reducerName);
+        }
+    }
+    
+    private bool ShouldProcessBlock(string reducerName, ulong blockSlot)
+    {
+        if (!_reducerStates.TryGetValue(reducerName, out var state))
+        {
+            logger.LogWarning("State not found for reducer {Reducer}, skipping block at slot {Slot}", reducerName, blockSlot);
+            return false;
+        }
+
+        // First check: Is this block before the reducer's start point?
+        if (blockSlot < state.StartIntersection.Slot)
+        {
+            return false;
+        }
+        
+        // For root reducers, no additional checks needed
+        if (_rootReducers.Contains(reducerName))
+        {
+            return true;
+        }
+        
+        // For dependent reducers, perform dynamic runtime check
+        var dependency = _reducerDependency[reducerName];
+        if (dependency != null && _reducerStates.TryGetValue(dependency, out var depState))
+        {
+            // Check if dependency has processed this block or beyond
+            var dependencyLatestSlot = depState.LatestIntersections.Any() 
+                ? depState.LatestSlot 
+                : depState.StartIntersection.Slot;
+                
+            if (blockSlot > dependencyLatestSlot)
+            {
+                logger.LogDebug("Skipping block {Slot} for {Dependent} - dependency {Dependency} is only at slot {DepSlot}", 
+                    blockSlot, reducerName, dependency, dependencyLatestSlot);
+                return false;
+            }
+        }
+        
+        return true;
+    }
 
     private async Task<ReducerState> GetReducerStateAsync(string reducerName, CancellationToken stoppingToken)
     {
