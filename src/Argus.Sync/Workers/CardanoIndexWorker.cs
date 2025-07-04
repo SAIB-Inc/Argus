@@ -449,11 +449,14 @@ public class CardanoIndexWorker<T>(
         // Case 1: Dependent hasn't started yet or is behind dependency
         if (dependentState.StartIntersection.Slot < dependencyLatestPoint.Slot)
         {
+            var hashDisplay = dependencyLatestPoint.Hash.Length > 8 
+                ? dependencyLatestPoint.Hash[..8] + "..." 
+                : dependencyLatestPoint.Hash;
             logger.LogInformation("Adjusting {Dependent} start point from slot {OldSlot} to {NewSlot} (hash: {Hash}) to match dependency {Dependency}", 
                 dependentName, 
                 dependentState.StartIntersection.Slot, 
                 dependencyLatestPoint.Slot,
-                dependencyLatestPoint.Hash[..8] + "...",
+                hashDisplay,
                 dependency);
                 
             // Use the actual intersection point from dependency (with proper hash)
