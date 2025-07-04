@@ -34,6 +34,7 @@ public class CardanoIndexWorker<T>(
     private readonly Dictionary<string, List<string>> _dependentReducers = []; // parent -> dependents
     private readonly Dictionary<string, string?> _reducerDependency = []; // reducer -> its single dependency
     private readonly HashSet<string> _rootReducers = [];
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastStartPointChecks = [];
 
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);
     private readonly int _rollbackBuffer = configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
@@ -295,6 +296,9 @@ public class CardanoIndexWorker<T>(
         
         try
         {
+            // Dynamic runtime adjustment check
+            await CheckAndAdjustDependentStartPointAsync(dependentName);
+            
             var stopwatch = Stopwatch.StartNew();
             
             if (action == NextResponseAction.RollForward)
@@ -350,17 +354,55 @@ public class CardanoIndexWorker<T>(
 
     private async Task InitializeAllReducerStatesAsync(CancellationToken stoppingToken)
     {
+        // First, load all reducer states
         foreach (var (reducerName, reducer) in _reducersByName)
         {
             var state = await GetReducerStateAsync(reducerName, stoppingToken);
             _reducerStates[reducerName] = state;
-            
-            // For dependent reducers, adjust their start point based on parent's current state
-            if (!_rootReducers.Contains(reducerName))
-            {
-                await AdjustDependentStartPointAsync(reducerName, stoppingToken);
-            }
         }
+        
+        // Then adjust dependent start points in topological order
+        var processedDependents = new HashSet<string>();
+        await AdjustAllDependentStartPointsAsync(processedDependents, stoppingToken);
+    }
+    
+    private async Task AdjustAllDependentStartPointsAsync(HashSet<string> processedDependents, CancellationToken stoppingToken)
+    {
+        // Process all dependents in topological order (dependencies first)
+        var dependentsToProcess = _reducersByName.Keys
+            .Where(r => !_rootReducers.Contains(r) && !processedDependents.Contains(r))
+            .ToList();
+            
+        foreach (var dependentName in dependentsToProcess)
+        {
+            await AdjustDependentStartPointRecursivelyAsync(dependentName, processedDependents, stoppingToken);
+        }
+    }
+    
+    private async Task AdjustDependentStartPointRecursivelyAsync(
+        string dependentName, 
+        HashSet<string> processedDependents,
+        CancellationToken stoppingToken)
+    {
+        if (processedDependents.Contains(dependentName))
+            return;
+            
+        var dependency = _reducerDependency[dependentName];
+        if (dependency == null) 
+        {
+            processedDependents.Add(dependentName);
+            return;
+        }
+        
+        // First ensure the dependency is processed (recursive call)
+        if (!_rootReducers.Contains(dependency) && !processedDependents.Contains(dependency))
+        {
+            await AdjustDependentStartPointRecursivelyAsync(dependency, processedDependents, stoppingToken);
+        }
+        
+        // Now adjust this dependent's start point
+        await AdjustDependentStartPointAsync(dependentName, stoppingToken);
+        processedDependents.Add(dependentName);
     }
     
     private Task AdjustDependentStartPointAsync(string dependentName, CancellationToken stoppingToken)
@@ -368,39 +410,163 @@ public class CardanoIndexWorker<T>(
         var dependency = _reducerDependency[dependentName];
         if (dependency == null) return Task.CompletedTask;
         
-        // Get the slot of the single dependency
-        ulong dependencySlot = 0;
-        
-        if (_reducerStates.TryGetValue(dependency, out var depState))
+        if (!_reducerStates.TryGetValue(dependency, out var depState))
         {
-            dependencySlot = depState.LatestSlot;
+            logger.LogWarning("Dependency {Dependency} state not found for {Dependent}", dependency, dependentName);
+            return Task.CompletedTask;
         }
-        
-        if (dependencySlot == 0) return Task.CompletedTask;
         
         var dependentState = _reducerStates[dependentName];
         
-        // If dependent is behind its dependency, update its start point
-        if (dependentState.StartIntersection.Slot < dependencySlot)
+        // Handle bootstrap case - if dependency hasn't processed any blocks yet
+        if (!depState.LatestIntersections.Any())
         {
-            logger.LogInformation("Adjusting {Dependent} start point from {OldSlot} to {NewSlot} to match dependency", 
-                dependentName, dependentState.StartIntersection.Slot, dependencySlot);
+            // If dependent also hasn't started, they can share the same default start point
+            if (!dependentState.LatestIntersections.Any())
+            {
+                logger.LogInformation("{Dependent} and {Dependency} both at initial state, no adjustment needed", 
+                    dependentName, dependency);
+                return Task.CompletedTask;
+            }
+            
+            // If dependent has already processed blocks but dependency hasn't, this is an error state
+            logger.LogWarning("{Dependent} has processed blocks but dependency {Dependency} hasn't started yet", 
+                dependentName, dependency);
+            return Task.CompletedTask;
+        }
+        
+        // Get the latest intersection point from dependency (with proper hash)
+        var dependencyLatestPoint = depState.LatestIntersections
+            .OrderByDescending(p => p.Slot)
+            .FirstOrDefault();
+            
+        if (dependencyLatestPoint == null || dependencyLatestPoint.Slot == 0)
+        {
+            logger.LogWarning("Dependency {Dependency} has invalid latest intersection", dependency);
+            return Task.CompletedTask;
+        }
+        
+        // Case 1: Dependent hasn't started yet or is behind dependency
+        if (dependentState.StartIntersection.Slot < dependencyLatestPoint.Slot)
+        {
+            logger.LogInformation("Adjusting {Dependent} start point from slot {OldSlot} to {NewSlot} (hash: {Hash}) to match dependency {Dependency}", 
+                dependentName, 
+                dependentState.StartIntersection.Slot, 
+                dependencyLatestPoint.Slot,
+                dependencyLatestPoint.Hash[..8] + "...",
+                dependency);
                 
-            // Create new start intersection at the dependency slot
-            var newStartIntersection = new Point("", dependencySlot);
+            // Use the actual intersection point from dependency (with proper hash)
             _reducerStates[dependentName] = dependentState with
             {
-                StartIntersection = newStartIntersection
+                StartIntersection = dependencyLatestPoint
             };
         }
-        // If dependent is ahead, it will wait until dependency catches up
-        else if (dependentState.StartIntersection.Slot > dependencySlot)
+        // Case 2: Dependent is ahead of dependency
+        else if (dependentState.StartIntersection.Slot > dependencyLatestPoint.Slot)
         {
-            logger.LogInformation("{Dependent} is configured to start at slot {StartSlot}, will wait for dependency to reach this point (currently at {CurrentSlot})", 
-                dependentName, dependentState.StartIntersection.Slot, dependencySlot);
+            // Check if dependent has already processed blocks
+            if (dependentState.LatestIntersections.Any())
+            {
+                var dependentLatestSlot = dependentState.LatestSlot;
+                if (dependentLatestSlot > dependencyLatestPoint.Slot)
+                {
+                    logger.LogWarning("{Dependent} has already processed up to slot {DependentSlot} but dependency {Dependency} is only at slot {DependencySlot}. This indicates an inconsistent state!", 
+                        dependentName, dependentLatestSlot, dependency, dependencyLatestPoint.Slot);
+                }
+            }
+            else
+            {
+                logger.LogInformation("{Dependent} is configured to start at slot {StartSlot}, will wait for dependency {Dependency} to reach this point (currently at {CurrentSlot})", 
+                    dependentName, dependentState.StartIntersection.Slot, dependency, dependencyLatestPoint.Slot);
+            }
+        }
+        // Case 3: They're at the same slot
+        else
+        {
+            logger.LogDebug("{Dependent} and {Dependency} are synchronized at slot {Slot}", 
+                dependentName, dependency, dependencyLatestPoint.Slot);
         }
         
         return Task.CompletedTask;
+    }
+    
+    private async Task CheckAndAdjustDependentStartPointAsync(string dependentName)
+    {
+        // Only check periodically to avoid overhead
+        var now = DateTimeOffset.UtcNow;
+        var lastCheckKey = $"LastStartPointCheck_{dependentName}";
+        
+        if (_lastStartPointChecks.TryGetValue(lastCheckKey, out var lastCheck))
+        {
+            // Check at most once per minute
+            if ((now - lastCheck).TotalMinutes < 1)
+                return;
+        }
+        
+        _lastStartPointChecks[lastCheckKey] = now;
+        
+        // Perform the adjustment check
+        var dependency = _reducerDependency[dependentName];
+        if (dependency == null) return;
+        
+        if (!_reducerStates.TryGetValue(dependency, out var depState) || 
+            !_reducerStates.TryGetValue(dependentName, out var dependentState))
+            return;
+            
+        // Check if dependency has significantly advanced since last adjustment
+        if (depState.LatestIntersections.Any())
+        {
+            var depLatestSlot = depState.LatestSlot;
+            
+            // If dependent hasn't started yet but dependency has advanced significantly
+            if (!dependentState.LatestIntersections.Any() && 
+                dependentState.StartIntersection.Slot < depLatestSlot - 1000) // More than 1000 slots behind
+            {
+                var newStartPoint = depState.LatestIntersections
+                    .OrderByDescending(p => p.Slot)
+                    .Skip(5) // Use a slightly older intersection for safety
+                    .FirstOrDefault();
+                    
+                if (newStartPoint != null && newStartPoint.Slot > dependentState.StartIntersection.Slot)
+                {
+                    logger.LogInformation("Dynamically adjusting {Dependent} start point from {OldSlot} to {NewSlot} as dependency {Dependency} has advanced significantly", 
+                        dependentName, dependentState.StartIntersection.Slot, newStartPoint.Slot, dependency);
+                        
+                    _reducerStates[dependentName] = dependentState with
+                    {
+                        StartIntersection = newStartPoint
+                    };
+                    
+                    // Persist the change
+                    await PersistReducerStateAsync(dependentName);
+                }
+            }
+        }
+    }
+    
+    private async Task PersistReducerStateAsync(string reducerName)
+    {
+        if (!_reducerStates.TryGetValue(reducerName, out var state))
+            return;
+            
+        try
+        {
+            await using var dbContext = await dbContextFactory.CreateDbContextAsync();
+            var existingState = await dbContext.ReducerStates
+                .FirstOrDefaultAsync(r => r.Name == reducerName);
+                
+            if (existingState != null)
+            {
+                existingState.StartIntersectionJson = state.StartIntersectionJson;
+                existingState.LatestIntersectionsJson = state.LatestIntersectionsJson;
+                await dbContext.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to persist reducer state for {Reducer}", reducerName);
+        }
     }
     
     private bool ShouldProcessBlock(string reducerName, ulong blockSlot)
@@ -411,8 +577,36 @@ public class CardanoIndexWorker<T>(
             return false;
         }
 
-        // Check if this dependent is configured to start at or before this slot
-        return blockSlot >= state.StartIntersection.Slot;
+        // First check: Is this block before the reducer's start point?
+        if (blockSlot < state.StartIntersection.Slot)
+        {
+            return false;
+        }
+        
+        // For root reducers, no additional checks needed
+        if (_rootReducers.Contains(reducerName))
+        {
+            return true;
+        }
+        
+        // For dependent reducers, perform dynamic runtime check
+        var dependency = _reducerDependency[reducerName];
+        if (dependency != null && _reducerStates.TryGetValue(dependency, out var depState))
+        {
+            // Check if dependency has processed this block or beyond
+            var dependencyLatestSlot = depState.LatestIntersections.Any() 
+                ? depState.LatestSlot 
+                : depState.StartIntersection.Slot;
+                
+            if (blockSlot > dependencyLatestSlot)
+            {
+                logger.LogDebug("Skipping block {Slot} for {Dependent} - dependency {Dependency} is only at slot {DepSlot}", 
+                    blockSlot, reducerName, dependency, dependencyLatestSlot);
+                return false;
+            }
+        }
+        
+        return true;
     }
 
     private async Task<ReducerState> GetReducerStateAsync(string reducerName, CancellationToken stoppingToken)
