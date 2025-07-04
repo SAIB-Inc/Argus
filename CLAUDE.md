@@ -102,7 +102,7 @@ Argus implements a sophisticated dependency system that optimizes chain connecti
 
 **Dependency Declaration**:
 ```csharp
-[ReducerDepends(typeof(BlockTestReducer))]
+[DependsOn(typeof(BlockTestReducer))]
 public class DependentTransactionReducer : IReducer<TransactionTest>
 {
     // This reducer depends on BlockTestReducer
@@ -164,11 +164,11 @@ The system implements intelligent start point management to ensure dependent red
 **Declaring Dependencies**:
 ```csharp
 // Single dependency
-[ReducerDepends(typeof(BlockTestReducer))]
+[DependsOn(typeof(BlockTestReducer))]
 public class TokenReducer : IReducer<Token> { }
 
 // Chain dependency
-[ReducerDepends(typeof(TokenReducer))]
+[DependsOn(typeof(TokenReducer))]
 public class TokenStatsReducer : IReducer<TokenStats> { }
 ```
 

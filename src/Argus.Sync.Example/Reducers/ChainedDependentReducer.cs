@@ -7,7 +7,7 @@ using Chrysalis.Cbor.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 namespace Argus.Sync.Example.Reducers;
 
-[ReducerDepends(typeof(DependentTransactionReducer))]
+[DependsOn(typeof(DependentTransactionReducer))]
 public class ChainedDependentReducer(
     IDbContextFactory<TestDbContext> dbContextFactory) : IReducer<BlockTest>
 {
