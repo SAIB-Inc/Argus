@@ -94,6 +94,147 @@ A basic reducer:
 3. Implements `RollForwardAsync(Block block)` to process new blocks
 4. Implements `RollBackwardAsync(ulong slot)` to handle rollbacks
 
+### Reducer Dependency System
+
+Argus implements a sophisticated dependency system that optimizes chain connections and ensures proper processing order between reducers.
+
+#### Core Concepts
+
+**Dependency Declaration**:
+```csharp
+[ReducerDepends(typeof(BlockTestReducer))]
+public class DependentTransactionReducer : IReducer<TransactionTest>
+{
+    // This reducer depends on BlockTestReducer
+}
+```
+
+**Key Principles**:
+1. **Single Dependency**: Each reducer can depend on exactly one other reducer (prevents diamond problem)
+2. **Smart Connections**: Only root reducers (no dependencies) get chain connections
+3. **Block Forwarding**: Dependent reducers receive blocks via forwarding from their parent
+4. **Parallel Processing**: Multiple dependents of the same parent process blocks in parallel
+
+#### How It Works
+
+1. **Dependency Graph Building**:
+   - CardanoIndexWorker builds a dependency graph on startup
+   - Identifies root reducers (no dependencies) and dependent reducers
+   - Validates no circular dependencies exist
+
+2. **Connection Management**:
+   ```
+   BlockReducer (root) → Gets chain connection
+   TransactionReducer (root) → Gets chain connection  
+   DependentReducer (depends on Block) → No connection, receives via forwarding
+   ChainedReducer (depends on Dependent) → No connection, receives via forwarding
+   ```
+
+3. **Block Forwarding Flow**:
+   - Root reducer processes block from chain
+   - After processing, forwards block to all its dependents in parallel
+   - Each dependent processes and forwards to its dependents (recursive)
+
+#### Start Point Logic
+
+The system implements intelligent start point management to ensure dependent reducers don't waste resources processing old blocks.
+
+**Automatic Adjustment**:
+- If BlockReducer is at slot 1000 and DependentReducer is starting fresh (slot 0)
+- DependentReducer automatically adjusts to start at slot 1000
+- Uses actual intersection points with valid hashes (no empty strings)
+
+**Topological Processing**:
+- Dependencies are adjusted in order (A before B before C)
+- Ensures each reducer starts at the optimal point based on its dependency
+
+**Runtime Filtering**:
+- `ShouldProcessBlock` checks if dependencies have processed a block
+- Prevents dependents from processing blocks their dependencies haven't seen
+- Dynamic adjustment if dependencies advance significantly
+
+**Edge Cases Handled**:
+1. **Bootstrap**: All reducers starting fresh - no adjustments needed
+2. **Dependency Behind**: Dependent waits for dependency to catch up
+3. **Invalid State**: Warnings for inconsistent states (dependent ahead of dependency)
+4. **Chain Dependencies**: Proper handling of A→B→C→D chains
+
+#### Configuration
+
+**Declaring Dependencies**:
+```csharp
+// Single dependency
+[ReducerDepends(typeof(BlockTestReducer))]
+public class TokenReducer : IReducer<Token> { }
+
+// Chain dependency
+[ReducerDepends(typeof(TokenReducer))]
+public class TokenStatsReducer : IReducer<TokenStats> { }
+```
+
+**Registering Reducers**:
+```csharp
+// All reducers registered normally - dependency resolution is automatic
+services.AddReducers<DbContext, IReducerModel>();
+```
+
+#### Testing Dependencies
+
+**Key Test Scenarios**:
+1. **Connection Count**: Verify only root reducers create connections
+2. **Execution Order**: Ensure proper forwarding sequence
+3. **Start Point Adjustment**: Test automatic adjustment logic
+4. **Rollback Cascading**: Verify rollbacks propagate through dependencies
+
+**Test Example**:
+```csharp
+// DependencySystemTest verifies:
+// - 3 providers created: 1 tip + 2 root reducers (not 4)
+// - Blocks forward correctly through dependency chain
+// - Start points adjust properly
+```
+
+#### Implementation Details
+
+**Parallel Forwarding** (ForwardToDependentsAsync):
+```csharp
+var tasks = dependentNames
+    .Where(name => ShouldProcessBlock(name, slot))
+    .Select(name => ProcessDependentAsync(name, response, action));
+await Task.WhenAll(tasks);
+```
+
+**State Management**:
+- All reducers (root and dependent) maintain their own ReducerState
+- States are persisted for recovery
+- Dynamic adjustments are saved to database
+
+**Performance Considerations**:
+- Reduces connection overhead (fewer chain connections)
+- Enables parallel processing of independent branches
+- Minimal forwarding latency (in-memory)
+
+#### Future Optimization: Catch-Up Mode
+
+A planned optimization for dependents that are significantly behind:
+
+**Concept**: If a dependent is >10,000 blocks behind its dependency:
+1. Temporarily give it its own chain connection
+2. Process independently until within ~100 blocks
+3. Switch back to forwarding mode
+
+**Benefits**:
+- Faster catch-up for lagging dependents
+- Less forwarding load on parent reducers
+- Better resource utilization
+
+**Challenges**:
+- Managing mode transitions
+- Ensuring consistency during switch
+- Connection pool management
+
+This feature can be added later without changing the core dependency architecture.
+
 ### Configuration System
 Configuration is managed through appsettings.json files with these key sections:
 
@@ -168,6 +309,8 @@ Tests/
 │   └── MockChainProviderFactory.cs    # Factory for separate provider instances
 ├── EndToEnd/
 │   ├── CardanoIndexWorkerTest.cs      # Worker factory pattern integration test
+│   ├── DependencySystemTest.cs        # Reducer dependency system test
+│   ├── StartPointLogicTest.cs         # Start point adjustment logic test
 │   └── ReducerDirectTest.cs           # Direct reducer testing
 ├── DataGeneration/
 │   ├── BlockCborDownloadTest.cs           # Download single blocks
@@ -201,6 +344,12 @@ dotnet test --filter "FullyQualifiedName~ReducerDirectTest" --logger "console;ve
 
 # Run specific test with detailed output
 dotnet test --filter "FullyQualifiedName~SingleBlockRollForwardRollbackTest" --logger "console;verbosity=detailed"
+
+# Test dependency system
+dotnet test --filter "FullyQualifiedName~DependencySystemTest" --logger "console;verbosity=detailed"
+
+# Test start point logic
+dotnet test --filter "FullyQualifiedName~StartPointLogicTest" --logger "console;verbosity=detailed"
 ```
 
 **Observe Protocol Behavior**:
