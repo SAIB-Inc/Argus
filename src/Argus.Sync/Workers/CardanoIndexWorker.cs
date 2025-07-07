@@ -29,6 +29,9 @@ public class CardanoIndexWorker<T>(
     private readonly ConcurrentDictionary<string, List<long>> _processingTimes = [];
     private readonly ConcurrentDictionary<string, ulong> _latestSlots = [];
     
+    // TUI update event mechanism
+    private readonly SemaphoreSlim _tuiUpdateSignal = new(0, 1);
+    
     // Dependency graph structures
     private readonly Dictionary<string, IReducer<IReducerModel>> _reducersByName = [];
     private readonly Dictionary<string, List<string>> _dependentReducers = []; // parent -> dependents
@@ -146,7 +149,7 @@ public class CardanoIndexWorker<T>(
             ReducerState reducerState = await GetReducerStateAsync(reducerName, stoppingToken);
             _reducerStates[reducerName] = reducerState;
 
-            IEnumerable<Point> intersections = reducerState.LatestIntersections;
+            IEnumerable<Point> intersections = GetSafeIntersectionPoints(reducerName);
             bool rollbackMode = _rollbackModeEnabled;
 
             if (reducerState is null)
@@ -597,8 +600,8 @@ public class CardanoIndexWorker<T>(
         if (dependency != null && _reducerStates.TryGetValue(dependency, out var depState))
         {
             // Check if dependency has processed this block or beyond
-            var dependencyLatestSlot = depState.LatestIntersections.Any() 
-                ? depState.LatestSlot 
+            var dependencyLatestSlot = _latestSlots.TryGetValue(dependency, out var latestSlot) 
+                ? latestSlot 
                 : depState.StartIntersection.Slot;
                 
             if (blockSlot > dependencyLatestSlot)
@@ -731,23 +734,34 @@ public class CardanoIndexWorker<T>(
             ])
             .StartAsync(async ctx =>
             {
-                List<ProgressTask> tasks = [.. reducers.Select(reducer =>
-                    {
-                        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
-                        return ctx.AddTask(reducerName);
-                    })];
+                Dictionary<ProgressTask, string> taskToReducerName = [];
+                List<ProgressTask> tasks = [];
+                foreach (var reducer in reducers)
+                {
+                    string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+                    var task = ctx.AddTask(reducerName);
+                    tasks.Add(task);
+                    taskToReducerName[task] = reducerName;
+                }
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    // Update effective tip to maximum processed slot across all reducers
-                    if (_latestSlots.Values.Count > 0)
+                    // Periodically update the blockchain tip
+                    try
                     {
-                        EffectiveTipSlot = Math.Max(EffectiveTipSlot, _latestSlots.Values.Max());
+                        var chainProvider = chainProviderFactory.CreateProvider();
+                        var currentTip = await chainProvider.GetTipAsync();
+                        EffectiveTipSlot = currentTip.Slot;
                     }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Failed to update blockchain tip");
+                    }
+                    // Update effective tip to maximum processed slot across all reducers
 
                     foreach (ProgressTask task in tasks)
                     {
-                        string reducerName = task.Description;
+                        string reducerName = taskToReducerName[task];
                         
                         // Load reducer state if not available
                         if (!_reducerStates.ContainsKey(reducerName))
@@ -767,26 +781,18 @@ public class CardanoIndexWorker<T>(
                         ReducerState state = _reducerStates[reducerName];
                         ulong startSlot = state.StartIntersection.Slot;
                         
-                        // Use latest processed slot or latest intersection
-                        ulong currentSlot = _latestSlots.TryGetValue(reducerName, out var latestSlot) 
-                            ? latestSlot 
-                            : state.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? startSlot;
-
-                        if (EffectiveTipSlot <= startSlot)
-                        {
-                            task.Value = 100.0;
-                        }
-                        else
-                        {
-                            ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
-                            ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
-                            double progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
-                            task.Value = progress;
-                        }
+                        // Calculate progress based on reducer type
+                        double progress = CalculateReducerProgress(reducerName, state);
+                        task.Value = progress;
+                        
+                        // Update display with slot information
+                        ulong displaySlot = _latestSlots.TryGetValue(reducerName, out var latestSlot) ? latestSlot : state.StartIntersection.Slot;
+                        task.Description = $"{reducerName} ({displaySlot}/{EffectiveTipSlot})";
                     }
 
                     // Wait for next refresh interval
-                    await Task.Delay(_dashboardRefreshInterval, cancellationToken);
+                    // Wait for new block/slot updates or timeout for periodic refresh
+                    await _tuiUpdateSignal.WaitAsync(TimeSpan.FromMilliseconds(1000), cancellationToken);
                 }
             }
         );
@@ -847,26 +853,15 @@ public class CardanoIndexWorker<T>(
                         }
                         
                         ReducerState state = _reducerStates[reducerName];
-                        ulong startSlot = state.StartIntersection.Slot;
                         
-                        // Use latest processed slot or latest intersection
-                        ulong currentSlot = _latestSlots.TryGetValue(reducerName, out var latestSlot) 
-                            ? latestSlot 
-                            : state.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? startSlot;
+                        // Calculate progress based on reducer type
+                        double progress = CalculateReducerProgress(reducerName, state);
 
-                        double progress;
-                        if (EffectiveTipSlot <= startSlot)
-                        {
-                            progress = 100.0;
-                        }
-                        else
-                        {
-                            ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
-                            ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
-                            progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
-                        }
-
-                        syncBarChart.AddItem(state.Name, Math.Round(progress, 2), GetProgressColor(progress));
+                        // Get current slot for this reducer
+                        ulong currentSlot = _latestSlots.TryGetValue(reducerName, out var latestSlot) ? latestSlot : state.StartIntersection.Slot;
+                        string displayName = $"{state.Name} ({currentSlot}/{EffectiveTipSlot})";
+                        
+                        syncBarChart.AddItem(displayName, Math.Round(progress, 2), GetProgressColor(progress));
                         overallProgress += progress;
                         validReducerCount++;
                     }
@@ -954,7 +949,8 @@ public class CardanoIndexWorker<T>(
                     ctx.Refresh();
 
                     // Wait for next refresh interval
-                    await Task.Delay(_dashboardRefreshInterval, cancellationToken);
+                    // Wait for new block/slot updates or timeout for periodic refresh
+                    await _tuiUpdateSignal.WaitAsync(TimeSpan.FromMilliseconds(1000), cancellationToken);
                 }
             });
     }
@@ -991,6 +987,103 @@ public class CardanoIndexWorker<T>(
              <= 80 => Color.DarkSeaGreen,
              _ => Color.MediumSpringGreen
          };
+    
+    private IEnumerable<Point> GetSafeIntersectionPoints(string reducerName)
+    {
+        // For root reducers with dependents, find the oldest intersection point
+        // across all reducers in the dependency chain to ensure safe rollback
+        if (_rootReducers.Contains(reducerName) && _dependentReducers.TryGetValue(reducerName, out var dependents) && dependents.Count > 0)
+        {
+            var allReducersInChain = new HashSet<string> { reducerName };
+            CollectAllDependentsRecursively(reducerName, allReducersInChain);
+            
+            // Find the OLDEST (minimum slot) intersection across all reducers in the chain
+            Point? oldestIntersection = null;
+            ulong oldestSlot = ulong.MaxValue;
+            
+            foreach (var chainReducerName in allReducersInChain)
+            {
+                if (_reducerStates.TryGetValue(chainReducerName, out var state) && state.LatestIntersections.Any())
+                {
+                    // Get the latest intersection for this reducer
+                    var latestIntersection = state.LatestIntersections
+                        .OrderByDescending(p => p.Slot)
+                        .FirstOrDefault();
+                        
+                    if (latestIntersection != null && latestIntersection.Slot < oldestSlot)
+                    {
+                        oldestSlot = latestIntersection.Slot;
+                        oldestIntersection = latestIntersection;
+                    }
+                }
+            }
+            
+            if (oldestIntersection != null)
+            {
+                logger.LogInformation("Root reducer {Reducer} using oldest intersection point at slot {Slot} (from chain of {Count} reducers) to ensure safe rollback for all dependents", 
+                    reducerName, oldestIntersection.Slot, allReducersInChain.Count);
+                
+                // Return the oldest intersection point
+                return [oldestIntersection];
+            }
+        }
+        
+        // For reducers without dependents or dependent reducers themselves, use their own intersections
+        return _reducerStates[reducerName].LatestIntersections;
+    }
+    
+    private void CollectAllDependentsRecursively(string reducerName, HashSet<string> collected)
+    {
+        if (_dependentReducers.TryGetValue(reducerName, out var dependents))
+        {
+            foreach (var dependent in dependents)
+            {
+                if (collected.Add(dependent))
+                {
+                    // Recursively collect all dependents of this dependent
+                    CollectAllDependentsRecursively(dependent, collected);
+                }
+            }
+        }
+    }
+    
+    private double CalculateReducerProgress(string reducerName, ReducerState state)
+    {
+        // For dependent reducers, recursively calculate based on root dependency's progress
+        if (_reducerDependency.TryGetValue(reducerName, out var dependency) && dependency != null)
+        {
+            // Get dependency's state
+            if (_reducerStates.TryGetValue(dependency, out var depState))
+            {
+                // Recursively calculate dependency's progress (handles chains)
+                return CalculateReducerProgress(dependency, depState);
+            }
+        }
+        
+        // For root reducers, use standard calculation
+        var startSlot = state.StartIntersection.Slot;
+        var currentSlot = _latestSlots.TryGetValue(reducerName, out var latestSlot) 
+            ? latestSlot 
+            : state.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? startSlot;
+            
+        if (EffectiveTipSlot <= startSlot)
+        {
+            return 100.0;
+        }
+        else if (currentSlot >= EffectiveTipSlot)
+        {
+            return 100.0;
+        }
+        else
+        {
+            ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
+            ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
+            double progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
+            
+            // Ensure we never show 100% unless actually at tip
+            return Math.Min(progress, 99.99);
+        }
+    }
 
 
     private async Task StartReducerStateSync(CancellationToken stoppingToken)
@@ -1050,17 +1143,9 @@ public class CardanoIndexWorker<T>(
                     var reducerState = _reducerStates.GetValueOrDefault(reducerName);
                     ulong startSlot = reducerState?.StartIntersection.Slot ?? 0;
                     
-                    double progress;
-                    if (EffectiveTipSlot <= startSlot)
-                    {
-                        progress = 100.0;
-                    }
-                    else
-                    {
-                        ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
-                        ulong totalSlotsSynced = latestSlot >= startSlot ? latestSlot - startSlot : 0;
-                        progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
-                    }
+                    double progress = reducerState != null 
+                        ? CalculateReducerProgress(reducerName, reducerState) 
+                        : 0.0;
                     
                     logger.LogInformation("[{Reducer}]: {Progress:F1}% - Avg {AvgMs:F1}ms, Slot {Slot}/{EffectiveTip}, Processed {Count}", 
                         reducerName, progress, avgTime, latestSlot, EffectiveTipSlot, times.Length);
@@ -1091,17 +1176,7 @@ public class CardanoIndexWorker<T>(
                         ulong currentSlot = reducerState.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? reducerState.StartIntersection.Slot;
                         ulong startSlot = reducerState.StartIntersection.Slot;
                         
-                        double progress;
-                        if (EffectiveTipSlot <= startSlot)
-                        {
-                            progress = 100.0;
-                        }
-                        else
-                        {
-                            ulong totalSlotsToSync = EffectiveTipSlot - startSlot;
-                            ulong totalSlotsSynced = currentSlot >= startSlot ? currentSlot - startSlot : 0;
-                            progress = (double)totalSlotsSynced / totalSlotsToSync * 100.0;
-                        }
+                        double progress = CalculateReducerProgress(reducerName, reducerState);
                             
                         logger.LogInformation("[{Reducer}]: {Progress:F1}% - Slot {Slot}/{EffectiveTip} (waiting for blocks)", 
                             reducerName, progress, currentSlot, EffectiveTipSlot);
@@ -1120,6 +1195,12 @@ public class CardanoIndexWorker<T>(
             (key, list) => { list.Add(elapsedMs); return list; });
             
         _latestSlots[reducerName] = slot;
+        
+        // Signal TUI update for real-time display
+        if (_tuiUpdateSignal.CurrentCount == 0)
+        {
+            _tuiUpdateSignal.Release();
+        }
     }
 
     /// <summary>
