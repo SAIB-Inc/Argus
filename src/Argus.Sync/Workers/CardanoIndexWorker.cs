@@ -31,6 +31,7 @@ public class CardanoIndexWorker<T>(
     
     // TUI update event mechanism
     private readonly SemaphoreSlim _tuiUpdateSignal = new(0, 1);
+    private DateTime _lastTuiUpdate = DateTime.MinValue;
     
     // Dependency graph structures
     private readonly Dictionary<string, IReducer<IReducerModel>> _reducersByName = [];
@@ -38,6 +39,7 @@ public class CardanoIndexWorker<T>(
     private readonly Dictionary<string, string?> _reducerDependency = []; // reducer -> its single dependency
     private readonly HashSet<string> _rootReducers = [];
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastStartPointChecks = [];
+    private readonly ConcurrentDictionary<string, ICardanoChainProvider> _rootReducerProviders = [];
 
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);
     private readonly int _rollbackBuffer = configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
@@ -177,6 +179,13 @@ public class CardanoIndexWorker<T>(
             }
 
             ICardanoChainProvider chainProvider = chainProviderFactory.CreateProvider();
+            
+            // Store provider for root reducers so we can reuse for tip queries
+            if (_rootReducers.Contains(reducerName))
+            {
+                _rootReducerProviders[reducerName] = chainProvider;
+            }
+            
             await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersections, _networkMagic, stoppingToken))
             {
                 Task reducerTask = nextResponse.Action switch
@@ -746,17 +755,6 @@ public class CardanoIndexWorker<T>(
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    // Periodically update the blockchain tip
-                    try
-                    {
-                        var chainProvider = chainProviderFactory.CreateProvider();
-                        var currentTip = await chainProvider.GetTipAsync();
-                        EffectiveTipSlot = currentTip.Slot;
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Failed to update blockchain tip");
-                    }
                     // Update effective tip to maximum processed slot across all reducers
 
                     foreach (ProgressTask task in tasks)
@@ -781,13 +779,31 @@ public class CardanoIndexWorker<T>(
                         ReducerState state = _reducerStates[reducerName];
                         ulong startSlot = state.StartIntersection.Slot;
                         
+                        // Get tip from the appropriate root reducer's provider
+                        ulong currentTip = EffectiveTipSlot;
+                        var rootName = GetRootReducerName(reducerName);
+                        if (rootName != null && _rootReducerProviders.TryGetValue(rootName, out var rootProvider))
+                        {
+                            try
+                            {
+                                var tip = await rootProvider.GetTipAsync();
+                                currentTip = tip.Slot;
+                                // Update global effective tip
+                                EffectiveTipSlot = Math.Max(EffectiveTipSlot, currentTip);
+                            }
+                            catch
+                            {
+                                // Fall back to EffectiveTipSlot if query fails
+                            }
+                        }
+                        
                         // Calculate progress based on reducer type
                         double progress = CalculateReducerProgress(reducerName, state);
                         task.Value = progress;
                         
                         // Update display with slot information
                         ulong displaySlot = _latestSlots.TryGetValue(reducerName, out var latestSlot) ? latestSlot : state.StartIntersection.Slot;
-                        task.Description = $"{reducerName} ({displaySlot}/{EffectiveTipSlot})";
+                        task.Description = $"{reducerName} ({displaySlot}/{currentTip})";
                     }
 
                     // Wait for next refresh interval
@@ -1047,6 +1063,17 @@ public class CardanoIndexWorker<T>(
         }
     }
     
+    private string? GetRootReducerName(string reducerName)
+    {
+        // Follow dependency chain to find root reducer
+        var current = reducerName;
+        while (_reducerDependency.TryGetValue(current, out var dependency) && dependency != null)
+        {
+            current = dependency;
+        }
+        return _rootReducers.Contains(current) ? current : null;
+    }
+
     private double CalculateReducerProgress(string reducerName, ReducerState state)
     {
         // For dependent reducers, recursively calculate based on root dependency's progress
@@ -1196,10 +1223,18 @@ public class CardanoIndexWorker<T>(
             
         _latestSlots[reducerName] = slot;
         
-        // Signal TUI update for real-time display
-        if (_tuiUpdateSignal.CurrentCount == 0)
+        // Signal TUI update for real-time display with anti-spam protection
+        // Use 1/4 of dashboard refresh interval to allow up to 4 updates per refresh cycle
+        var antiSpamInterval = TimeSpan.FromMilliseconds(_dashboardRefreshInterval.TotalMilliseconds / 4);
+        var timeSinceLastUpdate = DateTime.UtcNow - _lastTuiUpdate;
+        
+        if (timeSinceLastUpdate >= antiSpamInterval)
         {
-            _tuiUpdateSignal.Release();
+            if (_tuiUpdateSignal.CurrentCount == 0)
+            {
+                _tuiUpdateSignal.Release();
+            }
+            _lastTuiUpdate = DateTime.UtcNow;
         }
     }
 
