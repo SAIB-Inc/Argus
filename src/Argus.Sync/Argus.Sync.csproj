@@ -23,6 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Chrysalis" Version="0.7.14" />
+    <PackageReference Include="Chrysalis" Version="0.7.15" />
   </ItemGroup>
 </Project>
