@@ -1230,9 +1230,13 @@ public class CardanoIndexWorker<T>(
         
         if (timeSinceLastUpdate >= antiSpamInterval)
         {
-            if (_tuiUpdateSignal.CurrentCount == 0)
+            try
             {
                 _tuiUpdateSignal.Release();
+            }
+            catch (SemaphoreFullException)
+            {
+                // Semaphore is already at max count, ignore
             }
             _lastTuiUpdate = DateTime.UtcNow;
         }
