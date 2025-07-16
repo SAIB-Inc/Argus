@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Argus.Sync</PackageId>
-    <Version>0.3.14-alpha</Version>
+    <Version>0.3.15-alpha</Version>
     <Authors>clark@saib.dev, rjlacanlaled@gmail.com</Authors>
     <Company>SAIB Inc.</Company>
     <PackageDescription>A ASP.NET Framework for Indexing Cardano Data storing it in PostgresSQL</PackageDescription>
