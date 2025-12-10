@@ -21,39 +21,31 @@ public static class ArgusUtil
 
     public static Block? DeserializeBlockWithEra(ReadOnlyMemory<byte> blockCbor)
     {
-        try
-        {
-            CborReader reader = new(blockCbor, CborConformanceMode.Lax);
-            
-            // N2C format: Tag(24, ByteString([era, block]))
-            // Read and verify tag 24
-            var tag = reader.ReadTag();
-            if (tag != CborTag.EncodedCborDataItem)
-            {
-                throw new InvalidOperationException($"Expected CBOR tag 24, got {tag}");
-            }
-            
-            // Read the byte string containing [era, block]
-            var innerBytes = reader.ReadByteString();
-            
-            // Now read the actual array from the inner bytes
-            reader = new CborReader(innerBytes, CborConformanceMode.Lax);
-            reader.ReadStartArray();
-            Era era = (Era)reader.ReadInt32();
-            ReadOnlyMemory<byte> blockBytes = reader.ReadEncodedValue(true);
+        CborReader reader = new(blockCbor, CborConformanceMode.Lax);
 
-            return era switch
-            {
-                Era.Shelley or Era.Allegra or Era.Mary or Era.Alonzo => AlonzoCompatibleBlock.Read(blockBytes),
-                Era.Babbage => BabbageBlock.Read(blockBytes),
-                Era.Conway => ConwayBlock.Read(blockBytes),
-                _ => throw new NotSupportedException($"Unsupported era: {era}")
-            };
-        }
-        catch (Exception ex)
+        // N2C format: Tag(24, ByteString([era, block]))
+        // Read and verify tag 24
+        var tag = reader.ReadTag();
+        if (tag != CborTag.EncodedCborDataItem)
         {
-            Console.WriteLine($"[ArgusUtil] Error deserializing block: {ex.Message}");
-            throw;
+            throw new InvalidOperationException($"Expected CBOR tag 24, got {tag}");
         }
+
+        // Read the byte string containing [era, block]
+        var innerBytes = reader.ReadByteString();
+
+        // Now read the actual array from the inner bytes
+        reader = new CborReader(innerBytes, CborConformanceMode.Lax);
+        reader.ReadStartArray();
+        Era era = (Era)reader.ReadInt32();
+        ReadOnlyMemory<byte> blockBytes = reader.ReadEncodedValue(true);
+
+        return era switch
+        {
+            Era.Shelley or Era.Allegra or Era.Mary or Era.Alonzo => AlonzoCompatibleBlock.Read(blockBytes),
+            Era.Babbage => BabbageBlock.Read(blockBytes),
+            Era.Conway => ConwayBlock.Read(blockBytes),
+            _ => throw new NotSupportedException($"Unsupported era: {era}")
+        };
     }
 }
