@@ -179,14 +179,22 @@ public class CardanoIndexWorker<T>(
             }
 
             ICardanoChainProvider chainProvider = chainProviderFactory.CreateProvider();
-            
+
             // Store provider for root reducers so we can reuse for tip queries
             if (_rootReducers.Contains(reducerName))
             {
                 _rootReducerProviders[reducerName] = chainProvider;
             }
-            
-            await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersections, _networkMagic, stoppingToken))
+
+            // Log intersection points for debugging
+            var intersectionList = intersections.ToList();
+            logger.LogInformation("Starting chain sync for {Reducer} with {Count} intersection point(s). " +
+                "Slots: [{Slots}]",
+                reducerName,
+                intersectionList.Count,
+                string.Join(", ", intersectionList.OrderByDescending(p => p.Slot).Select(p => p.Slot)));
+
+            await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersectionList, _networkMagic, stoppingToken))
             {
                 Task reducerTask = nextResponse.Action switch
                 {
@@ -693,17 +701,19 @@ public class CardanoIndexWorker<T>(
 
     private IEnumerable<Point> UpdateLatestIntersections(IEnumerable<Point> latestIntersections, Point newIntersection)
     {
-        latestIntersections = latestIntersections.OrderByDescending(i => i.Slot);
-        if (latestIntersections.Count() >= _rollbackBuffer)
+        // Always add the new intersection first
+        var updated = latestIntersections.Append(newIntersection);
+
+        // Order by slot descending (newest first)
+        updated = updated.OrderByDescending(i => i.Slot);
+
+        // Keep only the most recent _rollbackBuffer intersections
+        if (updated.Count() > _rollbackBuffer)
         {
-            latestIntersections = latestIntersections.SkipLast(1);
-        }
-        else
-        {
-            latestIntersections = latestIntersections.Append(newIntersection);
+            updated = updated.Take(_rollbackBuffer);
         }
 
-        return latestIntersections;
+        return updated;
     }
 
     private async Task InitDashboardAsync(CancellationToken stoppingToken)
