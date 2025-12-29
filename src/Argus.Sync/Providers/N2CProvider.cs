@@ -60,6 +60,8 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
         NodeClient client = await GetOrCreateClientAsync(networkMagic, stoppingToken.Value);
 
         IEnumerable<CPoint> cIntersections = intersections.Select(p => new CPoint(p.Slot, Convert.FromHexString(p.Hash)));
+        int totalIntersections = cIntersections.Count();
+        bool foundIntersection = false;
 
         while (true)
         {
@@ -71,12 +73,21 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
             cIntersections = cIntersections.OrderByDescending(p => p.Slot);
             ChainSyncMessage intersectMessage = await client.ChainSync!.FindIntersectionAsync(cIntersections, stoppingToken.Value);
 
-            if (intersectMessage is MessageIntersectFound)
+            if (intersectMessage is MessageIntersectFound found)
             {
+                foundIntersection = true;
                 break;
             }
 
             cIntersections = cIntersections.Skip(1);
+        }
+
+        // If no intersection was found, all saved points have been rolled back
+        if (!foundIntersection)
+        {
+            throw new InvalidOperationException(
+                $"Failed to find any valid intersection point. All {totalIntersections} saved intersection(s) have been rolled back. " +
+                "The chain has rolled back beyond the saved state. Consider resetting the reducer state or increasing the rollback buffer size.");
         }
 
         while (!stoppingToken.Value.IsCancellationRequested)
