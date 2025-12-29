@@ -109,9 +109,6 @@ public class CardanoIndexWorker<T>(
         
         if (!_rollbackModeEnabled)
         {
-            // Start initial tip query
-            _ = Task.Run(() => StartInitialTipQueryAsync(stoppingToken), stoppingToken);
-            
             // Start TUI dashboard if enabled
             _ = Task.Run(() => InitDashboardAsync(stoppingToken), stoppingToken);
             
@@ -1132,20 +1129,6 @@ public class CardanoIndexWorker<T>(
         }
     }
 
-    private async Task StartInitialTipQueryAsync(CancellationToken stoppingToken)
-    {
-        try
-        {
-            ICardanoChainProvider chainProvider = chainProviderFactory.CreateProvider();
-            Point initialTip = await chainProvider.GetTipAsync();
-            EffectiveTipSlot = initialTip.Slot;
-            logger.LogInformation("Initial tip established: Slot {InitialTipSlot}", initialTip.Slot);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to get initial tip");
-        }
-    }
 
     private async Task StartTelemetryAggregationAsync(CancellationToken stoppingToken)
     {
