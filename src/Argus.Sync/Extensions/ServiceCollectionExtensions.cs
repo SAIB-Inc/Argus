@@ -34,6 +34,11 @@ public static class ServiceCollectionExtensions
                                 "__EFMigrationsHistory",
                                 configuration!.GetConnectionString("CardanoContextSchema")
                             );
+                            x.EnableRetryOnFailure(
+                                maxRetryCount: 5,
+                                maxRetryDelay: TimeSpan.FromSeconds(30),
+                                errorCodesToAdd: null
+                            );
                         }
                 );
         });
