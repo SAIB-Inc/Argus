@@ -1043,10 +1043,23 @@ public class CardanoIndexWorker<T>(
             
             if (oldestIntersection != null)
             {
-                logger.LogInformation("Root reducer {Reducer} using oldest intersection point at slot {Slot} (from chain of {Count} reducers) to ensure safe rollback for all dependents", 
-                    reducerName, oldestIntersection.Slot, allReducersInChain.Count);
-                
-                // Return the oldest intersection point
+                // Return all intersection points from root reducer that are <= oldest dependent's slot
+                // This preserves the rollback buffer while still respecting dependent reducer progress
+                var rootIntersections = _reducerStates[reducerName].LatestIntersections
+                    .Where(p => p.Slot <= oldestSlot)
+                    .OrderByDescending(p => p.Slot)
+                    .ToList();
+
+                if (rootIntersections.Count > 0)
+                {
+                    logger.LogInformation("Root reducer {Reducer} using {Count} intersection point(s) up to slot {Slot} (oldest dependent slot from chain of {ChainCount} reducers)",
+                        reducerName, rootIntersections.Count, oldestSlot, allReducersInChain.Count);
+                    return rootIntersections;
+                }
+
+                // Fallback to the oldest intersection if no root intersections match
+                logger.LogWarning("Root reducer {Reducer} has no intersections at or below oldest dependent slot {Slot}, using single fallback point",
+                    reducerName, oldestSlot);
                 return [oldestIntersection];
             }
         }
