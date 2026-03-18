@@ -1,5 +1,3 @@
-using System.Reflection;
-using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
@@ -9,19 +7,28 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Argus.Sync.Extensions;
 
+/// <summary>
+/// Extension methods for registering Argus reducers with the dependency injection container.
+/// </summary>
 public static class ReducerExtensions
 {
-    public static void AddReducers<T, V>(this IServiceCollection services, Type[]? optInList = null)
+    /// <summary>
+    /// Registers reducers from an explicit opt-in list of reducer types.
+    /// </summary>
+    /// <typeparam name="T">The database context type.</typeparam>
+    /// <typeparam name="TModel">The reducer model interface type.</typeparam>
+    /// <param name="services">The service collection.</param>
+    /// <param name="optInList">Optional array of reducer types to register.</param>
+    public static void AddReducers<T, TModel>(this IServiceCollection services, Type[]? optInList = null)
         where T : DbContext
-        where V : IReducerModel
+        where TModel : IReducerModel
     {
         optInList ??= [];
 
         IEnumerable<string> reducerNames = optInList.Select(ArgusUtil.GetTypeNameWithoutGenerics);
-        IEnumerable<string> duplicateNames = reducerNames.GroupBy(x => x)
+        IEnumerable<string> duplicateNames = [.. reducerNames.GroupBy(x => x)
                                        .Where(g => g.Count() > 1)
-                                       .Select(g => g.Key)
-                                       .ToList();
+                                       .Select(g => g.Key)];
 
         if (duplicateNames.Any())
         {
@@ -46,13 +53,13 @@ public static class ReducerExtensions
             }
         }
 
-        IEnumerable<Type> reducerTypes = AppDomain.CurrentDomain.GetAssemblies()
+        List<Type> reducerTypes = [.. AppDomain.CurrentDomain.GetAssemblies()
                    .SelectMany(a => a.GetTypes())
-                   .Where(t => typeof(IReducer<V>).IsAssignableFrom(t)
+                   .Where(t => typeof(IReducer<TModel>).IsAssignableFrom(t)
                            && !t.IsInterface
-                           && !t.IsAbstract);
+                           && !t.IsAbstract)];
 
-        if (reducerTypes.Any())
+        if (reducerTypes.Count > 0)
         {
             foreach (Type reducerType in reducerTypes)
             {
@@ -61,23 +68,32 @@ public static class ReducerExtensions
                     if (reducerType.IsGenericTypeDefinition)
                     {
                         Type closedReducerType = reducerType.MakeGenericType(typeof(T));
-                        services.AddSingleton(typeof(IReducer<V>), closedReducerType);
+                        _ = services.AddSingleton(typeof(IReducer<TModel>), closedReducerType);
                     }
                     else
                     {
-                        services.AddSingleton(typeof(IReducer<V>), reducerType);
+                        _ = services.AddSingleton(typeof(IReducer<TModel>), reducerType);
                     }
                 }
             }
         }
     }
 
-    public static void AddReducers<T, V>(
+    /// <summary>
+    /// Registers reducers based on application configuration settings.
+    /// </summary>
+    /// <typeparam name="T">The database context type.</typeparam>
+    /// <typeparam name="TModel">The reducer model interface type.</typeparam>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">The application configuration.</param>
+    public static void AddReducers<T, TModel>(
         this IServiceCollection services,
         IConfiguration configuration)
         where T : DbContext
-        where V : IReducerModel
+        where TModel : IReducerModel
     {
+        ArgumentNullException.ThrowIfNull(configuration);
+
         // Check if we're running migrations
         bool isEfDesignTime = AppDomain.CurrentDomain.GetAssemblies()
             .Any(a => a.GetName().Name == "ef");
@@ -93,14 +109,13 @@ public static class ReducerExtensions
             .Get<IEnumerable<string>>() ?? [];
 
         // Use AppDomain.CurrentDomain like the first version
-        var reducerTypes = AppDomain.CurrentDomain
+        List<Type> reducerTypes = [.. AppDomain.CurrentDomain
             .GetAssemblies()
-            .Where(a => !a.FullName!.StartsWith("Argus.Sync,"))
+            .Where(a => !a.FullName!.StartsWith("Argus.Sync,", StringComparison.Ordinal))
             .SelectMany(a => a.GetTypes())
-            .Where(t => typeof(IReducer<V>).IsAssignableFrom(t)
+            .Where(t => typeof(IReducer<TModel>).IsAssignableFrom(t)
                     && !t.IsInterface
-                    && !t.IsAbstract)
-            .ToList();
+                    && !t.IsAbstract)];
 
 
         // If no active reducers specified, register all found reducers
@@ -109,21 +124,17 @@ public static class ReducerExtensions
             foreach (Type reducerType in reducerTypes)  // Changed to iterate over reducerTypes
             {
                 ValidateReducerDependencies(reducerType);
-                RegisterReducer<V>(services, reducerType, typeof(T));
+                RegisterReducer<TModel>(services, reducerType, typeof(T));
             }
             return;
         }
 
         // Validate reducer names against available types
-        List<string> availableReducerNames = reducerTypes
-            .Select(ArgusUtil.GetTypeNameWithoutGenerics)
-            .ToList();
+        List<string> availableReducerNames = [.. reducerTypes.Select(ArgusUtil.GetTypeNameWithoutGenerics)];
 
-        List<string> invalidReducers = activeReducers
-            .Where(r => !availableReducerNames.Contains(r))
-            .ToList();
+        List<string> invalidReducers = [.. activeReducers.Where(r => !availableReducerNames.Contains(r))];
 
-        if (invalidReducers.Any())
+        if (invalidReducers.Count > 0)
         {
             throw new ArgumentException(
                 $"Invalid reducer names specified: {string.Join(", ", invalidReducers)}"
@@ -131,13 +142,12 @@ public static class ReducerExtensions
         }
 
         // Check for duplicates in active reducers
-        List<string> duplicateNames = activeReducers
+        List<string> duplicateNames = [.. activeReducers
             .GroupBy(x => x)
             .Where(g => g.Count() > 1)
-            .Select(g => g.Key)
-            .ToList();
+            .Select(g => g.Key)];
 
-        if (duplicateNames.Any())
+        if (duplicateNames.Count > 0)
         {
             throw new ArgumentException(
                 $"Duplicate reducer names specified: {string.Join(", ", duplicateNames)}"
@@ -151,7 +161,7 @@ public static class ReducerExtensions
                 .First(t => ArgusUtil.GetTypeNameWithoutGenerics(t) == reducerName);
 
             ValidateReducerDependencies(reducerType);
-            RegisterReducer<V>(services, reducerType, typeof(T));  // Note the <V> here
+            RegisterReducer<TModel>(services, reducerType, typeof(T));  // Note the <TModel> here
         }
     }
 
@@ -171,17 +181,17 @@ public static class ReducerExtensions
         }
     }
 
-    private static void RegisterReducer<V>(IServiceCollection services, Type reducerType, Type dbContextType)
-        where V : IReducerModel
+    private static void RegisterReducer<TModel>(IServiceCollection services, Type reducerType, Type dbContextType)
+        where TModel : IReducerModel
     {
         if (reducerType.IsGenericTypeDefinition)
         {
             Type closedReducerType = reducerType.MakeGenericType(dbContextType);
-            services.AddSingleton(typeof(IReducer<V>), closedReducerType);
+            _ = services.AddSingleton(typeof(IReducer<TModel>), closedReducerType);
         }
         else
         {
-            services.AddSingleton(typeof(IReducer<V>), reducerType);
+            _ = services.AddSingleton(typeof(IReducer<TModel>), reducerType);
         }
     }
 }

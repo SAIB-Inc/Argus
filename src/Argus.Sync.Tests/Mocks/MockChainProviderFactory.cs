@@ -9,11 +9,11 @@ namespace Argus.Sync.Tests.Mocks;
 /// </summary>
 public class MockChainProviderFactory(string testDataDirectory) : IChainProviderFactory
 {
-    private readonly List<MockChainSyncProvider> _createdProviders = new();
+    private readonly List<MockChainSyncProvider> _createdProviders = [];
 
     public ICardanoChainProvider CreateProvider()
     {
-        var provider = new MockChainSyncProvider(testDataDirectory);
+        MockChainSyncProvider provider = new(testDataDirectory);
         _createdProviders.Add(provider);
         return provider;
     }

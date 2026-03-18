@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Argus.Sync/Argus.Sync.csproj" />
+    <Project Path="src/Argus.Sync.Example/Argus.Sync.Example.csproj" />
+    <Project Path="src/Argus.Sync.Tests/Argus.Sync.Tests.csproj" />
+  </Folder>
+</Solution>

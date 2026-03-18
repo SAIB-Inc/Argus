@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect code changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - '*.slnx'
+              - 'Directory.Build.props'
+              - '.github/workflows/ci.yml'
+
+      - name: Setup .NET
+        if: steps.changes.outputs.code == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        if: steps.changes.outputs.code == 'true'
+        run: dotnet restore
+
+      - name: Build
+        if: steps.changes.outputs.code == 'true'
+        run: dotnet build --no-restore -warnaserror
+
+      - name: Check formatting
+        if: steps.changes.outputs.code == 'true'
+        run: dotnet format --no-restore --verify-no-changes
+
+      - name: Test
+        if: steps.changes.outputs.code == 'true'
+        run: dotnet test --no-build --filter "Category!=Integration"
+
+      - name: Pack (dry run)
+        if: steps.changes.outputs.code == 'true'
+        run: |
+          mkdir -p out
+          for proj in src/Argus.Sync/Argus.Sync.csproj; do
+            echo "Packing $proj..."
+            dotnet pack "$proj" -c Release -o out
+          done
+          echo "Packed $(ls out/*.nupkg | wc -l) packages:"
+          ls -la out/*.nupkg
+
+      - name: Skip reason
+        if: steps.changes.outputs.code != 'true'
+        run: echo "No source code changes detected — skipping build/test/pack."

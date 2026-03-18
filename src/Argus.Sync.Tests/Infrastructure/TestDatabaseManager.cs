@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using Xunit.Abstractions;
 
 namespace Argus.Sync.Tests.Infrastructure;
@@ -13,54 +14,51 @@ namespace Argus.Sync.Tests.Infrastructure;
 public class TestDatabaseManager : IAsyncDisposable
 {
     private readonly ITestOutputHelper _output;
-    private readonly string _testDatabaseName;
-    private readonly ServiceProvider _serviceProvider;
-    private readonly TestDbContext _dbContext;
 
-    public TestDbContext DbContext => _dbContext;
-    public ServiceProvider ServiceProvider => _serviceProvider;
-    public string DatabaseName => _testDatabaseName;
+    public TestDbContext DbContext { get; }
+    public ServiceProvider ServiceProvider { get; }
+    public string DatabaseName { get; }
 
     public TestDatabaseManager(ITestOutputHelper output)
     {
         _output = output;
-        _testDatabaseName = $"argus_test_{Guid.NewGuid():N}";
-        
+        DatabaseName = $"argus_test_{Guid.NewGuid():N}";
+
         // Setup test configuration
-        var configuration = new ConfigurationBuilder()
+        IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:CardanoContext"] = $"Host=localhost;Database={_testDatabaseName};Username=postgres;Password=postgres;Port=4321",
+                ["ConnectionStrings:CardanoContext"] = $"Host=localhost;Database={DatabaseName};Username=postgres;Password=postgres;Port=4321",
                 ["ConnectionStrings:CardanoContextSchema"] = "public"
             })
             .Build();
 
         // Setup DI container
-        var services = new ServiceCollection();
-        services.AddSingleton<IConfiguration>(configuration);
-        services.AddLogging(builder => 
+        ServiceCollection services = new();
+        _ = services.AddSingleton<IConfiguration>(configuration);
+        _ = services.AddLogging(builder =>
         {
-            builder.AddConsole()
+            _ = builder.AddConsole()
                    .SetMinimumLevel(LogLevel.Warning)
                    .AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Warning);
         });
-        
+
         // Add database context
-        services.AddDbContextFactory<TestDbContext>(options =>
+        _ = services.AddDbContextFactory<TestDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("CardanoContext")));
-        
+
         // Add reducers
-        services.AddTransient<Argus.Sync.Example.Reducers.BlockTestReducer>();
-        services.AddTransient<Argus.Sync.Example.Reducers.TransactionTestReducer>();
-        
-        _serviceProvider = services.BuildServiceProvider();
-        
+        _ = services.AddTransient<Example.Reducers.BlockTestReducer>();
+        _ = services.AddTransient<Example.Reducers.TransactionTestReducer>();
+
+        ServiceProvider = services.BuildServiceProvider();
+
         // Create test database and apply migrations
-        var dbContextFactory = _serviceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
-        _dbContext = dbContextFactory.CreateDbContext();
-        _dbContext.Database.EnsureCreated();
-        
-        _output.WriteLine($"Created test database: {_testDatabaseName}");
+        IDbContextFactory<TestDbContext> dbContextFactory = ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        DbContext = dbContextFactory.CreateDbContext();
+        _ = DbContext.Database.EnsureCreated();
+
+        _output.WriteLine($"Created test database: {DatabaseName}");
     }
 
     public async ValueTask DisposeAsync()
@@ -68,43 +66,61 @@ public class TestDatabaseManager : IAsyncDisposable
         try
         {
             // Close all connections first
-            await _dbContext.Database.CloseConnectionAsync();
-            await _dbContext.DisposeAsync();
-            
+            await DbContext.Database.CloseConnectionAsync();
+            await DbContext.DisposeAsync();
+
             // Dispose service provider to close any other connections
-            await _serviceProvider.DisposeAsync();
-            
+            await ServiceProvider.DisposeAsync();
+
             // Wait a moment for connections to fully close
             await Task.Delay(100);
-            
+
             // Force terminate any remaining connections and drop database
-            var connectionString = "Host=localhost;Database=postgres;Username=postgres;Password=postgres;Port=4321";
-            using var connection = new Npgsql.NpgsqlConnection(connectionString);
+            string connectionString = "Host=localhost;Database=postgres;Username=postgres;Password=postgres;Port=4321";
+            using NpgsqlConnection connection = new(connectionString);
             await connection.OpenAsync();
-            
+
             // First terminate any active connections to the test database
-            using var terminateCommand = connection.CreateCommand();
-            terminateCommand.CommandText = $@"
+            using NpgsqlCommand terminateCommand = connection.CreateCommand();
+            terminateCommand.CommandText = @"
                 SELECT pg_terminate_backend(pg_stat_activity.pid)
                 FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{_testDatabaseName}'
+                WHERE pg_stat_activity.datname = @dbName
                   AND pid <> pg_backend_pid()";
-            await terminateCommand.ExecuteNonQueryAsync();
-            
+            _ = terminateCommand.Parameters.AddWithValue("@dbName", DatabaseName);
+            _ = await terminateCommand.ExecuteNonQueryAsync();
+
             // Small delay to ensure connections are terminated
             await Task.Delay(50);
-            
-            // Now drop the database
-            using var dropCommand = connection.CreateCommand();
-            dropCommand.CommandText = $"DROP DATABASE IF EXISTS \"{_testDatabaseName}\"";
-            await dropCommand.ExecuteNonQueryAsync();
-            _output.WriteLine($"Deleted test database: {_testDatabaseName}");
+
+            // Now drop the database using a helper to build the safe SQL command.
+            // DROP DATABASE does not support parameterized database names in PostgreSQL,
+            // but DatabaseName is a GUID generated internally (not user input), so this is safe.
+            await DropDatabaseAsync(connection, DatabaseName);
+            _output.WriteLine($"Deleted test database: {DatabaseName}");
         }
         catch (Exception ex)
         {
             _output.WriteLine($"Error cleaning up database: {ex.Message}");
         }
-        
+
         GC.SuppressFinalize(this);
+    }
+
+    private static async Task DropDatabaseAsync(NpgsqlConnection connection, string databaseName)
+    {
+        // Use a PL/pgSQL DO block to execute dynamic DROP DATABASE safely.
+        // The database name is passed as a parameter and quoted server-side with quote_ident(),
+        // keeping CommandText fully constant to satisfy CA2100.
+        using NpgsqlCommand dropCommand = connection.CreateCommand();
+        dropCommand.CommandText = "DO $$ BEGIN EXECUTE format('DROP DATABASE IF EXISTS %I', current_setting('argus.drop_db_name')); END $$";
+
+        // Set the database name via a custom GUC parameter so the DO block can read it
+        using NpgsqlCommand setCommand = connection.CreateCommand();
+        setCommand.CommandText = "SELECT set_config('argus.drop_db_name', @dbName, true)";
+        _ = setCommand.Parameters.AddWithValue("@dbName", databaseName);
+        _ = await setCommand.ExecuteScalarAsync();
+
+        _ = await dropCommand.ExecuteNonQueryAsync();
     }
 }

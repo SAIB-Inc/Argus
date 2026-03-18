@@ -22,7 +22,7 @@ public class BlockTestReducer(
                 .Where(b => b.Slot >= slot)
         );
 
-        await dbContext.SaveChangesAsync();
+        _ = await dbContext.SaveChangesAsync();
     }
 
     public async Task RollForwardAsync(Block block)
@@ -32,8 +32,8 @@ public class BlockTestReducer(
         ulong slot = block.Header().HeaderBody().Slot();
 
         using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        dbContext.BlockTests.Add(new BlockTest(blockHash, blockNumber, slot, DateTime.UtcNow));
+        _ = dbContext.BlockTests.Add(new BlockTest(blockHash, blockNumber, slot, DateTime.UtcNow));
 
-        await dbContext.SaveChangesAsync();
+        _ = await dbContext.SaveChangesAsync();
     }
 }

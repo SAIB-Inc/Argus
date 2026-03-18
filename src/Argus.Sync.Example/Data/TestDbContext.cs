@@ -15,17 +15,17 @@ public class TestDbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-
+        ArgumentNullException.ThrowIfNull(modelBuilder);
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<BlockTest>(entity =>
+        _ = modelBuilder.Entity<BlockTest>(entity =>
         {
-            entity.HasKey(b => new { b.Hash, b.Slot } );
+            _ = entity.HasKey(b => new { b.Hash, b.Slot });
         });
 
-        modelBuilder.Entity<TransactionTest>(entity =>
+        _ = modelBuilder.Entity<TransactionTest>(entity =>
         {
-            entity.HasKey(e => new { e.TxHash, e.TxIndex });
+            _ = entity.HasKey(e => new { e.TxHash, e.TxIndex });
         });
     }
 }

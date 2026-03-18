@@ -11,27 +11,31 @@ using Chrysalis.Cbor.Types.Cardano.Core.Header;
 
 namespace Argus.Sync.Providers;
 
+/// <summary>
+/// Cardano chain provider using the UTxO RPC (U5C) gRPC protocol.
+/// </summary>
+/// <param name="url">The gRPC endpoint URL.</param>
+/// <param name="header">The HTTP headers to include with gRPC requests.</param>
 public class U5CProvider(string url, Dictionary<string, string> header) : ICardanoChainProvider
 {
-    public Task<Point> GetTipAsync(ulong networkMagic = 2, CancellationToken? stoppingToken = null)
-    {
-        throw new NotImplementedException();
-    }
+    /// <inheritdoc />
+    public Task<Point> GetTipAsync(ulong networkMagic = 2, CancellationToken? stoppingToken = null) => throw new NotImplementedException();
 
-    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersections, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
+    /// <inheritdoc />
+    public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersection, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
 
-        var client = new SyncServiceClient(
+        SyncServiceClient client = new(
             url,
             header
         );
 
-        var latestIntersections = intersections.MaxBy(e => e.Slot);
+        Point? latestIntersection = intersection.MaxBy(e => e.Slot);
         await foreach (U5CNextResponse? response in client.FollowTipAsync(
             new Utxorpc.Sdk.Models.BlockRef
             (
-                latestIntersections!.Hash,
-                latestIntersections.Slot
+                latestIntersection!.Hash,
+                latestIntersection.Slot
             )))
         {
 
