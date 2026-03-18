@@ -2,8 +2,8 @@ using Argus.Sync.Utils;
 using Chrysalis.Network.Multiplexer;
 using Chrysalis.Network.Cbor.Common;
 using Chrysalis.Network.Cbor.ChainSync;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -25,13 +25,13 @@ public class OuroborosProtocolObservationTest(ITestOutputHelper output)
             return;
         }
 
-        var intersectionPoint = new Chrysalis.Network.Cbor.Common.Point(
+        var intersectionPoint = new SpecificPoint(
             82916702,
             Convert.FromHexString("cee6005816f33d87155f3fe31170081bbdac6356a8eebc9aa725e133e96cf8e5")
         );
         
         output.WriteLine("=== Observing Real Ouroboros Protocol Behavior ===");
-        output.WriteLine($"Intersection: Slot {intersectionPoint.Slot}, Hash {Convert.ToHexString(intersectionPoint.Hash)[..16]}...");
+        output.WriteLine($"Intersection: Slot {intersectionPoint.Slot}, Hash {Convert.ToHexString(intersectionPoint.Hash.Span)[..16]}...");
 
         // Act - Connect and observe
         var client = await NodeClient.ConnectAsync(socketPath, CancellationToken.None);
@@ -63,8 +63,9 @@ public class OuroborosProtocolObservationTest(ITestOutputHelper output)
                 case MessageRollBackward rollback:
                     output.WriteLine($"🔄 ROLLBACK Message:");
                     output.WriteLine($"   Type: {rollback.GetType().Name}");
-                    output.WriteLine($"   Point Slot: {rollback.Point?.Slot}");
-                    output.WriteLine($"   Point Hash: {(rollback.Point != null ? Convert.ToHexString(rollback.Point.Hash)[..16] + "..." : "null")}");
+                    var rbPoint = rollback.Point as SpecificPoint;
+                    output.WriteLine($"   Point Slot: {rbPoint?.Slot}");
+                    output.WriteLine($"   Point Hash: {(rbPoint != null ? Convert.ToHexString(rbPoint.Hash.Span)[..16] + "..." : "null")}");
                     output.WriteLine($"   This establishes the intersection point for chain sync");
                     break;
                     
@@ -118,9 +119,6 @@ public class OuroborosProtocolObservationTest(ITestOutputHelper output)
         output.WriteLine("4. Block data includes transaction count and other metadata");
         
         // Clean up
-        if (client is IDisposable disposable)
-            disposable.Dispose();
-        else if (client is IAsyncDisposable asyncDisposable)
-            await asyncDisposable.DisposeAsync();
+        client.Dispose();
     }
 }

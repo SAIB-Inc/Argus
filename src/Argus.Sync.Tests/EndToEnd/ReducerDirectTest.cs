@@ -2,11 +2,11 @@ using Argus.Sync.Data.Models;
 using Argus.Sync.Example.Reducers;
 using Argus.Sync.Tests.Infrastructure;
 using Argus.Sync.Tests.Mocks;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Serialization;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Transaction;
+using Chrysalis.Codec.Serialization;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -81,7 +81,7 @@ public class ReducerDirectTest : IAsyncLifetime
 
     #region Setup and Configuration
 
-    private Task<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, Block[]?)> SetupTestEnvironmentAsync()
+    private Task<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, IBlock[]?)> SetupTestEnvironmentAsync()
     {
         var testDataDir = Path.Combine(Directory.GetCurrentDirectory(), "TestData");
         var mockProvider = new MockChainSyncProvider(testDataDir);
@@ -90,7 +90,7 @@ public class ReducerDirectTest : IAsyncLifetime
         {
             _output.WriteLine("Skipping test - no block test data found in TestData/Blocks/");
             _output.WriteLine("Run MultipleBlockCborDownloadTest first to generate test data.");
-            return Task.FromResult<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, Block[]?)>((mockProvider, null!, null!, null));
+            return Task.FromResult<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, IBlock[]?)>((mockProvider, null!, null!, null));
         }
         
         var dbContextFactory = _databaseManager!.ServiceProvider
@@ -101,14 +101,14 @@ public class ReducerDirectTest : IAsyncLifetime
         var testBlocks = mockProvider.AvailableBlocks.Take(5).ToArray();
         _output.WriteLine($"Using {testBlocks.Length} blocks for testing");
         
-        return Task.FromResult<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, Block[]?)>((mockProvider, blockReducer, txReducer, testBlocks));
+        return Task.FromResult<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, IBlock[]?)>((mockProvider, blockReducer, txReducer, testBlocks));
     }
 
     #endregion
 
     #region Block Content Analysis
 
-    private void LogBlockContentsAnalysis(Block[] testBlocks)
+    private void LogBlockContentsAnalysis(IBlock[] testBlocks)
     {
         _output.WriteLine("\n=== Block Contents Analysis ===");
         
@@ -124,7 +124,7 @@ public class ReducerDirectTest : IAsyncLifetime
         }
     }
 
-    private static BlockInfo ExtractBlockInfo(Block block)
+    private static BlockInfo ExtractBlockInfo(IBlock block)
     {
         var header = block.Header().HeaderBody();
         return new BlockInfo
@@ -137,7 +137,7 @@ public class ReducerDirectTest : IAsyncLifetime
         };
     }
 
-    private void LogTransactionDetails(Block block, int txCount)
+    private void LogTransactionDetails(IBlock block, int txCount)
     {
         if (txCount <= 0) return;
 
@@ -184,7 +184,7 @@ public class ReducerDirectTest : IAsyncLifetime
     private async Task HandleRollBackAsync(NextResponse response, MockChainSyncProvider mockProvider,
         BlockTestReducer blockReducer, TransactionTestReducer txReducer)
     {
-        var rollbackSlot = mockProvider.GetActualRollbackSlot(response);
+        var rollbackSlot = response.RollbackSlot ?? 0;
         
         if (!_rollbackReceived)
         {
@@ -207,20 +207,20 @@ public class ReducerDirectTest : IAsyncLifetime
     private async Task HandleRollForwardAsync(NextResponse response, 
         BlockTestReducer blockReducer, TransactionTestReducer txReducer)
     {
-        var blockInfo = ExtractBlockInfo(response.Block);
-        var txHashes = ExtractTransactionHashes(response.Block);
-        
+        var blockInfo = ExtractBlockInfo(response.Block!);
+        var txHashes = ExtractTransactionHashes(response.Block!);
+
         // Update tracking state
         _blockTxCounts[blockInfo.Slot] = blockInfo.TxCount;
         _blockSlots.Add(blockInfo.Slot);
         _blockDetails[blockInfo.Slot] = new BlockDetails(blockInfo.Hash, blockInfo.Height, blockInfo.TxCount, txHashes);
-        
+
         _output.WriteLine($"Processing block {_processedBlocks + 1}: slot {blockInfo.Slot}, " +
                          $"{blockInfo.TxCount} transactions, hash {blockInfo.Hash[..16]}...");
-        
+
         // Process with reducers
-        await blockReducer.RollForwardAsync(response.Block);
-        await txReducer.RollForwardAsync(response.Block);
+        await blockReducer.RollForwardAsync(response.Block!);
+        await txReducer.RollForwardAsync(response.Block!);
         _processedBlocks++;
         
         await VerifyPerBlockStateAsync();
@@ -312,7 +312,7 @@ public class ReducerDirectTest : IAsyncLifetime
 
     #region Rollforward Execution
 
-    private async Task ExecuteRollForwardPhaseAsync(MockChainSyncProvider mockProvider, Block[] testBlocks)
+    private async Task ExecuteRollForwardPhaseAsync(MockChainSyncProvider mockProvider, IBlock[] testBlocks)
     {
         _output.WriteLine("=== Phase 1: RollForward 5 blocks ===");
         
@@ -422,7 +422,7 @@ public class ReducerDirectTest : IAsyncLifetime
 
     #region Helper Methods
 
-    private static List<string> ExtractTransactionHashes(Block block)
+    private static List<string> ExtractTransactionHashes(IBlock block)
     {
         var txCount = block.TransactionBodies()?.Count() ?? 0;
         if (txCount == 0) return new List<string>();

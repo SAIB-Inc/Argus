@@ -2,8 +2,8 @@ using Argus.Sync.Utils;
 using Chrysalis.Network.Multiplexer;
 using Chrysalis.Network.Cbor.Common;
 using Chrysalis.Network.Cbor.ChainSync;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -37,7 +37,7 @@ public class MultipleBlockCborDownloadTest(ITestOutputHelper output)
         await client.StartAsync(networkMagic);
         
         // Use real intersection point you provided
-        var intersectionPoint = new Chrysalis.Network.Cbor.Common.Point(
+        var intersectionPoint = new SpecificPoint(
             82916702,
             Convert.FromHexString("cee6005816f33d87155f3fe31170081bbdac6356a8eebc9aa725e133e96cf8e5")
         );
@@ -93,7 +93,7 @@ public class MultipleBlockCborDownloadTest(ITestOutputHelper output)
             }
             else if (nextResponse is MessageRollBackward rollBackward)
             {
-                output.WriteLine($"Encountered rollback to slot {rollBackward.Point?.Slot}, continuing...");
+                output.WriteLine($"Encountered rollback to slot {(rollBackward.Point is SpecificPoint sp ? sp.Slot : 0)}, continuing...");
                 // In a real download, we might need to handle this, but for test data generation we'll skip
             }
         }

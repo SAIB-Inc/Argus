@@ -2,12 +2,7 @@ using Argus.Sync.Data.Models;
 using Utxorpc.Sdk;
 using U5CNextResponse = Utxorpc.Sdk.Models.NextResponse;
 using Argus.Sync.Utils;
-using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
-using Chrysalis.Cbor.Types;
-using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Types.Cardano.Core.TransactionWitness;
-using Chrysalis.Cbor.Types.Cardano.Core;
-using Chrysalis.Cbor.Types.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
 
 namespace Argus.Sync.Providers;
 
@@ -44,7 +39,7 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                 switch (response.Action)
                 {
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Apply:
-                        Block? block = ArgusUtil.DeserializeBlockWithEra(response.AppliedBlock!.NativeBytes);
+                        var block = ArgusUtil.DeserializeBlockWithEra(response.AppliedBlock!.NativeBytes);
                         yield return new NextResponse(
                             NextResponseAction.RollForward,
                             null,
@@ -56,40 +51,16 @@ public class U5CProvider(string url, Dictionary<string, string> header) : ICarda
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
                             RollBackType.Inclusive,
-                            block!
+                            block,
+                            block?.Slot()
                         );
                         break;
                     case Utxorpc.Sdk.Models.Enums.NextResponseAction.Reset:
-                        block = new ConwayBlock(
-                            new BlockHeader(
-                                new AlonzoHeaderBody(
-                                    0,
-                                    response.ResetRef!.Index,
-                                    [],
-                                    [],
-                                    [],
-                                    new VrfCert([], []),
-                                    new VrfCert([], []),
-                                    0,
-                                    [],
-                                    [],
-                                    0,
-                                    0,
-                                    [],
-                                    0,
-                                    0
-                                ),
-                            []
-                            ),
-                            new CborDefList<ConwayTransactionBody>([]),
-                            new CborDefList<PostAlonzoTransactionWitnessSet>([]),
-                            new AuxiliaryDataSet([]),
-                            new CborDefList<int>([])
-                        );
                         yield return new NextResponse(
                             NextResponseAction.RollBack,
                             RollBackType.Exclusive,
-                            block
+                            null,
+                            response.ResetRef!.Slot
                         );
                         break;
                     default:

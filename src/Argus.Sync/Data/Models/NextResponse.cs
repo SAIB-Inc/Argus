@@ -4,6 +4,7 @@ public record NextResponse
 (
     NextResponseAction Action,
     RollBackType? RollBackType,
-    Chrysalis.Cbor.Types.Cardano.Core.Block Block
+    Chrysalis.Codec.Types.Cardano.Core.IBlock? Block,
+    ulong? RollbackSlot = null
 );
 

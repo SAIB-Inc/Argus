@@ -10,8 +10,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using NextResponse = Argus.Sync.Data.Models.NextResponse;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
 using System.Diagnostics;
 
 namespace Argus.Sync.Workers;
@@ -229,15 +229,15 @@ public class CardanoIndexWorker<T>(
         string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
         var stopwatch = Stopwatch.StartNew();
         
-        await reducer.RollForwardAsync(response.Block);
+        await reducer.RollForwardAsync(response.Block!);
         
         stopwatch.Stop();
-        ulong slot = response.Block.Header().HeaderBody().Slot();
+        ulong slot = response.Block!.Header().HeaderBody().Slot();
         
         // Send telemetry data non-blocking
         RecordTelemetry(reducerName, stopwatch.ElapsedMilliseconds, slot);
 
-        Point recentIntersection = new(response.Block.Header().Hash(), slot);
+        Point recentIntersection = new(response.Block!.Header().Hash(), slot);
         IEnumerable<Point> latestIntersections = UpdateLatestIntersections(_reducerStates[reducerName].LatestIntersections, recentIntersection);
         _reducerStates[reducerName] = _reducerStates[reducerName] with
         {
@@ -255,8 +255,8 @@ public class CardanoIndexWorker<T>(
         string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
         ulong rollbackSlot = response.RollBackType switch
         {
-            RollBackType.Exclusive => response.Block.Header().HeaderBody().Slot() + 1UL,
-            RollBackType.Inclusive => response.Block.Header().HeaderBody().Slot(),
+            RollBackType.Exclusive => response.RollbackSlot!.Value + 1UL,
+            RollBackType.Inclusive => response.RollbackSlot!.Value,
             _ => 0
         };
 
@@ -296,7 +296,7 @@ public class CardanoIndexWorker<T>(
             return; // No dependents to forward to
         }
 
-        var slot = response.Block.Header().HeaderBody().Slot();
+        var slot = response.Block!.Header().HeaderBody().Slot();
         
         // Process all dependents in parallel
         var tasks = dependentNames
@@ -309,7 +309,7 @@ public class CardanoIndexWorker<T>(
     private async Task ProcessDependentAsync(string dependentName, NextResponse response, NextResponseAction action)
     {
         var dependentReducer = _reducersByName[dependentName];
-        var slot = response.Block.Header().HeaderBody().Slot();
+        var slot = response.Block!.Header().HeaderBody().Slot();
         
         try
         {
@@ -320,12 +320,12 @@ public class CardanoIndexWorker<T>(
             
             if (action == NextResponseAction.RollForward)
             {
-                await dependentReducer.RollForwardAsync(response.Block);
+                await dependentReducer.RollForwardAsync(response.Block!);
                 
                 // Update dependent state
                 if (_reducerStates.TryGetValue(dependentName, out var currentState))
                 {
-                    Point recentIntersection = new(response.Block.Header().Hash(), slot);
+                    Point recentIntersection = new(response.Block!.Header().Hash(), slot);
                     IEnumerable<Point> latestIntersections = UpdateLatestIntersections(currentState.LatestIntersections, recentIntersection);
                     _reducerStates[dependentName] = currentState with
                     {
@@ -337,8 +337,8 @@ public class CardanoIndexWorker<T>(
             {
                 ulong rollbackSlot = response.RollBackType switch
                 {
-                    RollBackType.Exclusive => response.Block.Header().HeaderBody().Slot() + 1UL,
-                    RollBackType.Inclusive => response.Block.Header().HeaderBody().Slot(),
+                    RollBackType.Exclusive => response.RollbackSlot!.Value + 1UL,
+                    RollBackType.Inclusive => response.RollbackSlot!.Value,
                     _ => 0
                 };
                 

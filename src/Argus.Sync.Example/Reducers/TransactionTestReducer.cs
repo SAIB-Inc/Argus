@@ -1,10 +1,10 @@
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core.Transaction;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
@@ -24,7 +24,7 @@ public class TransactionTestReducer(IDbContextFactory<TestDbContext> dbContextFa
         await dbContext.SaveChangesAsync();
     }
 
-    public async Task RollForwardAsync(Block block)
+    public async Task RollForwardAsync(IBlock block)
     {
         ulong slot = block.Header().HeaderBody().Slot();
         string blockHash = block.Header().Hash();
@@ -36,7 +36,7 @@ public class TransactionTestReducer(IDbContextFactory<TestDbContext> dbContextFa
         foreach (var tx in block.TransactionBodies())
         {
             string txHash = tx.Hash();
-            dbContext.TransactionTests.Add(new TransactionTest(txHash, index++, slot, blockHash, blockHeight, tx.Raw?.ToArray() ?? [], DateTimeOffset.UtcNow));
+            dbContext.TransactionTests.Add(new TransactionTest(txHash, index++, slot, blockHash, blockHeight, tx.Raw.ToArray(), DateTimeOffset.UtcNow));
         }
 
         await dbContext.SaveChangesAsync();

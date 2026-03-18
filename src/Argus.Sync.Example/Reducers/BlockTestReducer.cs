@@ -1,9 +1,9 @@
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
@@ -25,7 +25,7 @@ public class BlockTestReducer(
         await dbContext.SaveChangesAsync();
     }
 
-    public async Task RollForwardAsync(Block block)
+    public async Task RollForwardAsync(IBlock block)
     {
         string blockHash = block.Header().Hash();
         ulong blockNumber = block.Header().HeaderBody().BlockNumber();

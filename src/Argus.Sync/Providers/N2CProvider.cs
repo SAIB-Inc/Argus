@@ -1,18 +1,9 @@
-using System.Formats.Cbor;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Utils;
-using Chrysalis.Cbor.Types;
-using Chrysalis.Cbor.Types.Cardano.Core;
-using Chrysalis.Cbor.Types.Cardano.Core.Header;
-using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Types.Cardano.Core.TransactionWitness;
 using Chrysalis.Network.Cbor.ChainSync;
 using Chrysalis.Network.Cbor.Common;
-using Chrysalis.Network.Cbor.Handshake;
 using Chrysalis.Network.MiniProtocols.Extensions;
 using Chrysalis.Network.Multiplexer;
-using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
-using CPoint = Chrysalis.Network.Cbor.Common.Point;
 using Point = Argus.Sync.Data.Models.Point;
 
 namespace Argus.Sync.Providers;
@@ -32,13 +23,7 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
             if (_sharedClient == null || _connectedNetworkMagic != networkMagic)
             {
                 // Dispose existing client if network magic changed
-                if (_sharedClient != null)
-                {
-                    if (_sharedClient is IDisposable disposable)
-                        disposable.Dispose();
-                    else if (_sharedClient is IAsyncDisposable asyncDisposable)
-                        await asyncDisposable.DisposeAsync();
-                }
+                _sharedClient?.Dispose();
 
                 _sharedClient = await NodeClient.ConnectAsync(NodeSocketPath, cancellationToken);
                 await _sharedClient.StartAsync(networkMagic);
@@ -59,7 +44,7 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
 
         NodeClient client = await GetOrCreateClientAsync(networkMagic, stoppingToken.Value);
 
-        IEnumerable<CPoint> cIntersections = intersections.Select(p => new CPoint(p.Slot, Convert.FromHexString(p.Hash)));
+        IEnumerable<Chrysalis.Network.Cbor.Common.Point> cIntersections = intersections.Select(p => (Chrysalis.Network.Cbor.Common.Point)new SpecificPoint(p.Slot, Convert.FromHexString(p.Hash)));
         int totalIntersections = cIntersections.Count();
         bool foundIntersection = false;
 
@@ -70,7 +55,7 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
                 break;
             }
 
-            cIntersections = cIntersections.OrderByDescending(p => p.Slot);
+            cIntersections = cIntersections.OrderByDescending(p => p is SpecificPoint sp ? sp.Slot : 0UL);
             ChainSyncMessage intersectMessage = await client.ChainSync!.FindIntersectionAsync(cIntersections, stoppingToken.Value);
 
             if (intersectMessage is MessageIntersectFound found)
@@ -96,20 +81,16 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
             switch (nextResponse)
             {
                 case MessageRollBackward msg:
+                    SpecificPoint rollbackPoint = (SpecificPoint)msg.Point;
                     yield return new NextResponse(
                           NextResponseAction.RollBack,
                           RollBackType.Exclusive,
-                          new ConwayBlock(
-                                new(new BabbageHeaderBody(0, msg.Point.Slot, [], [], [], new([], []), 0, [], new([], 0, 0, []), new(0, 0)), []),
-                                new CborDefList<ConwayTransactionBody>([]),
-                                new CborDefList<PostAlonzoTransactionWitnessSet>([]),
-                                new([]),
-                                new CborDefList<int>([])
-                          )
+                          null,
+                          rollbackPoint.Slot
                       );
                     break;
                 case MessageRollForward msg:
-                    Block? block = ArgusUtil.DeserializeBlockWithEra(msg.Payload.Value);
+                    var block = ArgusUtil.DeserializeBlockWithEra(msg.Payload.Value);
                     yield return new NextResponse(
                           NextResponseAction.RollForward,
                           null,
@@ -130,7 +111,8 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
         {
             NodeClient client = await GetOrCreateClientAsync(networkMagic, stoppingToken.Value);
             Tip tip = await client.LocalStateQuery!.GetTipAsync();
-            return new(Convert.ToHexString(tip.Slot.Hash).ToLowerInvariant(), tip.Slot.Slot);
+            SpecificPoint tipPoint = (SpecificPoint)tip.Slot;
+            return new(Convert.ToHexString(tipPoint.Hash.Span).ToLowerInvariant(), tipPoint.Slot);
         }
         catch
         {
@@ -138,11 +120,7 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
             await _clientSemaphore.WaitAsync(stoppingToken.Value);
             try
             {
-                if (_sharedClient is IDisposable disposable)
-                    disposable.Dispose();
-                else if (_sharedClient is IAsyncDisposable asyncDisposable)
-                    await asyncDisposable.DisposeAsync();
-                
+                _sharedClient?.Dispose();
                 _sharedClient = null;
             }
             finally
@@ -158,11 +136,8 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
         await _clientSemaphore.WaitAsync();
         try
         {
-            if (_sharedClient is IDisposable disposable)
-                disposable.Dispose();
-            else if (_sharedClient is IAsyncDisposable asyncDisposable)
-                await asyncDisposable.DisposeAsync();
-            
+            _sharedClient?.Dispose();
+
             _sharedClient = null;
         }
         finally

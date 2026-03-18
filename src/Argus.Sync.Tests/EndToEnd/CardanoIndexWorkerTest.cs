@@ -5,11 +5,11 @@ using Argus.Sync.Reducers;
 using Argus.Sync.Tests.Infrastructure;
 using Argus.Sync.Tests.Mocks;
 using Argus.Sync.Workers;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Serialization;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Transaction;
+using Chrysalis.Codec.Serialization;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,7 +74,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
 
     #region Setup and Configuration
 
-    private Task<Block[]?> SetupTestEnvironmentAsync()
+    private Task<IBlock[]?> SetupTestEnvironmentAsync()
     {
         // Create factory with test data directory
         var testDataDir = Path.Combine(Directory.GetCurrentDirectory(), "TestData");
@@ -84,7 +84,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         {
             _output.WriteLine("Skipping test - no block test data found in TestData/Blocks/");
             _output.WriteLine("Run MultipleBlockCborDownloadTest first to generate test data.");
-            return Task.FromResult<Block[]?>(null);
+            return Task.FromResult<IBlock[]?>(null);
         }
         
         // Create a temporary provider to discover available blocks
@@ -92,7 +92,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         var testBlocks = tempProvider.AvailableBlocks.Take(5).ToArray();
         _output.WriteLine($"Using {testBlocks.Length} blocks for CardanoIndexWorker test");
         
-        return Task.FromResult<Block[]?>(testBlocks);
+        return Task.FromResult<IBlock[]?>(testBlocks);
     }
 
     private (BlockTestReducer, TransactionTestReducer) CreateReducers()
@@ -138,7 +138,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
 
     #region Block Content Analysis
 
-    private void LogBlockContentsAnalysis(Block[] testBlocks)
+    private void LogBlockContentsAnalysis(IBlock[] testBlocks)
     {
         _output.WriteLine("\n=== CardanoIndexWorker Test - Block Analysis ===");
         
@@ -157,7 +157,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         }
     }
 
-    private static BlockInfo ExtractBlockInfo(Block block)
+    private static BlockInfo ExtractBlockInfo(IBlock block)
     {
         var header = block.Header().HeaderBody();
         return new BlockInfo
@@ -170,7 +170,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
         };
     }
 
-    private void LogTransactionDetails(Block block, int txCount)
+    private void LogTransactionDetails(IBlock block, int txCount)
     {
         if (txCount <= 0) return;
 
@@ -214,7 +214,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
 
     #region Test Execution
 
-    private async Task ExecuteRollForwardPhaseAsync(Block[] testBlocks)
+    private async Task ExecuteRollForwardPhaseAsync(IBlock[] testBlocks)
     {
         _output.WriteLine("\n=== Phase 1: Worker RollForward via Factory Pattern ===");
         
@@ -456,7 +456,7 @@ public class CardanoIndexWorkerTest : IAsyncLifetime
 
     #region Helper Methods
 
-    private static List<string> ExtractTransactionHashes(Block block)
+    private static List<string> ExtractTransactionHashes(IBlock block)
     {
         var txCount = block.TransactionBodies()?.Count() ?? 0;
         if (txCount == 0) return new List<string>();
