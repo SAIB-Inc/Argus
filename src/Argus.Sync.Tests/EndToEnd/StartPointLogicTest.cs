@@ -98,6 +98,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task StartPointLogic_ShouldAdjustDependentToMatchDependency()
     {
         // Setup

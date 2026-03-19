@@ -58,6 +58,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task DependencySystem_ShouldProcessBlocksInCorrectOrder()
     {
         // Setup test environment

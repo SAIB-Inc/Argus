@@ -69,6 +69,7 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task ReducerDirect_FiveBlocksRollForwardAndRollback_ShouldProcessCorrectly()
     {
         // Setup test environment

@@ -68,6 +68,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task CardanoIndexWorker_WithFactoryPattern_ShouldProcessBlocksAndRollbacks()
     {
         IBlock[]? testBlocks = await SetupTestEnvironmentAsync();
