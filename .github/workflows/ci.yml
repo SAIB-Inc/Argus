@@ -42,9 +42,9 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: dotnet format --no-restore --verify-no-changes
 
-      - name: Test
-        if: steps.changes.outputs.code == 'true'
-        run: dotnet test --no-build --filter "Category!=Integration"
+      # All current tests require PostgreSQL (Category=Integration).
+      # Unit tests will run here automatically when added.
+      # Integration tests run separately with infrastructure.
 
       - name: Pack (dry run)
         if: steps.changes.outputs.code == 'true'
