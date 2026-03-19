@@ -12,7 +12,7 @@ namespace Argus.Sync.Tests.DataGeneration;
 public class OuroborosProtocolObservationTest(ITestOutputHelper output)
 {
     [Fact]
-    [Trait("Category", "Integration")]
+    [Trait("Category", "DataGeneration")]
     public async Task ObserveOuroborosProtocol_RollbackAndFirstTwoRollforwards_ShouldShowActualBehavior()
     {
         // Arrange - Use real intersection point you provided

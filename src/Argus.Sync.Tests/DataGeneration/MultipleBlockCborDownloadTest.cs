@@ -12,7 +12,7 @@ namespace Argus.Sync.Tests.DataGeneration;
 public class MultipleBlockCborDownloadTest(ITestOutputHelper output)
 {
     [Fact]
-    [Trait("Category", "Integration")]
+    [Trait("Category", "DataGeneration")]
     public async Task DownloadMultipleBlocksCbor_For100Blocks_ShouldReturnValidSequentialData()
     {
         // Arrange - Download 100 consecutive blocks for comprehensive testing

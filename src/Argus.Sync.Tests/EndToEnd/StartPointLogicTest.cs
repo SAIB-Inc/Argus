@@ -153,6 +153,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task StartPointLogic_ShouldHandleChainedDependencies()
     {
         // Setup
@@ -212,6 +213,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task StartPointLogic_ShouldHandleBootstrapCase()
     {
         // Setup - All reducers at initial state
@@ -262,6 +264,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public Task ShouldProcessBlock_ShouldRespectDependencyState()
     {
         // Setup

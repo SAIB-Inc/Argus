@@ -180,6 +180,7 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task SafeIntersection_ShouldHandleRootReducerWithoutDependents()
     {
         // Setup
