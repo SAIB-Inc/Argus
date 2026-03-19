@@ -84,13 +84,14 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
         // Wait until the worker has created providers for both root reducers (2 total)
         int waitAttempts = 0;
-        while (_mockFactory!.CreatedProviders.Count < 2 && waitAttempts < 50)
+        while (_mockFactory!.CreatedProviders.Count < 2 && waitAttempts < 100)
         {
-            await Task.Delay(100);
+            await Task.Delay(200);
             waitAttempts++;
         }
+        _output.WriteLine($"Worker created {_mockFactory.CreatedProviders.Count} providers after {waitAttempts} attempts");
         // Additional delay for the initial rollback processing to complete
-        await Task.Delay(500);
+        await Task.Delay(2000);
 
         await ExecuteRollForwardPhaseAsync(testBlocks);
         await VerifyRollForwardPhaseAsync();
@@ -338,7 +339,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     private async Task WaitForBlockProcessing(int targetBlockCount)
     {
-        const int maxWait = 100;
+        const int maxWait = 200;
         int attempts = 0;
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
 

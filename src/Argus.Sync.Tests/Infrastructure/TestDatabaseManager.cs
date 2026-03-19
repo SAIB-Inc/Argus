@@ -109,18 +109,12 @@ public class TestDatabaseManager : IAsyncDisposable
 
     private static async Task DropDatabaseAsync(NpgsqlConnection connection, string databaseName)
     {
-        // Use a PL/pgSQL DO block to execute dynamic DROP DATABASE safely.
-        // The database name is passed as a parameter and quoted server-side with quote_ident(),
-        // keeping CommandText fully constant to satisfy CA2100.
+        // DROP DATABASE cannot use parameters or run inside PL/pgSQL functions.
+        // DatabaseName is an internally-generated GUID (not user input), so interpolation is safe.
         using NpgsqlCommand dropCommand = connection.CreateCommand();
-        dropCommand.CommandText = "DO $$ BEGIN EXECUTE format('DROP DATABASE IF EXISTS %I', current_setting('argus.drop_db_name')); END $$";
-
-        // Set the database name via a custom GUC parameter so the DO block can read it
-        using NpgsqlCommand setCommand = connection.CreateCommand();
-        setCommand.CommandText = "SELECT set_config('argus.drop_db_name', @dbName, false)";
-        _ = setCommand.Parameters.AddWithValue("@dbName", databaseName);
-        _ = await setCommand.ExecuteScalarAsync();
-
+#pragma warning disable CA2100 // DatabaseName is a GUID generated in constructor, not user input
+        dropCommand.CommandText = $"DROP DATABASE IF EXISTS \"{databaseName}\"";
+#pragma warning restore CA2100
         _ = await dropCommand.ExecuteNonQueryAsync();
     }
 }
