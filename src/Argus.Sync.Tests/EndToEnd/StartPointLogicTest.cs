@@ -307,6 +307,13 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
                 LatestIntersections = [new Point("hash500", 500)]
             };
 
+            // Also populate _latestSlots so ShouldProcessBlock can check dependency progress
+            FieldInfo? latestSlotsField = workerType.GetField("_latestSlots",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            ConcurrentDictionary<string, ulong>? latestSlots = latestSlotsField!.GetValue(worker) as ConcurrentDictionary<string, ulong>;
+            latestSlots!["BlockTestReducer"] = 1000;
+            latestSlots["DependentTransactionReducer"] = 500;
+
             // Test ShouldProcessBlock
             MethodInfo? shouldProcessMethod = workerType.GetMethod("ShouldProcessBlock",
                 BindingFlags.NonPublic | BindingFlags.Instance);

@@ -81,7 +81,16 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
         // Start factory-based chain sync - this is the key difference from ReducerDirectTest
         Task chainSyncTask = StartFactoryBasedChainSyncAsync();
-        await Task.Delay(1000); // Allow worker to initialize
+
+        // Wait until the worker has created providers for both root reducers (2 total)
+        int waitAttempts = 0;
+        while (_mockFactory!.CreatedProviders.Count < 2 && waitAttempts < 50)
+        {
+            await Task.Delay(100);
+            waitAttempts++;
+        }
+        // Additional delay for the initial rollback processing to complete
+        await Task.Delay(500);
 
         await ExecuteRollForwardPhaseAsync(testBlocks);
         await VerifyRollForwardPhaseAsync();
@@ -331,12 +340,15 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
     {
         const int maxWait = 100;
         int attempts = 0;
+        IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
 
         while (attempts < maxWait)
         {
             try
             {
-                int currentCount = await _databaseManager!.DbContext.BlockTests.CountAsync();
+                // Use a fresh DbContext each poll to avoid stale change-tracker data
+                await using TestDbContext freshContext = await dbContextFactory.CreateDbContextAsync();
+                int currentCount = await freshContext.BlockTests.CountAsync();
                 if (currentCount >= targetBlockCount)
                 {
                     _output.WriteLine($"  CardanoIndexWorker processed block {targetBlockCount}");
@@ -360,7 +372,10 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     private async Task VerifyWorkerProcessedBlock(ulong slot)
     {
-        BlockTest? blockInDb = await _databaseManager!.DbContext.BlockTests
+        IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        await using TestDbContext freshContext = await dbContextFactory.CreateDbContextAsync();
+
+        BlockTest? blockInDb = await freshContext.BlockTests
             .FirstOrDefaultAsync(b => b.Slot == slot);
 
         Assert.NotNull(blockInDb);
@@ -371,12 +386,12 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         Assert.Equal(expectedBlock.Height, blockInDb.Height);
 
         // Verify transaction count matches memory
-        int txsInDb = await _databaseManager.DbContext.TransactionTests
+        int txsInDb = await freshContext.TransactionTests
             .CountAsync(t => t.Slot == slot);
         Assert.Equal(expectedBlock.TxCount, txsInDb);
 
         // Verify ReducerState management (optional - may be async)
-        int reducerStates = await _databaseManager.DbContext.ReducerStates.CountAsync();
+        int reducerStates = await freshContext.ReducerStates.CountAsync();
         _output.WriteLine($"  ReducerStates: {reducerStates}");
 
         _output.WriteLine($"  Worker verification passed for slot {slot}: {txsInDb} transactions");
@@ -384,7 +399,10 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     private async Task VerifyWorkerRollbackState(ulong rollbackSlot)
     {
-        int remainingBlocks = await _databaseManager!.DbContext.BlockTests
+        IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        await using TestDbContext freshContext = await dbContextFactory.CreateDbContextAsync();
+
+        int remainingBlocks = await freshContext.BlockTests
             .Where(b => b.Slot <= rollbackSlot)
             .CountAsync();
 
@@ -393,7 +411,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         Assert.Equal(expectedRemainingBlocks, remainingBlocks);
 
         // Verify ReducerState intersections were updated correctly by worker
-        List<ReducerState> reducerStates = await _databaseManager.DbContext.ReducerStates.ToListAsync();
+        List<ReducerState> reducerStates = await freshContext.ReducerStates.ToListAsync();
         foreach (ReducerState? state in reducerStates)
         {
             ulong latestIntersectionSlot = state.LatestIntersections.MaxBy(p => p.Slot)?.Slot ?? 0;
@@ -409,12 +427,15 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     private async Task VerifyMemoryDatabaseConsistency()
     {
-        var dbBlocks = await _databaseManager!.DbContext.BlockTests
+        IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        await using TestDbContext freshContext = await dbContextFactory.CreateDbContextAsync();
+
+        var dbBlocks = await freshContext.BlockTests
             .OrderBy(b => b.Slot)
             .Select(b => new { b.Slot, b.Hash, b.Height })
             .ToListAsync();
 
-        var dbTxs = await _databaseManager.DbContext.TransactionTests
+        var dbTxs = await freshContext.TransactionTests
             .OrderBy(t => t.Slot)
             .Select(t => new { t.Slot, t.TxHash })
             .ToListAsync();
@@ -458,12 +479,15 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     private async Task VerifyRollForwardPhaseAsync()
     {
-        int finalBlocks = await _databaseManager!.DbContext.BlockTests.CountAsync();
+        IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        await using TestDbContext freshContext = await dbContextFactory.CreateDbContextAsync();
+
+        int finalBlocks = await freshContext.BlockTests.CountAsync();
 
         Assert.Equal(_processedBlocks, finalBlocks);
 
         // Check ReducerState entries (may be async, so don't assert)
-        List<ReducerState> reducerStates = await _databaseManager.DbContext.ReducerStates.ToListAsync();
+        List<ReducerState> reducerStates = await freshContext.ReducerStates.ToListAsync();
 
         _output.WriteLine($"Worker RollForward phase complete: {finalBlocks} blocks");
         _output.WriteLine($"ReducerState management: {reducerStates.Count} reducer states");
@@ -471,13 +495,16 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     private async Task VerifyFinalStateAsync()
     {
-        int finalBlocks = await _databaseManager!.DbContext.BlockTests.CountAsync();
+        IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        await using TestDbContext freshContext = await dbContextFactory.CreateDbContextAsync();
+
+        int finalBlocks = await freshContext.BlockTests.CountAsync();
 
         // Worker should remove all blocks just like ReducerDirectTest
         Assert.Equal(0, finalBlocks);
 
         // Check ReducerStates (may be async, so don't assert)
-        int reducerStates = await _databaseManager.DbContext.ReducerStates.CountAsync();
+        int reducerStates = await freshContext.ReducerStates.CountAsync();
 
         _output.WriteLine("Worker final state: 0 blocks");
         _output.WriteLine($"ReducerStates: {reducerStates}");

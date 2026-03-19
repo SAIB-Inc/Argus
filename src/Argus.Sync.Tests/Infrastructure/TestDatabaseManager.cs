@@ -117,7 +117,7 @@ public class TestDatabaseManager : IAsyncDisposable
 
         // Set the database name via a custom GUC parameter so the DO block can read it
         using NpgsqlCommand setCommand = connection.CreateCommand();
-        setCommand.CommandText = "SELECT set_config('argus.drop_db_name', @dbName, true)";
+        setCommand.CommandText = "SELECT set_config('argus.drop_db_name', @dbName, false)";
         _ = setCommand.Parameters.AddWithValue("@dbName", databaseName);
         _ = await setCommand.ExecuteScalarAsync();
 

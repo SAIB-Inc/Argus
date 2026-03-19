@@ -167,10 +167,12 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
             _output.WriteLine($"ChainedDependentReducer latest: slot 990");
             _output.WriteLine($"Safe intersection point: slot {safeIntersection?.Slot} (hash: {safeIntersection?.Hash})");
 
-            // Assert - Should use the oldest intersection (slot 990) from ChainedDependentReducer
+            // Assert - Should use the root reducer's nearest intersection at or below the oldest
+            // dependent slot (990). The root has [800, 900, 1000], filtered <= 990 gives [900, 800].
+            // The first (highest) root intersection that is safe is 900.
             Assert.NotNull(safeIntersection);
-            Assert.Equal(990UL, safeIntersection.Slot);
-            Assert.Equal("hash990", safeIntersection.Hash);
+            Assert.Equal(900UL, safeIntersection.Slot);
+            Assert.Equal("hash900", safeIntersection.Hash);
 
             // Verify that dependent reducers still use their own intersections
             IEnumerable<Point> dependentIntersections = (IEnumerable<Point>)getSafeIntersectionMethod!.Invoke(worker, ["DependentTransactionReducer"])!;

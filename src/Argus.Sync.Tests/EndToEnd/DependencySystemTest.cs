@@ -111,27 +111,26 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
                 // Get the created providers - with dependencies, the factory should create separate instances
                 IReadOnlyList<MockChainSyncProvider> createdProviders = _mockProviderFactory!.CreatedProviders;
                 _output.WriteLine($"Factory created {createdProviders.Count} providers");
-                _output.WriteLine("Expected: 3 providers (1 for initial tip + 2 for root reducers)");
+                _output.WriteLine("Expected: 2 providers (1 per root reducer, no extra for dependents)");
 
                 // Verify correct number of providers
-                // 1 provider for initial tip query + 2 for root reducers = 3 total
-                if (createdProviders.Count != 3)
+                // 2 for root reducers (BlockTestReducer + TransactionTestReducer) = 2 total
+                if (createdProviders.Count != 2)
                 {
-                    _output.WriteLine($"ERROR: Expected 3 providers but got {createdProviders.Count}");
-                    if (createdProviders.Count > 3)
+                    _output.WriteLine($"ERROR: Expected 2 providers but got {createdProviders.Count}");
+                    if (createdProviders.Count > 2)
                     {
                         _output.WriteLine("This suggests dependent reducers are creating their own connections!");
                     }
                 }
                 else
                 {
-                    _output.WriteLine("✓ Correct number of providers created (no extra connections for dependents)");
+                    _output.WriteLine("Correct number of providers created (no extra connections for dependents)");
                 }
 
-                // The first provider is for initial tip, skip it
                 // Only trigger the root providers - dependency forwarding should handle the rest
-                MockChainSyncProvider blockProvider = createdProviders[1]; // Second provider for BlockTestReducer
-                MockChainSyncProvider txProvider = createdProviders[2]; // Third provider for TransactionTestReducer
+                MockChainSyncProvider blockProvider = createdProviders[0]; // First provider for BlockTestReducer
+                MockChainSyncProvider txProvider = createdProviders[1]; // Second provider for TransactionTestReducer
 
                 // Process first block
                 _output.WriteLine("\n=== Processing Block 1 ===");
@@ -196,8 +195,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
 
         // Final verification summary
         _output.WriteLine("\n=== Dependency System Verification ===");
-        _output.WriteLine($"1. Provider Count: {_mockProviderFactory!.CreatedProviders.Count} (Expected: 3)");
-        _output.WriteLine("   - 1 for initial tip query");
+        _output.WriteLine($"1. Provider Count: {_mockProviderFactory!.CreatedProviders.Count} (Expected: 2)");
         _output.WriteLine("   - 1 for BlockTestReducer (root)");
         _output.WriteLine("   - 1 for TransactionTestReducer (root)");
         _output.WriteLine("   - 0 for DependentTransactionReducer (gets blocks via forwarding)");
@@ -209,7 +207,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
         _output.WriteLine("\n3. Rollback Cascading:");
         _output.WriteLine("   - All reducers (including dependents) received rollback notifications");
 
-        Assert.Equal(3, _mockProviderFactory.CreatedProviders.Count);
+        Assert.Equal(2, _mockProviderFactory.CreatedProviders.Count);
     }
 
     private async Task VerifyBlockProcessingOrder(ulong slot, IDbContextFactory<TestDbContext> dbContextFactory)
