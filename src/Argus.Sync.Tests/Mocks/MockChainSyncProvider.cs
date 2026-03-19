@@ -2,9 +2,9 @@ using System.Threading.Channels;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Providers;
 using Argus.Sync.Utils;
-using Chrysalis.Cbor.Types.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
+using Chrysalis.Codec.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
 
 namespace Argus.Sync.Tests.Mocks;
 
@@ -15,11 +15,10 @@ namespace Argus.Sync.Tests.Mocks;
 /// </summary>
 public class MockChainSyncProvider : ICardanoChainProvider
 {
-    private readonly List<Block> _availableBlocks;
+    private readonly List<IBlock> _availableBlocks;
     private readonly Channel<NextResponse> _controlChannel;
     private readonly ChannelWriter<NextResponse> _controlWriter;
     private readonly ChannelReader<NextResponse> _controlReader;
-    private readonly Dictionary<NextResponse, ulong> _rollbackSlotOverrides = [];
 
     public MockChainSyncProvider(string testDataDirectory)
     {
@@ -35,9 +34,9 @@ public class MockChainSyncProvider : ICardanoChainProvider
         _controlReader = _controlChannel.Reader;
     }
 
-    private static List<Block> DiscoverAllBlocks(string testDataDirectory)
+    private static List<IBlock> DiscoverAllBlocks(string testDataDirectory)
     {
-        List<Block> blocks = [];
+        List<IBlock> blocks = [];
         string blocksDir = Path.Combine(testDataDirectory, "Blocks");
 
         if (!Directory.Exists(blocksDir))
@@ -52,7 +51,7 @@ public class MockChainSyncProvider : ICardanoChainProvider
             try
             {
                 byte[] blockBytes = File.ReadAllBytes(filePath);
-                Block? block = ArgusUtil.DeserializeBlockWithEra(blockBytes);
+                IBlock? block = ArgusUtil.DeserializeBlockWithEra(blockBytes);
                 if (block != null)
                 {
                     blocks.Add(block);
@@ -72,8 +71,8 @@ public class MockChainSyncProvider : ICardanoChainProvider
     public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersection, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
         // Send initial rollback to establish intersection (standard Ouroboros behavior)
-        Block intersectionBlock = _availableBlocks.First();
-        yield return new NextResponse(NextResponseAction.RollBack, RollBackType.Exclusive, intersectionBlock);
+        IBlock intersectionBlock = _availableBlocks.First();
+        yield return new NextResponse(NextResponseAction.RollBack, RollBackType.Exclusive, null, intersectionBlock.Header().HeaderBody().Slot());
 
         // Then wait for external control signals - test must trigger all subsequent events
         await foreach (NextResponse response in _controlReader.ReadAllAsync(stoppingToken ?? CancellationToken.None))
@@ -91,7 +90,7 @@ public class MockChainSyncProvider : ICardanoChainProvider
             throw new InvalidOperationException("No blocks available");
         }
 
-        Block lastBlock = _availableBlocks.Last();
+        IBlock lastBlock = _availableBlocks.Last();
         return new Point(
             lastBlock.Header().Hash(),
             lastBlock.Header().HeaderBody().Slot()
@@ -105,7 +104,7 @@ public class MockChainSyncProvider : ICardanoChainProvider
     /// </summary>
     public async Task TriggerRollForwardAsync(ulong slot)
     {
-        Block block = _availableBlocks.FirstOrDefault(b => b.Header().HeaderBody().Slot() == slot) ?? throw new InvalidOperationException($"No block found with slot {slot}");
+        IBlock block = _availableBlocks.FirstOrDefault(b => b.Header().HeaderBody().Slot() == slot) ?? throw new InvalidOperationException($"No block found with slot {slot}");
         await _controlWriter.WriteAsync(new NextResponse(NextResponseAction.RollForward, null, block));
     }
 
@@ -115,31 +114,15 @@ public class MockChainSyncProvider : ICardanoChainProvider
     public async Task TriggerRollBackAsync(ulong rollbackSlot, RollBackType rollbackType = RollBackType.Exclusive)
     {
         // Find the block that matches the rollback slot for proper CardanoIndexWorker compatibility
-        Block rollbackBlock = _availableBlocks.FirstOrDefault(b => b.Header().HeaderBody().Slot() == rollbackSlot) ?? _availableBlocks
+        IBlock? rollbackBlock = _availableBlocks.FirstOrDefault(b => b.Header().HeaderBody().Slot() == rollbackSlot) ?? _availableBlocks
                 .Where(b => b.Header().HeaderBody().Slot() <= rollbackSlot)
                 .OrderByDescending(b => b.Header().HeaderBody().Slot())
                 .FirstOrDefault() ?? _availableBlocks.First();
 
-        // Create a response with the appropriate block for CardanoIndexWorker
-        NextResponse response = new(NextResponseAction.RollBack, rollbackType, rollbackBlock);
-
-        // Store the actual intended rollback slot for ReducerDirectTest compatibility
-        _rollbackSlotOverrides[response] = rollbackSlot;
+        // Create a response with null Block and the rollback slot
+        NextResponse response = new(NextResponseAction.RollBack, rollbackType, null, rollbackSlot);
 
         await _controlWriter.WriteAsync(response);
-    }
-
-    /// <summary>
-    /// Gets the actual intended rollback slot for a response, or falls back to the block's slot.
-    /// </summary>
-    public ulong GetActualRollbackSlot(NextResponse response)
-    {
-        ArgumentNullException.ThrowIfNull(response);
-        if (_rollbackSlotOverrides.TryGetValue(response, out ulong overrideSlot))
-        {
-            return overrideSlot;
-        }
-        return response.Block?.Header().HeaderBody().Slot() ?? 0;
     }
 
     /// <summary>
@@ -150,5 +133,5 @@ public class MockChainSyncProvider : ICardanoChainProvider
     /// <summary>
     /// Gets the available blocks for test verification.
     /// </summary>
-    public IReadOnlyList<Block> AvailableBlocks => _availableBlocks.AsReadOnly();
+    public IReadOnlyList<IBlock> AvailableBlocks => _availableBlocks.AsReadOnly();
 }

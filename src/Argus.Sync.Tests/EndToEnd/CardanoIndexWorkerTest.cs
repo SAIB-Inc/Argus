@@ -6,18 +6,18 @@ using Argus.Sync.Reducers;
 using Argus.Sync.Tests.Infrastructure;
 using Argus.Sync.Tests.Mocks;
 using Argus.Sync.Workers;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Serialization;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Transaction;
+using Chrysalis.Codec.Serialization;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
-using Chrysalis.Cbor.Types.Cardano.Core.Header;
-using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
+using Chrysalis.Codec.Types.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core.Transaction;
 using Argus.Sync.Example.Models;
 
 namespace Argus.Sync.Tests.EndToEnd;
@@ -70,7 +70,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
     [Fact]
     public async Task CardanoIndexWorker_WithFactoryPattern_ShouldProcessBlocksAndRollbacks()
     {
-        Block[]? testBlocks = await SetupTestEnvironmentAsync();
+        IBlock[]? testBlocks = await SetupTestEnvironmentAsync();
         if (testBlocks == null)
         {
             return;
@@ -90,7 +90,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     #region Setup and Configuration
 
-    private Task<Block[]?> SetupTestEnvironmentAsync()
+    private Task<IBlock[]?> SetupTestEnvironmentAsync()
     {
         // Create factory with test data directory
         string testDataDir = Path.Combine(Directory.GetCurrentDirectory(), "TestData");
@@ -100,15 +100,15 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         {
             _output.WriteLine("Skipping test - no block test data found in TestData/Blocks/");
             _output.WriteLine("Run MultipleBlockCborDownloadTest first to generate test data.");
-            return Task.FromResult<Block[]?>(null);
+            return Task.FromResult<IBlock[]?>(null);
         }
 
         // Create a temporary provider to discover available blocks
         MockChainSyncProvider tempProvider = new(testDataDir);
-        Block[] testBlocks = [.. tempProvider.AvailableBlocks.Take(5)];
+        IBlock[] testBlocks = [.. tempProvider.AvailableBlocks.Take(5)];
         _output.WriteLine($"Using {testBlocks.Length} blocks for CardanoIndexWorker test");
 
-        return Task.FromResult<Block[]?>(testBlocks);
+        return Task.FromResult<IBlock[]?>(testBlocks);
     }
 
     private (BlockTestReducer, TransactionTestReducer) CreateReducers()
@@ -137,7 +137,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
     {
         // Minimal configuration for factory pattern testing
         MockChainSyncProvider tempProvider = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
-        Block firstBlock = tempProvider.AvailableBlocks[0];
+        IBlock firstBlock = tempProvider.AvailableBlocks[0];
 
         return new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -154,13 +154,13 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     #region Block Content Analysis
 
-    private void LogBlockContentsAnalysis(Block[] testBlocks)
+    private void LogBlockContentsAnalysis(IBlock[] testBlocks)
     {
         _output.WriteLine("\n=== CardanoIndexWorker Test - Block Analysis ===");
 
         for (int i = 0; i < testBlocks.Length; i++)
         {
-            Block block = testBlocks[i];
+            IBlock block = testBlocks[i];
             BlockInfo blockInfo = ExtractBlockInfo(block);
 
             _output.WriteLine($"Block {i + 1}: Slot {blockInfo.Slot}, Height {blockInfo.Height}, " +
@@ -173,9 +173,9 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         }
     }
 
-    private static BlockInfo ExtractBlockInfo(Block block)
+    private static BlockInfo ExtractBlockInfo(IBlock block)
     {
-        BlockHeaderBody header = block.Header().HeaderBody();
+        IBlockHeaderBody header = block.Header().HeaderBody();
         return new BlockInfo
         {
             Slot = header.Slot(),
@@ -186,23 +186,23 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         };
     }
 
-    private void LogTransactionDetails(Block block, int txCount)
+    private void LogTransactionDetails(IBlock block, int txCount)
     {
         if (txCount <= 0)
         {
             return;
         }
 
-        IEnumerable<TransactionBody> txBodies = block.TransactionBodies();
+        IEnumerable<ITransactionBody> txBodies = block.TransactionBodies();
         if (txBodies == null)
         {
             return;
         }
 
-        List<TransactionBody> txList = [.. txBodies];
+        List<ITransactionBody> txList = [.. txBodies];
         for (int txIdx = 0; txIdx < txList.Count; txIdx++)
         {
-            TransactionBody tx = txList[txIdx];
+            ITransactionBody tx = txList[txIdx];
             string txHash = tx.Hash();
             int inputCount = tx.Inputs()?.Count() ?? 0;
             int outputCount = tx.Outputs()?.Count() ?? 0;
@@ -244,13 +244,13 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     #region Test Execution
 
-    private async Task ExecuteRollForwardPhaseAsync(Block[] testBlocks)
+    private async Task ExecuteRollForwardPhaseAsync(IBlock[] testBlocks)
     {
         _output.WriteLine("\n=== Phase 1: Worker RollForward via Factory Pattern ===");
 
         for (int i = 0; i < testBlocks.Length; i++)
         {
-            Block block = testBlocks[i];
+            IBlock block = testBlocks[i];
             ulong slot = block.Header().HeaderBody().Slot();
 
             _output.WriteLine($"Triggering direct worker block {i + 1}/{testBlocks.Length}: slot {slot}");
@@ -338,13 +338,13 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
                 int currentCount = await _databaseManager!.DbContext.BlockTests.CountAsync();
                 if (currentCount >= targetBlockCount)
                 {
-                    _output.WriteLine($"  ✅ CardanoIndexWorker processed block {targetBlockCount}");
+                    _output.WriteLine($"  CardanoIndexWorker processed block {targetBlockCount}");
                     break;
                 }
             }
             catch (Exception ex)
             {
-                _output.WriteLine($"  ⚠️ Database check failed: {ex.Message}");
+                _output.WriteLine($"  Database check failed: {ex.Message}");
             }
 
             await Task.Delay(100);
@@ -353,7 +353,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
         if (attempts >= maxWait)
         {
-            _output.WriteLine($"  ⚠️ Timeout waiting for direct worker to process block {targetBlockCount}");
+            _output.WriteLine($"  Timeout waiting for direct worker to process block {targetBlockCount}");
         }
     }
 
@@ -376,9 +376,9 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
         // Verify ReducerState management (optional - may be async)
         int reducerStates = await _databaseManager.DbContext.ReducerStates.CountAsync();
-        _output.WriteLine($"  📊 ReducerStates: {reducerStates}");
+        _output.WriteLine($"  ReducerStates: {reducerStates}");
 
-        _output.WriteLine($"  ✅ Worker verification passed for slot {slot}: {txsInDb} transactions");
+        _output.WriteLine($"  Worker verification passed for slot {slot}: {txsInDb} transactions");
     }
 
     private async Task VerifyWorkerRollbackState(ulong rollbackSlot)
@@ -403,7 +403,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
             Assert.True(state.LatestIntersections.Any(), $"ReducerState {state.Name} should have intersections");
         }
 
-        _output.WriteLine($"  ✅ Worker rollback verification passed: {remainingBlocks} blocks remaining");
+        _output.WriteLine($"  Worker rollback verification passed: {remainingBlocks} blocks remaining");
     }
 
     private async Task VerifyMemoryDatabaseConsistency()
@@ -464,8 +464,8 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         // Check ReducerState entries (may be async, so don't assert)
         List<ReducerState> reducerStates = await _databaseManager.DbContext.ReducerStates.ToListAsync();
 
-        _output.WriteLine($"✅ Worker RollForward phase complete: {finalBlocks} blocks");
-        _output.WriteLine($"📊 ReducerState management: {reducerStates.Count} reducer states");
+        _output.WriteLine($"Worker RollForward phase complete: {finalBlocks} blocks");
+        _output.WriteLine($"ReducerState management: {reducerStates.Count} reducer states");
     }
 
     private async Task VerifyFinalStateAsync()
@@ -478,15 +478,15 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         // Check ReducerStates (may be async, so don't assert)
         int reducerStates = await _databaseManager.DbContext.ReducerStates.CountAsync();
 
-        _output.WriteLine("✅ Worker final state: 0 blocks");
-        _output.WriteLine($"📊 ReducerStates: {reducerStates}");
+        _output.WriteLine("Worker final state: 0 blocks");
+        _output.WriteLine($"ReducerStates: {reducerStates}");
     }
 
     #endregion
 
     #region Helper Methods
 
-    private static List<string> ExtractTransactionHashes(Block block)
+    private static List<string> ExtractTransactionHashes(IBlock block)
     {
         int txCount = block.TransactionBodies()?.Count() ?? 0;
         if (txCount == 0)
@@ -494,7 +494,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
             return [];
         }
 
-        IEnumerable<TransactionBody> txBodies = block.TransactionBodies();
+        IEnumerable<ITransactionBody> txBodies = block.TransactionBodies();
         return txBodies?.Select(tx => tx.Hash()).ToList() ?? [];
     }
 
@@ -519,9 +519,9 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         _ = await Task.WhenAny(chainSyncTask, Task.Delay(5000));
         await VerifyFinalStateAsync();
 
-        _output.WriteLine("\n✅ Factory pattern test completed successfully!");
-        _output.WriteLine("✅ MockChainProviderFactory integration verified");
-        _output.WriteLine("✅ Final state: 0 blocks with 0 transactions");
+        _output.WriteLine("\nFactory pattern test completed successfully!");
+        _output.WriteLine("MockChainProviderFactory integration verified");
+        _output.WriteLine("Final state: 0 blocks with 0 transactions");
     }
 
     #endregion

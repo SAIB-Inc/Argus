@@ -1,6 +1,6 @@
 using System.Formats.Cbor;
-using Argus.Sync.Data.Models.Enums;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Serialization;
+using Chrysalis.Codec.Types.Cardano.Core;
 
 namespace Argus.Sync.Utils;
 
@@ -31,7 +31,7 @@ public static class ArgusUtil
     /// </summary>
     /// <param name="blockCbor">The raw CBOR bytes of the era-tagged block.</param>
     /// <returns>The deserialized block, or null if deserialization fails.</returns>
-    public static Block? DeserializeBlockWithEra(ReadOnlyMemory<byte> blockCbor)
+    public static IBlock? DeserializeBlockWithEra(ReadOnlyMemory<byte> blockCbor)
     {
         CborReader reader = new(blockCbor, CborConformanceMode.Lax);
 
@@ -46,20 +46,7 @@ public static class ArgusUtil
         // Read the byte string containing [era, block]
         byte[] innerBytes = reader.ReadByteString();
 
-        // Now read the actual array from the inner bytes
-        reader = new CborReader(innerBytes, CborConformanceMode.Lax);
-        _ = reader.ReadStartArray();
-        Era era = (Era)reader.ReadInt32();
-        ReadOnlyMemory<byte> blockBytes = reader.ReadEncodedValue(true);
-
-        return era switch
-        {
-            Era.Shelley or Era.Allegra or Era.Mary or Era.Alonzo => AlonzoCompatibleBlock.Read(blockBytes),
-            Era.Babbage => BabbageBlock.Read(blockBytes),
-            Era.Conway => ConwayBlock.Read(blockBytes),
-            Era.Unknown => throw new NotImplementedException(),
-            Era.Byron => throw new NotImplementedException(),
-            _ => throw new NotSupportedException($"Unsupported era: {era}")
-        };
+        BlockWithEra blockWithEra = CborSerializer.Deserialize<BlockWithEra>(innerBytes);
+        return blockWithEra.Block;
     }
 }

@@ -6,9 +6,9 @@ using Argus.Sync.Reducers;
 using Argus.Sync.Tests.Infrastructure;
 using Argus.Sync.Tests.Mocks;
 using Argus.Sync.Workers;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -73,7 +73,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
 
         // Create a temporary provider to discover available blocks
         MockChainSyncProvider tempProvider = new(testDataDir);
-        Block[] blocks = [.. tempProvider.AvailableBlocks.Take(3)];
+        IBlock[] blocks = [.. tempProvider.AvailableBlocks.Take(3)];
         _output.WriteLine($"Loaded {blocks.Length} test blocks");
 
         // Clear any existing ReducerStates to ensure clean test
@@ -254,7 +254,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
     {
         // Create configuration
         MockChainSyncProvider tempProvider = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
-        Block firstBlock = tempProvider.AvailableBlocks[0];
+        IBlock firstBlock = tempProvider.AvailableBlocks[0];
 
         IConfigurationRoot configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {

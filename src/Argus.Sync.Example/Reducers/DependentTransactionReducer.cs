@@ -1,9 +1,9 @@
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 namespace Argus.Sync.Example.Reducers;
 
@@ -21,7 +21,7 @@ public class DependentTransactionReducer(
             .CountAsync();
     }
 
-    public async Task RollForwardAsync(Block block)
+    public async Task RollForwardAsync(IBlock block)
     {
         ulong slot = block.Header().HeaderBody().Slot();
 
@@ -39,7 +39,7 @@ public class DependentTransactionReducer(
             .Where(t => t.Slot == slot)
             .CountAsync();
 
-        // Since this is a dependent reducer, we're just verifying that our dependency (BlockTestReducer) 
+        // Since this is a dependent reducer, we're just verifying that our dependency (BlockTestReducer)
         // has already processed this block. In a real scenario, this reducer might process additional
         // transaction details or create derived data.
     }

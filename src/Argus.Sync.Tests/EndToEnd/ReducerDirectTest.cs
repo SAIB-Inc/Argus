@@ -2,17 +2,17 @@ using Argus.Sync.Data.Models;
 using Argus.Sync.Example.Reducers;
 using Argus.Sync.Tests.Infrastructure;
 using Argus.Sync.Tests.Mocks;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Serialization;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Transaction;
+using Chrysalis.Codec.Serialization;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit.Abstractions;
 using Argus.Sync.Example.Data;
-using Chrysalis.Cbor.Types.Cardano.Core.Header;
-using Chrysalis.Cbor.Types.Cardano.Core.Transaction;
+using Chrysalis.Codec.Types.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core.Transaction;
 
 namespace Argus.Sync.Tests.EndToEnd;
 
@@ -72,7 +72,7 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
     public async Task ReducerDirect_FiveBlocksRollForwardAndRollback_ShouldProcessCorrectly()
     {
         // Setup test environment
-        (MockChainSyncProvider? mockProvider, BlockTestReducer? blockReducer, TransactionTestReducer? txReducer, Block[]? testBlocks) = await SetupTestEnvironmentAsync();
+        (MockChainSyncProvider? mockProvider, BlockTestReducer? blockReducer, TransactionTestReducer? txReducer, IBlock[]? testBlocks) = await SetupTestEnvironmentAsync();
         if (testBlocks == null)
         {
             return; // Skip if no test data
@@ -97,7 +97,7 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
 
     #region Setup and Configuration
 
-    private Task<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, Block[]?)> SetupTestEnvironmentAsync()
+    private Task<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, IBlock[]?)> SetupTestEnvironmentAsync()
     {
         string testDataDir = Path.Combine(Directory.GetCurrentDirectory(), "TestData");
         MockChainSyncProvider mockProvider = new(testDataDir);
@@ -106,7 +106,7 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         {
             _output.WriteLine("Skipping test - no block test data found in TestData/Blocks/");
             _output.WriteLine("Run MultipleBlockCborDownloadTest first to generate test data.");
-            return Task.FromResult<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, Block[]?)>((mockProvider, null!, null!, null));
+            return Task.FromResult<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, IBlock[]?)>((mockProvider, null!, null!, null));
         }
 
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider
@@ -114,23 +114,23 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         BlockTestReducer blockReducer = new(dbContextFactory);
         TransactionTestReducer txReducer = new(dbContextFactory);
 
-        Block[] testBlocks = [.. mockProvider.AvailableBlocks.Take(5)];
+        IBlock[] testBlocks = [.. mockProvider.AvailableBlocks.Take(5)];
         _output.WriteLine($"Using {testBlocks.Length} blocks for testing");
 
-        return Task.FromResult<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, Block[]?)>((mockProvider, blockReducer, txReducer, testBlocks));
+        return Task.FromResult<(MockChainSyncProvider, BlockTestReducer, TransactionTestReducer, IBlock[]?)>((mockProvider, blockReducer, txReducer, testBlocks));
     }
 
     #endregion
 
     #region Block Content Analysis
 
-    private void LogBlockContentsAnalysis(Block[] testBlocks)
+    private void LogBlockContentsAnalysis(IBlock[] testBlocks)
     {
         _output.WriteLine("\n=== Block Contents Analysis ===");
 
         for (int i = 0; i < testBlocks.Length; i++)
         {
-            Block block = testBlocks[i];
+            IBlock block = testBlocks[i];
             BlockInfo blockInfo = ExtractBlockInfo(block);
 
             _output.WriteLine($"Block {i + 1}: Slot {blockInfo.Slot}, Height {blockInfo.Height}, " +
@@ -140,9 +140,9 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         }
     }
 
-    private static BlockInfo ExtractBlockInfo(Block block)
+    private static BlockInfo ExtractBlockInfo(IBlock block)
     {
-        BlockHeaderBody header = block.Header().HeaderBody();
+        IBlockHeaderBody header = block.Header().HeaderBody();
         return new BlockInfo
         {
             Slot = header.Slot(),
@@ -153,23 +153,23 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         };
     }
 
-    private void LogTransactionDetails(Block block, int txCount)
+    private void LogTransactionDetails(IBlock block, int txCount)
     {
         if (txCount <= 0)
         {
             return;
         }
 
-        IEnumerable<TransactionBody> txBodies = block.TransactionBodies();
+        IEnumerable<ITransactionBody> txBodies = block.TransactionBodies();
         if (txBodies == null)
         {
             return;
         }
 
-        List<TransactionBody> txList = [.. txBodies];
+        List<ITransactionBody> txList = [.. txBodies];
         for (int txIdx = 0; txIdx < txList.Count; txIdx++)
         {
-            TransactionBody tx = txList[txIdx];
+            ITransactionBody tx = txList[txIdx];
             string txHash = tx.Hash();
             int inputCount = tx.Inputs()?.Count() ?? 0;
             int outputCount = tx.Outputs()?.Count() ?? 0;
@@ -189,8 +189,8 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
                                                                                      {
                                                                                          switch (response.Action)
                                                                                          {
-                                                                                             case NextResponseAction.RollBack when response.Block != null:
-                                                                                                 await HandleRollBackAsync(response, mockProvider, blockReducer, txReducer);
+                                                                                             case NextResponseAction.RollBack:
+                                                                                                 await HandleRollBackAsync(response, blockReducer, txReducer);
                                                                                                  break;
 
                                                                                              case NextResponseAction.RollForward when response.Block != null:
@@ -200,18 +200,16 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
                                                                                                  break;
                                                                                              case NextResponseAction.RollForward:
                                                                                                  break;
-                                                                                             case NextResponseAction.RollBack:
-                                                                                                 break;
                                                                                              default:
                                                                                                  break;
                                                                                          }
                                                                                      }
                                                                                  });
 
-    private async Task HandleRollBackAsync(NextResponse response, MockChainSyncProvider mockProvider,
+    private async Task HandleRollBackAsync(NextResponse response,
         BlockTestReducer blockReducer, TransactionTestReducer txReducer)
     {
-        ulong rollbackSlot = mockProvider.GetActualRollbackSlot(response);
+        ulong rollbackSlot = response.RollbackSlot ?? 0;
 
         if (!_rollbackReceived)
         {
@@ -234,8 +232,8 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
     private async Task HandleRollForwardAsync(NextResponse response,
         BlockTestReducer blockReducer, TransactionTestReducer txReducer)
     {
-        BlockInfo blockInfo = ExtractBlockInfo(response.Block);
-        List<string> txHashes = ExtractTransactionHashes(response.Block);
+        BlockInfo blockInfo = ExtractBlockInfo(response.Block!);
+        List<string> txHashes = ExtractTransactionHashes(response.Block!);
 
         // Update tracking state
         _blockTxCounts[blockInfo.Slot] = blockInfo.TxCount;
@@ -246,8 +244,8 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
                          $"{blockInfo.TxCount} transactions, hash {blockInfo.Hash[..16]}...");
 
         // Process with reducers
-        await blockReducer.RollForwardAsync(response.Block);
-        await txReducer.RollForwardAsync(response.Block);
+        await blockReducer.RollForwardAsync(response.Block!);
+        await txReducer.RollForwardAsync(response.Block!);
         _processedBlocks++;
 
         await VerifyPerBlockStateAsync();
@@ -271,8 +269,8 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
 
             await VerifyMemoryDatabaseConsistencyAsync();
 
-            _output.WriteLine($"  ✅ Per-block verification: {currentDbBlocks} blocks, {currentDbTxs} transactions in DB");
-            _output.WriteLine($"  ✅ Memory-DB state consistency verified for slot {_blockSlots.Last()}");
+            _output.WriteLine($"  Per-block verification: {currentDbBlocks} blocks, {currentDbTxs} transactions in DB");
+            _output.WriteLine($"  Memory-DB state consistency verified for slot {_blockSlots.Last()}");
         }
         finally
         {
@@ -304,11 +302,11 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
             if (expectedBlocks > 0)
             {
                 Assert.Contains(rollbackSlot, remainingSlots);
-                _output.WriteLine($"✅ Rollback point {rollbackSlot} preserved (Exclusive semantics)");
+                _output.WriteLine($"Rollback point {rollbackSlot} preserved (Exclusive semantics)");
             }
 
-            _output.WriteLine("✅ Per-rollback verification passed");
-            _output.WriteLine("✅ Memory-DB state consistency verified after rollback");
+            _output.WriteLine("Per-rollback verification passed");
+            _output.WriteLine("Memory-DB state consistency verified after rollback");
         }
         finally
         {
@@ -339,7 +337,7 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
 
     #region Rollforward Execution
 
-    private async Task ExecuteRollForwardPhaseAsync(MockChainSyncProvider mockProvider, Block[] testBlocks)
+    private async Task ExecuteRollForwardPhaseAsync(MockChainSyncProvider mockProvider, IBlock[] testBlocks)
     {
         _output.WriteLine("=== Phase 1: RollForward 5 blocks ===");
 
@@ -347,7 +345,7 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
 
         for (int i = 0; i < testBlocks.Length; i++)
         {
-            Block block = testBlocks[i];
+            IBlock block = testBlocks[i];
             ulong slot = block.Header().HeaderBody().Slot();
 
             _output.WriteLine($"Triggering block {i + 1}/5: slot {slot}");
@@ -423,8 +421,8 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         Assert.Equal(5, finalRollforwardBlocks);
         Assert.Equal(totalExpectedTxs, finalRollforwardTxs);
 
-        _output.WriteLine($"✅ RollForward phase complete: {finalRollforwardBlocks} blocks, {finalRollforwardTxs} transactions");
-        _output.WriteLine($"✅ Block slots: [{string.Join(", ", _blockSlots)}]");
+        _output.WriteLine($"RollForward phase complete: {finalRollforwardBlocks} blocks, {finalRollforwardTxs} transactions");
+        _output.WriteLine($"Block slots: [{string.Join(", ", _blockSlots)}]");
     }
 
     private async Task CompleteTestAndVerifyAsync(MockChainSyncProvider mockProvider, Task chainSyncTask)
@@ -452,7 +450,7 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
 
     #region Helper Methods
 
-    private static List<string> ExtractTransactionHashes(Block block)
+    private static List<string> ExtractTransactionHashes(IBlock block)
     {
         int txCount = block.TransactionBodies()?.Count() ?? 0;
         if (txCount == 0)
@@ -460,7 +458,7 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
             return [];
         }
 
-        IEnumerable<TransactionBody> txBodies = block.TransactionBodies();
+        IEnumerable<ITransactionBody> txBodies = block.TransactionBodies();
         return txBodies?.Select(tx => tx.Hash()).ToList() ?? [];
     }
 
@@ -536,11 +534,11 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
 
     private void LogTestCompletionSummary()
     {
-        _output.WriteLine("\n✅ Trigger-based test completed successfully!");
-        _output.WriteLine("✅ TriggerRollForward: Triggered 5 blocks with per-block verification");
-        _output.WriteLine($"✅ TriggerRollBack: Triggered {_rollbackCount} rollbacks with per-rollback verification");
-        _output.WriteLine("✅ Final state: 0 blocks with 0 transactions (complete rollback)");
-        _output.WriteLine("✅ Trigger control: External triggers controlled all chain sync events");
+        _output.WriteLine("\nTrigger-based test completed successfully!");
+        _output.WriteLine("TriggerRollForward: Triggered 5 blocks with per-block verification");
+        _output.WriteLine($"TriggerRollBack: Triggered {_rollbackCount} rollbacks with per-rollback verification");
+        _output.WriteLine("Final state: 0 blocks with 0 transactions (complete rollback)");
+        _output.WriteLine("Trigger control: External triggers controlled all chain sync events");
     }
 
     #endregion

@@ -1,5 +1,5 @@
 using Argus.Sync.Data.Models;
-using Block = Chrysalis.Cbor.Types.Cardano.Core.Block;
+using IBlock = Chrysalis.Codec.Types.Cardano.Core.IBlock;
 
 namespace Argus.Sync.Reducers;
 
@@ -14,7 +14,7 @@ public interface IReducer<out T> where T : IReducerModel
     /// </summary>
     /// <param name="block">The block to process.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    Task RollForwardAsync(Block block);
+    Task RollForwardAsync(IBlock block);
 
     /// <summary>
     /// Handles a chain reorganization by rolling back to the specified slot.
