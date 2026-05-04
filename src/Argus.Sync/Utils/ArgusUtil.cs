@@ -27,24 +27,29 @@ public static class ArgusUtil
     }
 
     /// <summary>
-    /// Deserializes a CBOR-encoded block with era tagging into the appropriate block type.
+    /// Deserializes a CBOR-encoded block into the appropriate block type, accepting either
+    /// the tag-wrapped on-wire form <c>Tag(24, ByteString([era, block]))</c> or the inner
+    /// <c>[era, block]</c> form (which Chrysalis' <c>CborEncodedValue</c> already produces).
     /// </summary>
-    /// <param name="blockCbor">The raw CBOR bytes of the era-tagged block.</param>
-    /// <returns>The deserialized block, or null if deserialization fails.</returns>
+    /// <param name="blockCbor">The CBOR bytes of the block, with or without the outer tag-24 wrap.</param>
+    /// <returns>The deserialized block.</returns>
     public static IBlock? DeserializeBlockWithEra(ReadOnlyMemory<byte> blockCbor)
     {
-        CborReader reader = new(blockCbor, CborConformanceMode.Lax);
-
-        // N2C format: Tag(24, ByteString([era, block]))
-        // Read and verify tag 24
-        CborTag tag = reader.ReadTag();
-        if (tag != CborTag.EncodedCborDataItem)
+        ReadOnlyMemory<byte> innerBytes;
+        CborReader probe = new(blockCbor, CborConformanceMode.Lax);
+        if (probe.PeekState() == CborReaderState.Tag)
         {
-            throw new InvalidOperationException($"Expected CBOR tag 24, got {tag}");
+            CborTag tag = probe.ReadTag();
+            if (tag != CborTag.EncodedCborDataItem)
+            {
+                throw new InvalidOperationException($"Expected CBOR tag 24, got {tag}");
+            }
+            innerBytes = probe.ReadByteString();
         }
-
-        // Read the byte string containing [era, block]
-        byte[] innerBytes = reader.ReadByteString();
+        else
+        {
+            innerBytes = blockCbor;
+        }
 
         BlockWithEra blockWithEra = CborSerializer.Deserialize<BlockWithEra>(innerBytes);
         return blockWithEra.Block;
