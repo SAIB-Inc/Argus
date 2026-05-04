@@ -18,7 +18,7 @@
   </a>
   <br>
   <a href="https://dotnet.microsoft.com/download">
-    <img src="https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square" alt=".NET">
+    <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square" alt=".NET">
   </a>
   <a href="https://www.postgresql.org/">
     <img src="https://img.shields.io/badge/PostgreSQL-Compatible-336791?style=flat-square" alt="PostgreSQL">
