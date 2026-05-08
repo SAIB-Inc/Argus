@@ -3,5 +3,6 @@
     <Project Path="src/Argus.Sync/Argus.Sync.csproj" />
     <Project Path="src/Argus.Sync.Example/Argus.Sync.Example.csproj" />
     <Project Path="src/Argus.Sync.Tests/Argus.Sync.Tests.csproj" />
+    <Project Path="src/Argus.Sync.Bench/Argus.Sync.Bench.csproj" />
   </Folder>
 </Solution>
