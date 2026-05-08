@@ -4,14 +4,11 @@ using Argus.Sync.Data.Models;
 using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using NextResponse = Argus.Sync.Data.Models.NextResponse;
-using Chrysalis.Codec.Extensions.Cardano.Core;
-using Chrysalis.Codec.Extensions.Cardano.Core.Header;
 using System.Diagnostics;
 
 namespace Argus.Sync.Workers;
@@ -50,8 +47,13 @@ public partial class CardanoIndexWorker<T>(
     private readonly Dictionary<string, List<string>> _dependentReducers = []; // parent -> dependents
     private readonly Dictionary<string, string?> _reducerDependency = []; // reducer -> its single dependency
     private readonly HashSet<string> _rootReducers = [];
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastStartPointChecks = [];
     private readonly ConcurrentDictionary<string, ICardanoChainProvider> _rootReducerProviders = [];
+
+    // Pipeline structures (Commit 3 rearchitecture).
+    private readonly Dictionary<string, ReducerPipeline> _pipelines = [];
+    private readonly List<Task> _pipelineRunTasks = [];
+
+    private readonly int _pipelineChannelCapacity = configuration.GetValue("Sync:Pipeline:ChannelCapacity", 256);
 
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);
     private readonly int _rollbackBuffer = configuration.GetValue("CardanoNodeConnection:RollbackBuffer", 10);
@@ -193,14 +195,58 @@ public partial class CardanoIndexWorker<T>(
         LogDependencyGraphBuilt(logger, _rootReducers.Count, _reducersByName.Count);
     }
 
+    /// <summary>
+    /// Constructs one <see cref="ReducerPipeline"/> per reducer and wires the
+    /// dependency-graph topology into bounded-channel edges. Must be called
+    /// after <see cref="BuildDependencyGraph"/>.
+    /// </summary>
+    private void BuildPipelines()
+    {
+        foreach ((string reducerName, IReducer reducer) in _reducersByName)
+        {
+            _pipelines[reducerName] = new ReducerPipeline(
+                reducer: reducer,
+                uowFactory: unitOfWorkFactory,
+                channelCapacity: _pipelineChannelCapacity,
+                logger: logger,
+                telemetryRecorder: RecordTelemetry,
+                intersectionRecorder: UpdateInMemoryStateRollforward,
+                rollbackRecorder: UpdateInMemoryStateRollback);
+        }
+
+        foreach ((string parentName, List<string> dependentNames) in _dependentReducers)
+        {
+            ReducerPipeline parent = _pipelines[parentName];
+            foreach (string depName in dependentNames)
+            {
+                parent.AddDependent(_pipelines[depName]);
+            }
+        }
+
+        // Each root pipeline's chain consumer (StartReducerChainSyncAsync) is
+        // the one upstream producer — register that vote so completion fires
+        // after the chain consumer signals done.
+        foreach (string rootName in _rootReducers)
+        {
+            _pipelines[rootName].IncrementExpectedVotes();
+        }
+    }
+
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Build dependency graph first
         BuildDependencyGraph();
+        BuildPipelines();
 
         // Initialize state for all reducers (including dependents)
         await InitializeAllReducerStatesAsync(stoppingToken);
+
+        // Start every reducer's run loop. They block on their inbox channel.
+        foreach (ReducerPipeline pipeline in _pipelines.Values)
+        {
+            _pipelineRunTasks.Add(pipeline.RunAsync(stoppingToken));
+        }
 
         if (!_rollbackModeEnabled)
         {
@@ -283,24 +329,60 @@ public partial class CardanoIndexWorker<T>(
             string slotsDisplay = string.Join(", ", intersectionList.OrderByDescending(p => p.Slot).Select(p => p.Slot));
             LogStartingReducerChainSync(logger, reducerName, intersectionList.Count, slotsDisplay);
 
-            await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersectionList, _networkMagic, stoppingToken))
+            string rootReducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+            ReducerPipeline rootPipeline = _pipelines[rootReducerName];
+
+            try
             {
-                Task reducerTask = nextResponse.Action switch
+                await foreach (NextResponse nextResponse in chainProvider.StartChainSyncAsync(intersectionList, _networkMagic, stoppingToken))
                 {
-                    NextResponseAction.RollForward => ProcessRollforwardAsync(reducer, nextResponse, stoppingToken),
-                    NextResponseAction.RollBack => ProcessRollbackAsync(reducer, nextResponse, rollbackMode, stoppingToken),
-                    NextResponseAction.Await => throw new NotImplementedException(),
-                    _ => throw new InvalidOperationException($"Next response error received. {nextResponse}"),
-                };
+                    if (nextResponse.Action == NextResponseAction.Await)
+                    {
+                        throw new NotImplementedException("NextResponseAction.Await is not supported by the channel pipeline.");
+                    }
 
-                await reducerTask;
+                    // Rollback safety check — fail fast if a deep rollback hits
+                    // the configured maxRollbackSlots ceiling. Doing this at the
+                    // chain consumer (not the pipeline) means we stop pulling
+                    // from the node before pushing into a doomed channel.
+                    if (nextResponse.Action == NextResponseAction.RollBack && !rollbackMode)
+                    {
+                        ulong rbSlot = nextResponse.RollBackType switch
+                        {
+                            RollBackType.Exclusive => nextResponse.RollbackSlot!.Value + 1UL,
+                            RollBackType.Inclusive => nextResponse.RollbackSlot!.Value,
+                            _ => 0
+                        };
+                        long rbDepth = (long)_reducerStates[rootReducerName].LatestSlot - (long)rbSlot;
+                        if (rbDepth >= _maxRollbackSlots)
+                        {
+                            throw new InvalidOperationException(
+                                $"Requested RollBack Slot {rbSlot} is more than {_maxRollbackSlots} slots behind current slot {_reducerStates[rootReducerName].LatestSlot}.");
+                        }
+                    }
 
-                if (rollbackMode)
-                {
-                    LogRollbackCompleted(logger);
-                    Exit();
-                    return;
+                    // Pipeline ownership: BranchUow=null tells the root pipeline
+                    // it's a branch root (creates its own UoW). The chain consumer
+                    // doesn't wait on the dep tree — control returns immediately
+                    // to pull the next block, suspending only when the root
+                    // pipeline's bounded channel is full (cooperative backpressure).
+                    await rootPipeline.EnqueueAsync(new Envelope(nextResponse, BranchUow: null), stoppingToken).ConfigureAwait(false);
+
+                    if (rollbackMode)
+                    {
+                        LogRollbackCompleted(logger);
+                        Exit();
+                        return;
+                    }
                 }
+            }
+            finally
+            {
+                // Signal end-of-stream to this root pipeline. Completion cascades
+                // downstream: each dependent expects one vote per upstream
+                // producer, so once the parent's RunAsync drains its inbox and
+                // calls Complete on its dependents, the cascade unwinds cleanly.
+                rootPipeline.Complete();
             }
         }
         catch (OperationCanceledException)
@@ -317,159 +399,11 @@ public partial class CardanoIndexWorker<T>(
     }
 
     /// <summary>
-    /// Entry point for a root reducer's roll-forward processing of a single block.
-    /// Walks one or more branches in the dependency graph; each branch gets its
-    /// own <see cref="IBlockUnitOfWork"/> and commits atomically (data + checkpoint).
+    /// Updates the in-memory <see cref="ReducerState"/> with a new intersection
+    /// point. Called by <see cref="ReducerPipeline"/> after each successful
+    /// roll-forward, before the branch UoW commits. Pure in-memory; the
+    /// authoritative checkpoint write happens via the UoW.
     /// </summary>
-    private async Task ProcessRollforwardAsync(IReducer reducer, NextResponse response, CancellationToken ct)
-    {
-        if (_rollbackModeEnabled)
-        {
-            return;
-        }
-
-        string rootName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
-        await ProcessBranchAsync(rootName, response, NextResponseAction.RollForward, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Entry point for a root reducer's roll-back processing. Same branch-walking
-    /// semantics as roll-forward; rollbacks propagate down dependents in-band.
-    /// </summary>
-    private async Task ProcessRollbackAsync(IReducer reducer, NextResponse response, bool rollbackMode, CancellationToken ct)
-    {
-        if (_rollbackModeEnabled && !rollbackMode)
-        {
-            return;
-        }
-
-        string rootName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
-
-        ulong rollbackSlot = response.RollBackType switch
-        {
-            RollBackType.Exclusive => response.RollbackSlot!.Value + 1UL,
-            RollBackType.Inclusive => response.RollbackSlot!.Value,
-            _ => 0
-        };
-
-        long rollbackDepth = (long)_reducerStates[rootName].LatestSlot - (long)rollbackSlot;
-        if (rollbackDepth >= _maxRollbackSlots && !rollbackMode)
-        {
-            throw new InvalidOperationException(
-                $"Requested RollBack Slot {rollbackSlot} is more than {_maxRollbackSlots} slots behind current slot {_reducerStates[rootName].LatestSlot}.");
-        }
-
-        await ProcessBranchAsync(rootName, response, NextResponseAction.RollBack, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Processes one dependency-graph branch — a maximal linear chain starting at
-    /// <paramref name="branchRootName"/>. The branch ends at a leaf (0 dependents)
-    /// or a fork (>1 dependents); at that point the UoW commits atomically with
-    /// every reducer's data and tracked checkpoint, and child branches (if any)
-    /// spawn in parallel each with their own UoW.
-    ///
-    /// Per-branch UoW gives:
-    /// - Atomic data + checkpoint per reducer (crash-safe restart, no idempotency burden)
-    /// - One DB round-trip per branch instead of N (write coalescing for the chain)
-    /// - Visibility of upstream pending writes to downstream reducers via the shared
-    ///   change-tracker (e.g. EF's <c>DbSet.Local</c>; the Levvy.V3 read-after-write pattern)
-    /// </summary>
-    private async Task ProcessBranchAsync(
-        string branchRootName,
-        NextResponse response,
-        NextResponseAction action,
-        CancellationToken ct)
-    {
-        await using IBlockUnitOfWork uow = unitOfWorkFactory.Create();
-        bool committed = false;
-
-        try
-        {
-            string currentName = branchRootName;
-            while (true)
-            {
-                ulong slot = action == NextResponseAction.RollBack
-                    ? response.RollbackSlot!.Value
-                    : response.Block!.Header().HeaderBody().Slot();
-
-                // Dependent reducers might be skipped if their dependency hasn't
-                // caught up yet; the root always runs (it drove this branch).
-                if (currentName != branchRootName && !ShouldProcessBlock(currentName, slot))
-                {
-                    return;
-                }
-
-                IReducer reducer = _reducersByName[currentName];
-                await CheckAndAdjustDependentStartPointAsync(currentName).ConfigureAwait(false);
-
-                Stopwatch sw = Stopwatch.StartNew();
-                try
-                {
-                    if (action == NextResponseAction.RollForward)
-                    {
-                        await reducer.RollForwardAsync(response.Block!, uow, ct).ConfigureAwait(false);
-                        Point point = new(response.Block!.Header().Hash(), slot);
-                        uow.TrackIntersection(currentName, point);
-                        UpdateInMemoryStateRollforward(currentName, point);
-                    }
-                    else
-                    {
-                        ulong rollbackSlot = response.RollBackType switch
-                        {
-                            RollBackType.Exclusive => response.RollbackSlot!.Value + 1UL,
-                            RollBackType.Inclusive => response.RollbackSlot!.Value,
-                            _ => 0
-                        };
-                        await reducer.RollBackwardAsync(rollbackSlot, uow, ct).ConfigureAwait(false);
-                        UpdateInMemoryStateRollback(currentName, rollbackSlot);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogForwardingError(logger, ex, action, currentName, slot);
-                    throw;
-                }
-                finally
-                {
-                    sw.Stop();
-                    RecordTelemetry(currentName, sw.ElapsedMilliseconds, slot);
-                }
-
-                if (!_dependentReducers.TryGetValue(currentName, out List<string>? dependents) || dependents.Count == 0)
-                {
-                    // Leaf — commit and return.
-                    await uow.CommitAsync(ct).ConfigureAwait(false);
-                    committed = true;
-                    return;
-                }
-
-                if (dependents.Count == 1)
-                {
-                    // Linear continuation — same UoW down the chain.
-                    currentName = dependents[0];
-                    continue;
-                }
-
-                // Fork — commit current branch UoW, spawn child branches in parallel.
-                await uow.CommitAsync(ct).ConfigureAwait(false);
-                committed = true;
-
-                Task[] tasks = [.. dependents.Select(d => ProcessBranchAsync(d, response, action, ct))];
-                await Task.WhenAll(tasks).ConfigureAwait(false);
-                return;
-            }
-        }
-        finally
-        {
-            if (!committed)
-            {
-                // Roll back any pending writes — branch failed before commit.
-                try { await uow.RollbackAsync(ct).ConfigureAwait(false); } catch { /* swallow secondary errors */ }
-            }
-        }
-    }
-
     private void UpdateInMemoryStateRollforward(string reducerName, Point point)
     {
         if (_reducerStates.TryGetValue(reducerName, out ReducerState? currentState))
@@ -630,122 +564,6 @@ public partial class CardanoIndexWorker<T>(
         {
             LogSynchronizedAtSlot(logger, dependentName, dependency, dependencyLatestPoint.Slot);
         }
-    }
-
-    private async Task CheckAndAdjustDependentStartPointAsync(string dependentName)
-    {
-        // Only check periodically to avoid overhead
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        string lastCheckKey = $"LastStartPointCheck_{dependentName}";
-
-        if (_lastStartPointChecks.TryGetValue(lastCheckKey, out DateTimeOffset lastCheck))
-        {
-            // Check at most once per minute
-            if ((now - lastCheck).TotalMinutes < 1)
-            {
-                return;
-            }
-        }
-
-        _lastStartPointChecks[lastCheckKey] = now;
-
-        // Perform the adjustment check
-        string? dependency = _reducerDependency[dependentName];
-        if (dependency == null)
-        {
-            return;
-        }
-
-        if (!_reducerStates.TryGetValue(dependency, out ReducerState? depState) ||
-            !_reducerStates.TryGetValue(dependentName, out ReducerState? dependentState))
-        {
-            return;
-        }
-
-        // Check if dependency has significantly advanced since last adjustment
-        if (depState.LatestIntersections.Any())
-        {
-            ulong depLatestSlot = depState.LatestSlot;
-
-            // If dependent hasn't started yet but dependency has advanced significantly
-            if (!dependentState.LatestIntersections.Any() &&
-                dependentState.StartIntersection.Slot < depLatestSlot - 1000) // More than 1000 slots behind
-            {
-                Point? newStartPoint = depState.LatestIntersections
-                    .OrderByDescending(p => p.Slot)
-                    .Skip(5) // Use a slightly older intersection for safety
-                    .FirstOrDefault();
-
-                if (newStartPoint != null && newStartPoint.Slot > dependentState.StartIntersection.Slot)
-                {
-                    LogDynamicAdjustment(logger, dependentName, dependentState.StartIntersection.Slot, newStartPoint.Slot, dependency);
-
-                    _reducerStates[dependentName] = dependentState with
-                    {
-                        StartIntersection = newStartPoint
-                    };
-
-                    // Persist the change
-                    await PersistReducerStateAsync(dependentName);
-                }
-            }
-        }
-    }
-
-    private async Task PersistReducerStateAsync(string reducerName)
-    {
-        if (!_reducerStates.TryGetValue(reducerName, out ReducerState? state))
-        {
-            return;
-        }
-
-        try
-        {
-            await stateStore.UpsertAsync(state).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            LogPersistStateError(logger, ex, reducerName);
-        }
-    }
-
-    private bool ShouldProcessBlock(string reducerName, ulong blockSlot)
-    {
-        if (!_reducerStates.TryGetValue(reducerName, out ReducerState? state))
-        {
-            LogStateNotFound(logger, reducerName, blockSlot);
-            return false;
-        }
-
-        // First check: Is this block before the reducer's start point?
-        if (blockSlot < state.StartIntersection.Slot)
-        {
-            return false;
-        }
-
-        // For root reducers, no additional checks needed
-        if (_rootReducers.Contains(reducerName))
-        {
-            return true;
-        }
-
-        // For dependent reducers, perform dynamic runtime check
-        string? dependency = _reducerDependency[reducerName];
-        if (dependency != null && _reducerStates.TryGetValue(dependency, out ReducerState? depState))
-        {
-            // Check if dependency has processed this block or beyond
-            ulong dependencyLatestSlot = _latestSlots.TryGetValue(dependency, out ulong latestSlot)
-                ? latestSlot
-                : depState.StartIntersection.Slot;
-
-            if (blockSlot > dependencyLatestSlot)
-            {
-                LogSkippingBlock(logger, blockSlot, reducerName, dependency, dependencyLatestSlot);
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private async Task<ReducerState> GetReducerStateAsync(string reducerName, CancellationToken stoppingToken)

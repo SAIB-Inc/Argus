@@ -266,80 +266,11 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
         }
     }
 
-    [Fact]
-    [Trait("Category", "Integration")]
-    public Task ShouldProcessBlock_ShouldRespectDependencyState()
-    {
-        // Setup
-        IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
-        List<IReducer> reducers =
-        [
-            new BlockTestReducer(),
-            new DependentTransactionReducer()
-        ];
-
-        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
-        using (loggerFactory)
-        using (cts)
-        using (worker)
-        {
-            // Setup internal state using reflection
-            Type workerType = typeof(CardanoIndexWorker<TestDbContext>);
-
-            // Build dependency graph
-            MethodInfo? buildGraphMethod = workerType.GetMethod("BuildDependencyGraph",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            _ = buildGraphMethod!.Invoke(worker, null);
-
-            // Set up reducer states
-            FieldInfo? reducerStatesField = workerType.GetField("_reducerStates",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            ConcurrentDictionary<string, ReducerState>? reducerStates = reducerStatesField!.GetValue(worker) as ConcurrentDictionary<string, ReducerState>;
-
-            // BlockTestReducer at slot 1000
-            reducerStates!["BlockTestReducer"] = new ReducerState("BlockTestReducer", DateTimeOffset.UtcNow)
-            {
-                StartIntersection = new Point("genesis", 0),
-                LatestIntersections = [new Point("hash1000", 1000)]
-            };
-
-            // DependentTransactionReducer at slot 500
-            reducerStates["DependentTransactionReducer"] = new ReducerState("DependentTransactionReducer", DateTimeOffset.UtcNow)
-            {
-                StartIntersection = new Point("hash500", 500),
-                LatestIntersections = [new Point("hash500", 500)]
-            };
-
-            // Also populate _latestSlots so ShouldProcessBlock can check dependency progress
-            FieldInfo? latestSlotsField = workerType.GetField("_latestSlots",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            ConcurrentDictionary<string, ulong>? latestSlots = latestSlotsField!.GetValue(worker) as ConcurrentDictionary<string, ulong>;
-            latestSlots!["BlockTestReducer"] = 1000;
-            latestSlots["DependentTransactionReducer"] = 500;
-
-            // Test ShouldProcessBlock
-            MethodInfo? shouldProcessMethod = workerType.GetMethod("ShouldProcessBlock",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-
-            // Test 1: Root reducer should process any block >= start
-            bool rootShouldProcess = (bool)shouldProcessMethod!.Invoke(worker, ["BlockTestReducer", 1500UL])!;
-            Assert.True(rootShouldProcess);
-
-            // Test 2: Dependent should not process block beyond dependency
-            bool dependentShouldNotProcess = (bool)shouldProcessMethod!.Invoke(worker, ["DependentTransactionReducer", 1500UL])!;
-            Assert.False(dependentShouldNotProcess);
-
-            // Test 3: Dependent should process block within dependency range
-            bool dependentShouldProcess = (bool)shouldProcessMethod!.Invoke(worker, ["DependentTransactionReducer", 800UL])!;
-            Assert.True(dependentShouldProcess);
-
-            // Test 4: Should not process block before start point
-            bool shouldNotProcessBeforeStart = (bool)shouldProcessMethod!.Invoke(worker, ["DependentTransactionReducer", 400UL])!;
-            Assert.False(shouldNotProcessBeforeStart);
-
-            _output.WriteLine("ShouldProcessBlock tests passed");
-        }
-
-        return Task.CompletedTask;
-    }
+    // Note: ShouldProcessBlock_ShouldRespectDependencyState was removed in
+    // Commit 3. The `ShouldProcessBlock` runtime check it tested has been
+    // deleted from CardanoIndexWorker — the channel pipeline structurally
+    // enforces parent-before-dependent ordering (dependents only receive
+    // envelopes their parent has already pushed downstream), making the
+    // dynamic runtime guard redundant. The remaining StartPointLogic tests
+    // in this class still cover the warm-start adjustment path.
 }

@@ -135,7 +135,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         _ = await _databaseManager.DbContext.SaveChangesAsync();
 
         IConfiguration configuration = CreateMinimalTestConfiguration();
-        ILoggerFactory loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        ILoggerFactory loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
         ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
         (BlockTestReducer? blockReducer, TransactionTestReducer? txReducer) = CreateReducers();
@@ -236,14 +236,20 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
             using CancellationTokenSource cts = new(TimeSpan.FromSeconds(30));
             try
             {
+                // BackgroundService.StartAsync returns Task.CompletedTask once
+                // ExecuteAsync hits its first await, so the lambda has to hold
+                // itself open — otherwise the worker gets disposed before any
+                // chain provider gets created.
                 await worker.StartAsync(cts.Token);
+                await Task.Delay(Timeout.Infinite, cts.Token);
             }
             catch (OperationCanceledException)
             {
-                // Expected when test completes
+                // Expected when test completes (cts timeout or token cancellation).
             }
             finally
             {
+                try { await worker.StopAsync(CancellationToken.None); } catch { /* swallow shutdown errors */ }
                 if (worker is IDisposable disposableWorker)
                 {
                     disposableWorker.Dispose();
