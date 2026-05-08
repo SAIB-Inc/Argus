@@ -8,32 +8,30 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
 
-public class BlockTestReducer(
-    IDbContextFactory<TestDbContext> dbContextFactory
-) : IReducer<BlockTest>
+public class BlockTestReducer : IReducer
 {
-    public async Task RollBackwardAsync(ulong slot)
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)
     {
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
         dbContext.BlockTests.RemoveRange(
-            dbContext
-                .BlockTests
+            dbContext.BlockTests
                 .AsNoTracking()
-                .Where(b => b.Slot >= slot)
-        );
-
-        _ = await dbContext.SaveChangesAsync();
+                .Where(b => b.Slot >= slot));
+        return Task.CompletedTask;
     }
 
-    public async Task RollForwardAsync(IBlock block)
+    public Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
+
         string blockHash = block.Header().Hash();
         ulong blockNumber = block.Header().HeaderBody().BlockNumber();
         ulong slot = block.Header().HeaderBody().Slot();
 
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
         _ = dbContext.BlockTests.Add(new BlockTest(blockHash, blockNumber, slot, DateTime.UtcNow));
-
-        _ = await dbContext.SaveChangesAsync();
+        return Task.CompletedTask;
     }
 }

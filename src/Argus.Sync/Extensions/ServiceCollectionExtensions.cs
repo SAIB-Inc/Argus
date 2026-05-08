@@ -2,6 +2,7 @@ using System.Reflection;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Stores;
 using Argus.Sync.Providers;
+using Argus.Sync.Reducers;
 using Argus.Sync.Workers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -58,10 +59,12 @@ public static class ServiceCollectionExtensions
                 );
         });
 
-        // Register the default EF-backed reducer state store. Consumers using
-        // a non-relational backend can replace this registration with their
-        // own IReducerStateStore implementation after calling AddCardanoIndexer.
+        // Register the default EF-backed reducer state store and unit-of-work
+        // factory. Consumers using a non-relational backend can replace these
+        // registrations with their own implementations after calling
+        // AddCardanoIndexer.
         _ = services.AddSingleton<IReducerStateStore, EfReducerStateStore<T>>();
+        _ = services.AddSingleton<IBlockUnitOfWorkFactory, EfBlockUnitOfWorkFactory<T>>();
 
         // Register chain provider factory - use provided factory or default to configuration-based
         if (chainProviderFactory != null)

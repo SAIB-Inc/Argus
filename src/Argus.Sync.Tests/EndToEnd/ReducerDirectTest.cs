@@ -112,8 +112,8 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
 
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider
             .GetRequiredService<IDbContextFactory<TestDbContext>>();
-        BlockTestReducer blockReducer = new(dbContextFactory);
-        TransactionTestReducer txReducer = new(dbContextFactory);
+        BlockTestReducer blockReducer = new();
+        TransactionTestReducer txReducer = new();
 
         IBlock[] testBlocks = [.. mockProvider.AvailableBlocks.Take(5)];
         _output.WriteLine($"Using {testBlocks.Length} blocks for testing");
@@ -244,9 +244,19 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         _output.WriteLine($"Processing block {_processedBlocks + 1}: slot {blockInfo.Slot}, " +
                          $"{blockInfo.TxCount} transactions, hash {blockInfo.Hash[..16]}...");
 
-        // Process with reducers
-        await blockReducer.RollForwardAsync(response.Block!);
-        await txReducer.RollForwardAsync(response.Block!);
+        // Process with reducers — frame each reducer in its own UoW since this
+        // test drives reducers directly (no worker, no per-branch sharing).
+        IDbContextFactory<TestDbContext> dbcFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        await using (Argus.Sync.Reducers.IBlockUnitOfWork uow1 = new Argus.Sync.Data.Stores.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
+        {
+            await blockReducer.RollForwardAsync(response.Block!, uow1, CancellationToken.None);
+            await uow1.CommitAsync();
+        }
+        await using (Argus.Sync.Reducers.IBlockUnitOfWork uow2 = new Argus.Sync.Data.Stores.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
+        {
+            await txReducer.RollForwardAsync(response.Block!, uow2, CancellationToken.None);
+            await uow2.CommitAsync();
+        }
         _processedBlocks++;
 
         await VerifyPerBlockStateAsync();
@@ -463,11 +473,20 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         return txBodies?.Select(tx => tx.Hash()).ToList() ?? [];
     }
 
-    private static async Task ExecuteRollbackOperationAsync(BlockTestReducer blockReducer,
+    private async Task ExecuteRollbackOperationAsync(BlockTestReducer blockReducer,
         TransactionTestReducer txReducer, ulong normalizedRollbackSlot)
     {
-        await blockReducer.RollBackwardAsync(normalizedRollbackSlot);
-        await txReducer.RollBackwardAsync(normalizedRollbackSlot);
+        IDbContextFactory<TestDbContext> dbcFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        await using (Argus.Sync.Reducers.IBlockUnitOfWork uow1 = new Argus.Sync.Data.Stores.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
+        {
+            await blockReducer.RollBackwardAsync(normalizedRollbackSlot, uow1, CancellationToken.None);
+            await uow1.CommitAsync();
+        }
+        await using (Argus.Sync.Reducers.IBlockUnitOfWork uow2 = new Argus.Sync.Data.Stores.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
+        {
+            await txReducer.RollBackwardAsync(normalizedRollbackSlot, uow2, CancellationToken.None);
+            await uow2.CommitAsync();
+        }
     }
 
     private void UpdateMemoryStateForRollback(ulong normalizedRollbackSlot, ulong rollbackSlot)

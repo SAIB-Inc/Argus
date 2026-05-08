@@ -24,13 +24,15 @@ namespace Argus.Sync.Workers;
 /// <param name="configuration">Application configuration for sync settings.</param>
 /// <param name="logger">Logger instance for diagnostic output.</param>
 /// <param name="stateStore">Store for reducer-state checkpoints (default: <see cref="Argus.Sync.Data.Stores.EfReducerStateStore{T}"/>).</param>
+/// <param name="unitOfWorkFactory">Factory for per-block per-branch units of work (default: <see cref="Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory{T}"/>).</param>
 /// <param name="reducers">Collection of registered reducer instances.</param>
 /// <param name="chainProviderFactory">Factory for creating chain provider connections.</param>
 public partial class CardanoIndexWorker<T>(
     IConfiguration configuration,
     ILogger<CardanoIndexWorker<T>> logger,
     IReducerStateStore stateStore,
-    IEnumerable<IReducer<IReducerModel>> reducers,
+    IBlockUnitOfWorkFactory unitOfWorkFactory,
+    IEnumerable<IReducer> reducers,
     IChainProviderFactory chainProviderFactory
 ) : BackgroundService where T : CardanoDbContext
 {
@@ -44,7 +46,7 @@ public partial class CardanoIndexWorker<T>(
     private DateTime _lastTuiUpdate = DateTime.MinValue;
 
     // Dependency graph structures
-    private readonly Dictionary<string, IReducer<IReducerModel>> _reducersByName = [];
+    private readonly Dictionary<string, IReducer> _reducersByName = [];
     private readonly Dictionary<string, List<string>> _dependentReducers = []; // parent -> dependents
     private readonly Dictionary<string, string?> _reducerDependency = []; // reducer -> its single dependency
     private readonly HashSet<string> _rootReducers = [];
@@ -149,7 +151,7 @@ public partial class CardanoIndexWorker<T>(
     private void BuildDependencyGraph()
     {
         // Build reducer lookup and initialize dependency structures
-        foreach (IReducer<IReducerModel> reducer in reducers)
+        foreach (IReducer reducer in reducers)
         {
             string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
             _reducersByName[reducerName] = reducer;
@@ -158,7 +160,7 @@ public partial class CardanoIndexWorker<T>(
         }
 
         // Build dependency mappings
-        foreach (IReducer<IReducerModel> reducer in reducers)
+        foreach (IReducer reducer in reducers)
         {
             string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
             Type? dependency = ReducerDependencyResolver.GetReducerDependency(reducer.GetType());
@@ -216,7 +218,7 @@ public partial class CardanoIndexWorker<T>(
         }
 
         // Only start chain sync for root reducers (those with no dependencies)
-        List<IReducer<IReducerModel>> rootReducerInstances = [.. _rootReducers.Select(name => _reducersByName[name])];
+        List<IReducer> rootReducerInstances = [.. _rootReducers.Select(name => _reducersByName[name])];
 
         if (rootReducerInstances.Count == 0)
         {
@@ -233,7 +235,7 @@ public partial class CardanoIndexWorker<T>(
         Exit();
     }
 
-    private async Task StartReducerChainSyncAsync(IReducer<IReducerModel> reducer, CancellationToken stoppingToken)
+    private async Task StartReducerChainSyncAsync(IReducer reducer, CancellationToken stoppingToken)
     {
         try
         {
@@ -285,8 +287,8 @@ public partial class CardanoIndexWorker<T>(
             {
                 Task reducerTask = nextResponse.Action switch
                 {
-                    NextResponseAction.RollForward => ProcessRollforwardAsync(reducer, nextResponse),
-                    NextResponseAction.RollBack => ProcessRollbackAsync(reducer, nextResponse, rollbackMode),
+                    NextResponseAction.RollForward => ProcessRollforwardAsync(reducer, nextResponse, stoppingToken),
+                    NextResponseAction.RollBack => ProcessRollbackAsync(reducer, nextResponse, rollbackMode, stoppingToken),
                     NextResponseAction.Await => throw new NotImplementedException(),
                     _ => throw new InvalidOperationException($"Next response error received. {nextResponse}"),
                 };
@@ -295,7 +297,6 @@ public partial class CardanoIndexWorker<T>(
 
                 if (rollbackMode)
                 {
-                    await UpdateReducerStatesAsync(stoppingToken);
                     LogRollbackCompleted(logger);
                     Exit();
                     return;
@@ -315,43 +316,35 @@ public partial class CardanoIndexWorker<T>(
         }
     }
 
-    private async Task ProcessRollforwardAsync(IReducer<IReducerModel> reducer, NextResponse response)
+    /// <summary>
+    /// Entry point for a root reducer's roll-forward processing of a single block.
+    /// Walks one or more branches in the dependency graph; each branch gets its
+    /// own <see cref="IBlockUnitOfWork"/> and commits atomically (data + checkpoint).
+    /// </summary>
+    private async Task ProcessRollforwardAsync(IReducer reducer, NextResponse response, CancellationToken ct)
     {
         if (_rollbackModeEnabled)
         {
             return;
         }
 
-        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
-        Stopwatch stopwatch = Stopwatch.StartNew();
-
-        await reducer.RollForwardAsync(response.Block!);
-
-        stopwatch.Stop();
-        ulong slot = response.Block!.Header().HeaderBody().Slot();
-
-        // Send telemetry data non-blocking
-        RecordTelemetry(reducerName, stopwatch.ElapsedMilliseconds, slot);
-
-        Point recentIntersection = new(response.Block!.Header().Hash(), slot);
-        IEnumerable<Point> latestIntersections = UpdateLatestIntersections(_reducerStates[reducerName].LatestIntersections, recentIntersection);
-        _reducerStates[reducerName] = _reducerStates[reducerName] with
-        {
-            LatestIntersections = latestIntersections
-        };
-
-        // Forward to dependent reducers
-        await ForwardToDependentsAsync(reducer, response, NextResponseAction.RollForward);
+        string rootName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+        await ProcessBranchAsync(rootName, response, NextResponseAction.RollForward, ct).ConfigureAwait(false);
     }
 
-    private async Task ProcessRollbackAsync(IReducer<IReducerModel> reducer, NextResponse response, bool rollbackMode)
+    /// <summary>
+    /// Entry point for a root reducer's roll-back processing. Same branch-walking
+    /// semantics as roll-forward; rollbacks propagate down dependents in-band.
+    /// </summary>
+    private async Task ProcessRollbackAsync(IReducer reducer, NextResponse response, bool rollbackMode, CancellationToken ct)
     {
         if (_rollbackModeEnabled && !rollbackMode)
         {
             return;
         }
 
-        string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+        string rootName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
+
         ulong rollbackSlot = response.RollBackType switch
         {
             RollBackType.Exclusive => response.RollbackSlot!.Value + 1UL,
@@ -359,122 +352,152 @@ public partial class CardanoIndexWorker<T>(
             _ => 0
         };
 
-        long rollbackDepth = (long)_reducerStates[reducerName].LatestSlot - (long)rollbackSlot;
-
+        long rollbackDepth = (long)_reducerStates[rootName].LatestSlot - (long)rollbackSlot;
         if (rollbackDepth >= _maxRollbackSlots && !rollbackMode)
         {
-            throw new InvalidOperationException($"Requested RollBack Slot {rollbackSlot} is more than {_maxRollbackSlots} slots behind current slot {_reducerStates[reducerName].LatestSlot}.");
+            throw new InvalidOperationException(
+                $"Requested RollBack Slot {rollbackSlot} is more than {_maxRollbackSlots} slots behind current slot {_reducerStates[rootName].LatestSlot}.");
         }
 
-        Stopwatch stopwatch = Stopwatch.StartNew();
-
-        await reducer.RollBackwardAsync(rollbackSlot);
-
-        stopwatch.Stop();
-
-        // Record rollback telemetry
-        RecordTelemetry(reducerName, stopwatch.ElapsedMilliseconds, rollbackSlot);
-
-        IEnumerable<Point> latestIntersections = _reducerStates[reducerName].LatestIntersections;
-        latestIntersections = latestIntersections.Where(i => i.Slot < rollbackSlot);
-        _reducerStates[reducerName] = _reducerStates[reducerName] with
-        {
-            LatestIntersections = latestIntersections
-        };
-
-        // Forward rollback to dependent reducers
-        await ForwardToDependentsAsync(reducer, response, NextResponseAction.RollBack);
+        await ProcessBranchAsync(rootName, response, NextResponseAction.RollBack, ct).ConfigureAwait(false);
     }
 
-    private async Task ForwardToDependentsAsync(IReducer<IReducerModel> parentReducer, NextResponse response, NextResponseAction action)
+    /// <summary>
+    /// Processes one dependency-graph branch — a maximal linear chain starting at
+    /// <paramref name="branchRootName"/>. The branch ends at a leaf (0 dependents)
+    /// or a fork (>1 dependents); at that point the UoW commits atomically with
+    /// every reducer's data and tracked checkpoint, and child branches (if any)
+    /// spawn in parallel each with their own UoW.
+    ///
+    /// Per-branch UoW gives:
+    /// - Atomic data + checkpoint per reducer (crash-safe restart, no idempotency burden)
+    /// - One DB round-trip per branch instead of N (write coalescing for the chain)
+    /// - Visibility of upstream pending writes to downstream reducers via the shared
+    ///   change-tracker (e.g. EF's <c>DbSet.Local</c>; the Levvy.V3 read-after-write pattern)
+    /// </summary>
+    private async Task ProcessBranchAsync(
+        string branchRootName,
+        NextResponse response,
+        NextResponseAction action,
+        CancellationToken ct)
     {
-        string parentName = ArgusUtil.GetTypeNameWithoutGenerics(parentReducer.GetType());
-
-        if (!_dependentReducers.TryGetValue(parentName, out List<string>? dependentNames) || dependentNames.Count == 0)
-        {
-            return; // No dependents to forward to
-        }
-
-        ulong slot = action == NextResponseAction.RollBack
-            ? response.RollbackSlot!.Value
-            : response.Block!.Header().HeaderBody().Slot();
-
-        // Process all dependents in parallel
-        IEnumerable<Task> tasks = dependentNames
-            .Where(dependentName => ShouldProcessBlock(dependentName, slot))
-            .Select(dependentName => ProcessDependentAsync(dependentName, response, action));
-
-        await Task.WhenAll(tasks);
-    }
-
-    private async Task ProcessDependentAsync(string dependentName, NextResponse response, NextResponseAction action)
-    {
-        IReducer<IReducerModel> dependentReducer = _reducersByName[dependentName];
-        ulong slot = action == NextResponseAction.RollBack
-            ? response.RollbackSlot!.Value
-            : response.Block!.Header().HeaderBody().Slot();
+        await using IBlockUnitOfWork uow = unitOfWorkFactory.Create();
+        bool committed = false;
 
         try
         {
-            // Dynamic runtime adjustment check
-            await CheckAndAdjustDependentStartPointAsync(dependentName);
-
-            Stopwatch stopwatch = Stopwatch.StartNew();
-
-            if (action == NextResponseAction.RollForward)
+            string currentName = branchRootName;
+            while (true)
             {
-                await dependentReducer.RollForwardAsync(response.Block!);
+                ulong slot = action == NextResponseAction.RollBack
+                    ? response.RollbackSlot!.Value
+                    : response.Block!.Header().HeaderBody().Slot();
 
-                // Update dependent state
-                if (_reducerStates.TryGetValue(dependentName, out ReducerState? currentState))
+                // Dependent reducers might be skipped if their dependency hasn't
+                // caught up yet; the root always runs (it drove this branch).
+                if (currentName != branchRootName && !ShouldProcessBlock(currentName, slot))
                 {
-                    Point recentIntersection = new(response.Block!.Header().Hash(), slot);
-                    IEnumerable<Point> latestIntersections = UpdateLatestIntersections(currentState.LatestIntersections, recentIntersection);
-                    _reducerStates[dependentName] = currentState with
-                    {
-                        LatestIntersections = latestIntersections
-                    };
+                    return;
                 }
-            }
-            else if (action == NextResponseAction.RollBack)
-            {
-                ulong rollbackSlot = response.RollBackType switch
-                {
-                    RollBackType.Exclusive => response.RollbackSlot!.Value + 1UL,
-                    RollBackType.Inclusive => response.RollbackSlot!.Value,
-                    _ => 0
-                };
 
-                await dependentReducer.RollBackwardAsync(rollbackSlot);
+                IReducer reducer = _reducersByName[currentName];
+                await CheckAndAdjustDependentStartPointAsync(currentName).ConfigureAwait(false);
 
-                // Update dependent state
-                if (_reducerStates.TryGetValue(dependentName, out ReducerState? currentState))
+                Stopwatch sw = Stopwatch.StartNew();
+                try
                 {
-                    IEnumerable<Point> latestIntersections = currentState.LatestIntersections.Where(i => i.Slot < rollbackSlot);
-                    _reducerStates[dependentName] = currentState with
+                    if (action == NextResponseAction.RollForward)
                     {
-                        LatestIntersections = latestIntersections
-                    };
+                        await reducer.RollForwardAsync(response.Block!, uow, ct).ConfigureAwait(false);
+                        Point point = new(response.Block!.Header().Hash(), slot);
+                        uow.TrackIntersection(currentName, point);
+                        UpdateInMemoryStateRollforward(currentName, point);
+                    }
+                    else
+                    {
+                        ulong rollbackSlot = response.RollBackType switch
+                        {
+                            RollBackType.Exclusive => response.RollbackSlot!.Value + 1UL,
+                            RollBackType.Inclusive => response.RollbackSlot!.Value,
+                            _ => 0
+                        };
+                        await reducer.RollBackwardAsync(rollbackSlot, uow, ct).ConfigureAwait(false);
+                        UpdateInMemoryStateRollback(currentName, rollbackSlot);
+                    }
                 }
+                catch (Exception ex)
+                {
+                    LogForwardingError(logger, ex, action, currentName, slot);
+                    throw;
+                }
+                finally
+                {
+                    sw.Stop();
+                    RecordTelemetry(currentName, sw.ElapsedMilliseconds, slot);
+                }
+
+                if (!_dependentReducers.TryGetValue(currentName, out List<string>? dependents) || dependents.Count == 0)
+                {
+                    // Leaf — commit and return.
+                    await uow.CommitAsync(ct).ConfigureAwait(false);
+                    committed = true;
+                    return;
+                }
+
+                if (dependents.Count == 1)
+                {
+                    // Linear continuation — same UoW down the chain.
+                    currentName = dependents[0];
+                    continue;
+                }
+
+                // Fork — commit current branch UoW, spawn child branches in parallel.
+                await uow.CommitAsync(ct).ConfigureAwait(false);
+                committed = true;
+
+                Task[] tasks = [.. dependents.Select(d => ProcessBranchAsync(d, response, action, ct))];
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+                return;
             }
-
-            stopwatch.Stop();
-            RecordTelemetry(dependentName, stopwatch.ElapsedMilliseconds, slot);
-
-            // Recursively forward to dependents of this dependent
-            await ForwardToDependentsAsync(dependentReducer, response, action);
         }
-        catch (Exception ex)
+        finally
         {
-            LogForwardingError(logger, ex, action, dependentName, slot);
-            throw;
+            if (!committed)
+            {
+                // Roll back any pending writes — branch failed before commit.
+                try { await uow.RollbackAsync(ct).ConfigureAwait(false); } catch { /* swallow secondary errors */ }
+            }
+        }
+    }
+
+    private void UpdateInMemoryStateRollforward(string reducerName, Point point)
+    {
+        if (_reducerStates.TryGetValue(reducerName, out ReducerState? currentState))
+        {
+            IEnumerable<Point> latestIntersections = UpdateLatestIntersections(currentState.LatestIntersections, point);
+            _reducerStates[reducerName] = currentState with
+            {
+                LatestIntersections = latestIntersections
+            };
+        }
+    }
+
+    private void UpdateInMemoryStateRollback(string reducerName, ulong rollbackSlot)
+    {
+        if (_reducerStates.TryGetValue(reducerName, out ReducerState? currentState))
+        {
+            IEnumerable<Point> latestIntersections = currentState.LatestIntersections.Where(i => i.Slot < rollbackSlot);
+            _reducerStates[reducerName] = currentState with
+            {
+                LatestIntersections = latestIntersections
+            };
         }
     }
 
     private async Task InitializeAllReducerStatesAsync(CancellationToken stoppingToken)
     {
         // First, load all reducer states
-        foreach ((string? reducerName, IReducer<IReducerModel> _) in _reducersByName)
+        foreach ((string? reducerName, IReducer _) in _reducersByName)
         {
             ReducerState state = await GetReducerStateAsync(reducerName, stoppingToken);
             _reducerStates[reducerName] = state;
@@ -825,7 +848,7 @@ public partial class CardanoIndexWorker<T>(
             {
                 Dictionary<ProgressTask, string> taskToReducerName = [];
                 List<ProgressTask> tasks = [];
-                foreach (IReducer<IReducerModel> reducer in reducers)
+                foreach (IReducer reducer in reducers)
                 {
                     string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
                     ProgressTask task = ctx.AddTask(reducerName);
@@ -929,7 +952,7 @@ public partial class CardanoIndexWorker<T>(
                     double overallProgress = 0.0;
                     int validReducerCount = 0;
 
-                    foreach (IReducer<IReducerModel> reducer in reducers)
+                    foreach (IReducer reducer in reducers)
                     {
                         string reducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
 
@@ -1233,7 +1256,7 @@ public partial class CardanoIndexWorker<T>(
 
             // Get all reducer names (from telemetry or from configured reducers)
             HashSet<string> allReducerNames = [];
-            foreach (IReducer<IReducerModel> reducer in reducers)
+            foreach (IReducer reducer in reducers)
             {
                 _ = allReducerNames.Add(ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType()));
             }

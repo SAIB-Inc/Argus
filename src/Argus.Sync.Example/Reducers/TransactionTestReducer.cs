@@ -10,28 +10,28 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
 
-public class TransactionTestReducer(IDbContextFactory<TestDbContext> dbContextFactory) : IReducer<TransactionTest>
+public class TransactionTestReducer : IReducer
 {
-    public async Task RollBackwardAsync(ulong slot)
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)
     {
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
         dbContext.TransactionTests.RemoveRange(
             dbContext.TransactionTests
                 .AsNoTracking()
-                .Where(t => t.Slot >= slot
-            )
-        );
-
-        _ = await dbContext.SaveChangesAsync();
+                .Where(t => t.Slot >= slot));
+        return Task.CompletedTask;
     }
 
-    public async Task RollForwardAsync(IBlock block)
+    public Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
+
         ulong slot = block.Header().HeaderBody().Slot();
         string blockHash = block.Header().Hash();
         ulong blockHeight = block.Header().HeaderBody().BlockNumber();
-
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
 
         ulong index = 0;
         foreach (ITransactionBody tx in block.TransactionBodies())
@@ -39,7 +39,6 @@ public class TransactionTestReducer(IDbContextFactory<TestDbContext> dbContextFa
             string txHash = tx.Hash();
             _ = dbContext.TransactionTests.Add(new TransactionTest(txHash, index++, slot, blockHash, blockHeight, tx.Raw.ToArray(), DateTimeOffset.UtcNow));
         }
-
-        _ = await dbContext.SaveChangesAsync();
+        return Task.CompletedTask;
     }
 }

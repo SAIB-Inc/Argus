@@ -1,7 +1,5 @@
-using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
 using Argus.Sync.Utils;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -13,17 +11,16 @@ namespace Argus.Sync.Extensions;
 public static class ReducerExtensions
 {
     /// <summary>
-    /// Registers reducers based on application configuration settings.
+    /// Registers reducers based on application configuration settings. Scans the consumer's
+    /// loaded assemblies for non-abstract <see cref="IReducer"/> implementations and registers
+    /// them as singletons. The optional <c>CardanoIndexReducers:ActiveReducers</c> config
+    /// list restricts which reducers load (by simple type name).
     /// </summary>
-    /// <typeparam name="T">The database context type.</typeparam>
-    /// <typeparam name="TModel">The reducer model interface type.</typeparam>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">The application configuration.</param>
-    public static void AddReducers<T, TModel>(
+    public static void AddReducers(
         this IServiceCollection services,
         IConfiguration configuration)
-        where T : DbContext
-        where TModel : IReducerModel
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
@@ -41,23 +38,21 @@ public static class ReducerExtensions
             .GetSection("CardanoIndexReducers:ActiveReducers")
             .Get<IEnumerable<string>>() ?? [];
 
-        // Use AppDomain.CurrentDomain like the first version
         List<Type> reducerTypes = [.. AppDomain.CurrentDomain
             .GetAssemblies()
             .Where(a => !a.FullName!.StartsWith("Argus.Sync,", StringComparison.Ordinal))
             .SelectMany(a => a.GetTypes())
-            .Where(t => typeof(IReducer<TModel>).IsAssignableFrom(t)
+            .Where(t => typeof(IReducer).IsAssignableFrom(t)
                     && !t.IsInterface
                     && !t.IsAbstract)];
-
 
         // If no active reducers specified, register all found reducers
         if (!activeReducers.Any())
         {
-            foreach (Type reducerType in reducerTypes)  // Changed to iterate over reducerTypes
+            foreach (Type reducerType in reducerTypes)
             {
                 ValidateReducerDependencies(reducerType);
-                RegisterReducer<TModel>(services, reducerType, typeof(T));
+                RegisterReducer(services, reducerType);
             }
             return;
         }
@@ -94,7 +89,7 @@ public static class ReducerExtensions
                 .First(t => ArgusUtil.GetTypeNameWithoutGenerics(t) == reducerName);
 
             ValidateReducerDependencies(reducerType);
-            RegisterReducer<TModel>(services, reducerType, typeof(T));  // Note the <TModel> here
+            RegisterReducer(services, reducerType);
         }
     }
 
@@ -114,17 +109,17 @@ public static class ReducerExtensions
         }
     }
 
-    private static void RegisterReducer<TModel>(IServiceCollection services, Type reducerType, Type dbContextType)
-        where TModel : IReducerModel
+    private static void RegisterReducer(IServiceCollection services, Type reducerType)
     {
+        // Generic-typedef reducers are no longer supported with the non-generic IReducer.
+        // If a consumer needs to parameterize a reducer over their context type, they
+        // construct it themselves and register the closed type.
         if (reducerType.IsGenericTypeDefinition)
         {
-            Type closedReducerType = reducerType.MakeGenericType(dbContextType);
-            _ = services.AddSingleton(typeof(IReducer<TModel>), closedReducerType);
+            throw new InvalidOperationException(
+                $"Generic reducer type definitions ({reducerType.FullName}) are not supported. Register a closed concrete reducer type instead.");
         }
-        else
-        {
-            _ = services.AddSingleton(typeof(IReducer<TModel>), reducerType);
-        }
+
+        _ = services.AddSingleton(typeof(IReducer), reducerType);
     }
 }

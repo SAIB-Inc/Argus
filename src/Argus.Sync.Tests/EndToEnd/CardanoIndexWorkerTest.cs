@@ -125,7 +125,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
     private (BlockTestReducer, TransactionTestReducer) CreateReducers()
     {
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
-        return (new BlockTestReducer(dbContextFactory), new TransactionTestReducer(dbContextFactory));
+        return (new BlockTestReducer(), new TransactionTestReducer());
     }
 
     private async Task<(CardanoIndexWorker<TestDbContext> Worker, ILoggerFactory LoggerFactory)> CreateCardanoIndexWorkerWithFactoryAsync()
@@ -139,10 +139,11 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
         (BlockTestReducer? blockReducer, TransactionTestReducer? txReducer) = CreateReducers();
-        List<IReducer<IReducerModel>> reducers = [blockReducer, txReducer];
+        List<IReducer> reducers = [blockReducer, txReducer];
 
         Argus.Sync.Data.IReducerStateStore stateStore = new Argus.Sync.Data.Stores.EfReducerStateStore<TestDbContext>(dbContextFactory);
-        return (new CardanoIndexWorker<TestDbContext>(configuration, logger, stateStore, reducers, _mockFactory!), loggerFactory);
+        Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
+        return (new CardanoIndexWorker<TestDbContext>(configuration, logger, stateStore, uowFactory, reducers, _mockFactory!), loggerFactory);
     }
 
     private IConfiguration CreateMinimalTestConfiguration()

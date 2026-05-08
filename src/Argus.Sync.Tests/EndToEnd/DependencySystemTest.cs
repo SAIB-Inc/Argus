@@ -274,12 +274,12 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
 
         // Create reducers including dependent ones
-        BlockTestReducer blockReducer = new(dbContextFactory);
-        TransactionTestReducer txReducer = new(dbContextFactory);
-        DependentTransactionReducer dependentReducer = new(dbContextFactory);
-        ChainedDependentReducer chainedReducer = new(dbContextFactory);
+        BlockTestReducer blockReducer = new();
+        TransactionTestReducer txReducer = new();
+        DependentTransactionReducer dependentReducer = new();
+        ChainedDependentReducer chainedReducer = new();
 
-        List<IReducer<IReducerModel>> reducers =
+        List<IReducer> reducers =
         [
             blockReducer,
             txReducer,
@@ -288,7 +288,8 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
         ];
 
         Argus.Sync.Data.IReducerStateStore stateStore = new Argus.Sync.Data.Stores.EfReducerStateStore<TestDbContext>(dbContextFactory);
-        return Task.FromResult(new CardanoIndexWorker<TestDbContext>(configuration, logger, stateStore, reducers, _mockProviderFactory!));
+        Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
+        return Task.FromResult(new CardanoIndexWorker<TestDbContext>(configuration, logger, stateStore, uowFactory, reducers, _mockProviderFactory!));
     }
 
     private async Task VerifyDependencyChainProcessed(ulong slot)

@@ -51,7 +51,7 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
 
     private static (CardanoIndexWorker<TestDbContext> Worker, ILoggerFactory LoggerFactory, CancellationTokenSource Cts) CreateWorkerWithReducers(
         IDbContextFactory<TestDbContext> dbContextFactory,
-        List<IReducer<IReducerModel>> reducers)
+        List<IReducer> reducers)
     {
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -68,10 +68,12 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
         MockChainProviderFactory mockProviderFactory = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
 
         Argus.Sync.Data.IReducerStateStore stateStore = new Argus.Sync.Data.Stores.EfReducerStateStore<TestDbContext>(dbContextFactory);
+        Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
         CardanoIndexWorker<TestDbContext> worker = new(
             configuration,
             logger,
             stateStore,
+            uowFactory,
             reducers,
             mockProviderFactory
         );
@@ -143,10 +145,10 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
         _ = await dbContext.SaveChangesAsync();
 
         // Create reducers
-        BlockTestReducer blockReducer = new(dbContextFactory);
-        DependentTransactionReducer dependentReducer = new(dbContextFactory);
-        ChainedDependentReducer chainedReducer = new(dbContextFactory);
-        List<IReducer<IReducerModel>> reducers = [blockReducer, dependentReducer, chainedReducer];
+        BlockTestReducer blockReducer = new();
+        DependentTransactionReducer dependentReducer = new();
+        ChainedDependentReducer chainedReducer = new();
+        List<IReducer> reducers = [blockReducer, dependentReducer, chainedReducer];
 
         (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)
@@ -206,8 +208,8 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
         _ = await dbContext.SaveChangesAsync();
 
         // Create reducer
-        TransactionTestReducer txReducer = new(dbContextFactory);
-        List<IReducer<IReducerModel>> reducers = [txReducer];
+        TransactionTestReducer txReducer = new();
+        List<IReducer> reducers = [txReducer];
 
         (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)

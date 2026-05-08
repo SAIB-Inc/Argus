@@ -52,7 +52,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
 
     private static (CardanoIndexWorker<TestDbContext> Worker, ILoggerFactory LoggerFactory, CancellationTokenSource Cts) CreateWorkerWithReducers(
         IDbContextFactory<TestDbContext> dbContextFactory,
-        List<IReducer<IReducerModel>> reducers)
+        List<IReducer> reducers)
     {
         IConfigurationRoot configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -68,10 +68,12 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
         MockChainProviderFactory mockProviderFactory = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
 
         Argus.Sync.Data.IReducerStateStore stateStore = new Argus.Sync.Data.Stores.EfReducerStateStore<TestDbContext>(dbContextFactory);
+        Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
         CardanoIndexWorker<TestDbContext> worker = new(
             configuration,
             logger,
             stateStore,
+            uowFactory,
             reducers,
             mockProviderFactory
         );
@@ -130,9 +132,9 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
         _ = await dbContext.SaveChangesAsync();
 
         // Create reducers
-        BlockTestReducer blockReducer = new(dbContextFactory);
-        DependentTransactionReducer dependentReducer = new(dbContextFactory);
-        List<IReducer<IReducerModel>> reducers = [blockReducer, dependentReducer];
+        BlockTestReducer blockReducer = new();
+        DependentTransactionReducer dependentReducer = new();
+        List<IReducer> reducers = [blockReducer, dependentReducer];
 
         (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)
@@ -184,11 +186,11 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
         _ = await dbContext.SaveChangesAsync();
 
         // Create all reducers
-        List<IReducer<IReducerModel>> reducers =
+        List<IReducer> reducers =
         [
-            new BlockTestReducer(dbContextFactory),
-            new DependentTransactionReducer(dbContextFactory),
-            new ChainedDependentReducer(dbContextFactory)
+            new BlockTestReducer(),
+            new DependentTransactionReducer(),
+            new ChainedDependentReducer()
         ];
 
         (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
@@ -237,10 +239,10 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
         _ = await dbContext.SaveChangesAsync();
 
         // Create reducers
-        List<IReducer<IReducerModel>> reducers =
+        List<IReducer> reducers =
         [
-            new BlockTestReducer(dbContextFactory),
-            new DependentTransactionReducer(dbContextFactory)
+            new BlockTestReducer(),
+            new DependentTransactionReducer()
         ];
 
         (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
@@ -270,10 +272,10 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
     {
         // Setup
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
-        List<IReducer<IReducerModel>> reducers =
+        List<IReducer> reducers =
         [
-            new BlockTestReducer(dbContextFactory),
-            new DependentTransactionReducer(dbContextFactory)
+            new BlockTestReducer(),
+            new DependentTransactionReducer()
         ];
 
         (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
