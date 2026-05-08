@@ -67,10 +67,11 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
         ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
         MockChainProviderFactory mockProviderFactory = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
 
+        Argus.Sync.Data.IReducerStateStore stateStore = new Argus.Sync.Data.Stores.EfReducerStateStore<TestDbContext>(dbContextFactory);
         CardanoIndexWorker<TestDbContext> worker = new(
             configuration,
             logger,
-            dbContextFactory,
+            stateStore,
             reducers,
             mockProviderFactory
         );

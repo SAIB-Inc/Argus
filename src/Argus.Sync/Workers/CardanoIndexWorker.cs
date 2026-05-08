@@ -23,13 +23,13 @@ namespace Argus.Sync.Workers;
 /// <typeparam name="T">The database context type, must inherit from <see cref="CardanoDbContext"/>.</typeparam>
 /// <param name="configuration">Application configuration for sync settings.</param>
 /// <param name="logger">Logger instance for diagnostic output.</param>
-/// <param name="dbContextFactory">Factory for creating database context instances.</param>
+/// <param name="stateStore">Store for reducer-state checkpoints (default: <see cref="Argus.Sync.Data.Stores.EfReducerStateStore{T}"/>).</param>
 /// <param name="reducers">Collection of registered reducer instances.</param>
 /// <param name="chainProviderFactory">Factory for creating chain provider connections.</param>
 public partial class CardanoIndexWorker<T>(
     IConfiguration configuration,
     ILogger<CardanoIndexWorker<T>> logger,
-    IDbContextFactory<T> dbContextFactory,
+    IReducerStateStore stateStore,
     IEnumerable<IReducer<IReducerModel>> reducers,
     IChainProviderFactory chainProviderFactory
 ) : BackgroundService where T : CardanoDbContext
@@ -678,16 +678,7 @@ public partial class CardanoIndexWorker<T>(
 
         try
         {
-            await using T dbContext = await dbContextFactory.CreateDbContextAsync();
-            ReducerState? existingState = await dbContext.ReducerStates
-                .FirstOrDefaultAsync(r => r.Name == reducerName);
-
-            if (existingState != null)
-            {
-                existingState.StartIntersectionJson = state.StartIntersectionJson;
-                existingState.LatestIntersectionsJson = state.LatestIntersectionsJson;
-                _ = await dbContext.SaveChangesAsync();
-            }
+            await stateStore.UpsertAsync(state).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -736,22 +727,14 @@ public partial class CardanoIndexWorker<T>(
 
     private async Task<ReducerState> GetReducerStateAsync(string reducerName, CancellationToken stoppingToken)
     {
-        await using T dbContext = await dbContextFactory.CreateDbContextAsync(stoppingToken);
+        ReducerState? state = await stateStore.GetAsync(reducerName, stoppingToken).ConfigureAwait(false);
 
-        ReducerState? state = await dbContext.ReducerStates
-            .AsNoTracking()
-            .Where(s => s.Name == reducerName)
-            .FirstOrDefaultAsync(cancellationToken: stoppingToken);
-
-        if (state is not null)
+        if (state is not null && !state.LatestIntersections.Any())
         {
-            if (!state.LatestIntersections.Any())
+            state = state with
             {
-                state = state with
-                {
-                    LatestIntersections = [state.StartIntersection]
-                };
-            }
+                LatestIntersections = [state.StartIntersection]
+            };
         }
 
         ReducerState initialState = GetDefaultReducerState(reducerName);
@@ -777,28 +760,13 @@ public partial class CardanoIndexWorker<T>(
 
     private async Task UpdateReducerStatesAsync(CancellationToken stoppingToken)
     {
-        await using T dbContext = await dbContextFactory.CreateDbContextAsync(stoppingToken);
-
-        IEnumerable<ReducerState> newStates = _reducerStates.Values;
-        IEnumerable<string> reducerNames = newStates.Select(ns => ns.Name);
-        IEnumerable<ReducerState> reducerStates = await dbContext.ReducerStates
-            .Where(rs => reducerNames.Contains(rs.Name))
-            .ToListAsync(cancellationToken: stoppingToken);
-
-        foreach (ReducerState newState in newStates)
+        ReducerState[] newStates = [.. _reducerStates.Values];
+        if (newStates.Length == 0)
         {
-            ReducerState? existingState = reducerStates.FirstOrDefault(rs => rs.Name == newState.Name);
-            if (existingState is not null)
-            {
-                existingState.LatestIntersections = newState.LatestIntersections;
-            }
-            else
-            {
-                _ = dbContext.ReducerStates.Add(newState);
-            }
+            return;
         }
 
-        _ = await dbContext.SaveChangesAsync(stoppingToken);
+        await stateStore.UpsertManyAsync(newStates, stoppingToken).ConfigureAwait(false);
     }
 
     private IEnumerable<Point> UpdateLatestIntersections(IEnumerable<Point> latestIntersections, Point newIntersection)
