@@ -262,7 +262,6 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
             ["CardanoNodeConnection:Slot"] = firstBlock.Header().HeaderBody().Slot().ToString(CultureInfo.InvariantCulture),
             ["CardanoNodeConnection:NetworkMagic"] = "764824073",
             ["Sync:Worker:ExitOnCompletion"] = "false",
-            ["Sync:State:ReducerStateSyncInterval"] = "1000",
             ["Sync:Dashboard:TuiMode"] = "false"
         }).Build();
 

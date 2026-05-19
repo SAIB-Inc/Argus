@@ -65,7 +65,6 @@ public partial class CardanoIndexWorker<T>(
 
     private readonly bool _tuiMode = configuration.GetValue("Sync:Dashboard:TuiMode", true);
     private readonly TimeSpan _dashboardRefreshInterval = TimeSpan.FromMilliseconds(Math.Max(configuration.GetValue("Sync:Dashboard:RefreshInterval", 1000), 2000));
-    private readonly TimeSpan _dbSyncInterval = TimeSpan.FromMilliseconds(configuration.GetValue("Sync:State:ReducerStateSyncInterval", 10000));
 
     // --- LoggerMessage source-generated high-performance logging ---
 
@@ -259,8 +258,6 @@ public partial class CardanoIndexWorker<T>(
                 _ = Task.Run(() => StartTelemetryAggregationAsync(stoppingToken), stoppingToken);
             }
 
-            // Start reducer state sync
-            _ = Task.Run(async () => await StartReducerStateSync(stoppingToken), stoppingToken);
         }
 
         // Only start chain sync for root reducers (those with no dependencies)
@@ -597,17 +594,6 @@ public partial class CardanoIndexWorker<T>(
         };
 
         return initialState;
-    }
-
-    private async Task UpdateReducerStatesAsync(CancellationToken stoppingToken)
-    {
-        ReducerState[] newStates = [.. _reducerStates.Values];
-        if (newStates.Length == 0)
-        {
-            return;
-        }
-
-        await stateStore.UpsertManyAsync(newStates, stoppingToken).ConfigureAwait(false);
     }
 
     private IEnumerable<Point> UpdateLatestIntersections(IEnumerable<Point> latestIntersections, Point newIntersection)
@@ -1048,16 +1034,6 @@ public partial class CardanoIndexWorker<T>(
 
             // Ensure we never show 100% unless actually at tip
             return Math.Min(progress, 99.99);
-        }
-    }
-
-
-    private async Task StartReducerStateSync(CancellationToken stoppingToken)
-    {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await UpdateReducerStatesAsync(stoppingToken);
-            await Task.Delay(_dbSyncInterval, stoppingToken);
         }
     }
 
