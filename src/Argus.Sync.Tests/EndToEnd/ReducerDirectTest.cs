@@ -250,12 +250,12 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         await using (Argus.Sync.Reducers.IBlockUnitOfWork uow1 = new Argus.Sync.Data.Stores.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
         {
             await blockReducer.RollForwardAsync(response.Block!, uow1, CancellationToken.None);
-            await uow1.CommitAsync();
+            _ = await uow1.CommitAsync();
         }
         await using (Argus.Sync.Reducers.IBlockUnitOfWork uow2 = new Argus.Sync.Data.Stores.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
         {
             await txReducer.RollForwardAsync(response.Block!, uow2, CancellationToken.None);
-            await uow2.CommitAsync();
+            _ = await uow2.CommitAsync();
         }
         _processedBlocks++;
 
@@ -480,12 +480,12 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         await using (Argus.Sync.Reducers.IBlockUnitOfWork uow1 = new Argus.Sync.Data.Stores.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
         {
             await blockReducer.RollBackwardAsync(normalizedRollbackSlot, uow1, CancellationToken.None);
-            await uow1.CommitAsync();
+            _ = await uow1.CommitAsync();
         }
         await using (Argus.Sync.Reducers.IBlockUnitOfWork uow2 = new Argus.Sync.Data.Stores.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
         {
             await txReducer.RollBackwardAsync(normalizedRollbackSlot, uow2, CancellationToken.None);
-            await uow2.CommitAsync();
+            _ = await uow2.CommitAsync();
         }
     }
 

@@ -14,7 +14,9 @@ namespace Argus.Sync.Reducers;
 /// storage handle for arbitrary operations: tracked entities, ExecuteUpdate /
 /// ExecuteDelete, raw SQL via Database.ExecuteSqlRawAsync, ADO.NET via
 /// Database.GetDbConnection, third-party bulk extensions, etc. Anything joined to
-/// the underlying connection participates in the framework-owned transaction.
+/// the underlying connection/transaction participates in the framework-owned
+/// transaction. Non-tracked writes must call <see cref="MarkDataChanged"/> so
+/// empty-block commit deferral does not skip their checkpoint write.
 /// </summary>
 public interface IBlockUnitOfWork : IAsyncDisposable
 {
@@ -40,11 +42,42 @@ public interface IBlockUnitOfWork : IAsyncDisposable
     void TrackIntersection(string reducerName, Point point);
 
     /// <summary>
+    /// Records that <paramref name="reducerName"/> rolled back to
+    /// <paramref name="rollbackSlot"/>. The framework persists the checkpoint
+    /// rewind atomically with the reducer's rollback data writes.
+    /// </summary>
+    void TrackRollback(string reducerName, ulong rollbackSlot);
+
+    /// <summary>
+    /// Marks that reducer data changed through a path the backend cannot
+    /// auto-detect (for example raw SQL, ExecuteUpdate/ExecuteDelete, ADO.NET,
+    /// or bulk extensions). Tracked EF entity changes are detected automatically.
+    /// </summary>
+    void MarkDataChanged();
+
+    /// <summary>
+    /// Read-only view of intersections registered via <see cref="TrackIntersection"/>
+    /// since the last commit/rollback. Allows the framework to preserve state
+    /// across deferred commits (see <see cref="CommitAsync"/>).
+    /// </summary>
+    IReadOnlyDictionary<string, Point> TrackedIntersections { get; }
+
+    /// <summary>
     /// Persists all registered changes (reducer data + tracked checkpoints) in
     /// a single transaction. Called by the framework once per block per
     /// dependency-graph branch.
     /// </summary>
-    Task CommitAsync(CancellationToken ct = default);
+    /// <param name="deferIfEmpty">
+    /// When true, skip the commit entirely if no reducer in the branch tracked
+    /// any data changes for this block. Returns false to signal the caller
+    /// should preserve <see cref="TrackedIntersections"/> and re-track them
+    /// against the next block's UoW. Crash-safety is preserved: deferred
+    /// intersections only cover blocks the reducer didn't write to, so replay
+    /// after crash is a no-op for those blocks.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>True if a commit happened; false if deferred (only when <paramref name="deferIfEmpty"/> is true).</returns>
+    Task<bool> CommitAsync(bool deferIfEmpty = false, CancellationToken ct = default);
 
     /// <summary>
     /// Discards all registered changes. Called by the framework on

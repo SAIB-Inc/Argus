@@ -8,7 +8,7 @@ namespace Argus.Sync.Reducers;
 /// reducers register their data writes against it and the framework commits
 /// atomically with the reducer's checkpoint.
 ///
-/// Implementations should call <c>uow.As&lt;TBackend&gt;()</c> to get the
+/// Implementations should call <c>uow.GetStorage&lt;TBackend&gt;()</c> to get the
 /// underlying storage handle and use it for any DB operation. Reducers must
 /// **not** call <c>SaveChangesAsync</c> (or backend equivalent) — the framework
 /// owns commit timing.

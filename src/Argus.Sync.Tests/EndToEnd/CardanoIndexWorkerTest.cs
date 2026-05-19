@@ -158,7 +158,6 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
             ["CardanoNodeConnection:Hash"] = firstBlock.Header().Hash(),
             ["CardanoNodeConnection:Slot"] = firstBlock.Header().HeaderBody().Slot().ToString(CultureInfo.InvariantCulture),
             ["Sync:Worker:ExitOnCompletion"] = "false", // Critical for testing
-            ["Sync:State:ReducerStateSyncInterval"] = "1000", // Fast state sync
             ["Sync:Dashboard:TuiMode"] = "false" // Disable TUI for clean test output
         }).Build();
     }
@@ -427,8 +426,17 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
             ulong startIntersectionSlot = state.StartIntersection.Slot;
             _output.WriteLine($"    ReducerState {state.Name}: latest={latestIntersectionSlot}, start={startIntersectionSlot}, rollback={rollbackSlot}");
 
-            // Relaxed verification: Just ensure the state exists and has valid intersections
-            Assert.True(state.LatestIntersections.Any(), $"ReducerState {state.Name} should have intersections");
+            List<Point> latestIntersections = [.. state.LatestIntersections];
+            if (latestIntersections.Count == 0)
+            {
+                Assert.True(
+                    startIntersectionSlot >= rollbackSlot,
+                    $"ReducerState {state.Name} should only be empty after rollback before its first checkpoint");
+            }
+            else
+            {
+                Assert.All(latestIntersections, point => Assert.True(point.Slot < rollbackSlot));
+            }
         }
 
         _output.WriteLine($"  Worker rollback verification passed: {remainingBlocks} blocks remaining");

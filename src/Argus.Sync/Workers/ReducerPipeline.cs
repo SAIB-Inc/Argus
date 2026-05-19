@@ -43,6 +43,15 @@ internal sealed partial class ReducerPipeline
     private int _completionVotes;
     private int _expectedCompletionVotes;
 
+    /// <summary>
+    /// Buffer of intersections deferred across no-op blocks. Only populated
+    /// when this pipeline commits (leaf or fork point). When a UoW commits no
+    /// data, the framework stashes its tracked intersections here and applies
+    /// them to the next data-bearing UoW's commit. Crash-safe: deferred state
+    /// only covers blocks where no reducer wrote data, so replay is a no-op.
+    /// </summary>
+    private readonly Dictionary<string, Point> _pendingDeferred = [];
+
     /// <summary>The reducer's logical name (type name without generic arity).</summary>
     public string Name { get; }
 
@@ -153,7 +162,7 @@ internal sealed partial class ReducerPipeline
         // Branch-root pipelines see envelope.BranchUow == null and create one;
         // interior pipelines reuse the UoW the parent forwarded.
         bool ownsUow = envelope.BranchUow is null;
-        IBlockUnitOfWork uow = envelope.BranchUow ?? _uowFactory.Create();
+        IBlockUnitOfWork uow = envelope.BranchUow ?? await _uowFactory.CreateAsync(ct).ConfigureAwait(false);
 
         try
         {
@@ -180,6 +189,7 @@ internal sealed partial class ReducerPipeline
                         _ => 0
                     };
                     await _reducer.RollBackwardAsync(rollbackSlot, uow, ct).ConfigureAwait(false);
+                    uow.TrackRollback(Name, rollbackSlot);
                     _rollbackRecorder?.Invoke(Name, rollbackSlot);
                 }
             }
@@ -191,13 +201,13 @@ internal sealed partial class ReducerPipeline
             }
 
             // Decide what to do with the UoW based on graph topology:
-            // - 0 dependents (leaf): commit and dispose
+            // - 0 dependents (leaf): commit (or defer) and dispose
             // - 1 dependent (linear): forward same UoW down the chain
-            // - >1 dependents (fork): commit, then spawn fresh UoWs per child
+            // - >1 dependents (fork): commit (or defer), then spawn fresh UoWs per child
             if (_dependents.Count == 0)
             {
-                await uow.CommitAsync(ct).ConfigureAwait(false);
-                await uow.DisposeAsync().ConfigureAwait(false);
+                await CommitOrDeferAsync(uow, envelope.Response.Action == NextResponseAction.RollForward, ct).ConfigureAwait(false);
+                ownsUow = false;
                 return;
             }
 
@@ -209,9 +219,8 @@ internal sealed partial class ReducerPipeline
                 return;
             }
 
-            // Fork — commit current branch, spawn fresh UoWs per child.
-            await uow.CommitAsync(ct).ConfigureAwait(false);
-            await uow.DisposeAsync().ConfigureAwait(false);
+            // Fork: commit (or defer) current branch, spawn fresh UoWs per child.
+            await CommitOrDeferAsync(uow, envelope.Response.Action == NextResponseAction.RollForward, ct).ConfigureAwait(false);
             ownsUow = false;
 
             foreach (ReducerPipeline dep in _dependents)
@@ -230,6 +239,59 @@ internal sealed partial class ReducerPipeline
                 await uow.DisposeAsync().ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>
+    /// Commits the UoW with deferral semantics: if the reducer(s) tracked no
+    /// data changes for this block, the UoW skips its DB write entirely and the
+    /// pending intersections are stashed for the next data-bearing block. Carries
+    /// over previously-deferred intersections so the next commit advances state
+    /// for all blocks since the last on-disk checkpoint.
+    /// </summary>
+    private async Task CommitOrDeferAsync(IBlockUnitOfWork uow, bool deferIfEmpty, CancellationToken ct)
+    {
+        if (deferIfEmpty)
+        {
+            // Carry over intersections deferred from previous no-op blocks.
+            // Current block checkpoints win over older deferred checkpoints.
+            foreach ((string name, Point point) in _pendingDeferred)
+            {
+                if (!uow.TrackedIntersections.TryGetValue(name, out Point? current) || current.Slot < point.Slot)
+                {
+                    uow.TrackIntersection(name, point);
+                }
+            }
+        }
+        else
+        {
+            // Rollbacks invalidate any deferred forward checkpoints for this
+            // branch; the rollback checkpoint rewind is committed immediately.
+            _pendingDeferred.Clear();
+        }
+
+        // Snapshot in case the commit defers; TrackedIntersections is the
+        // UoW's live view and gets cleared on a real commit.
+        Dictionary<string, Point> snapshot = new(uow.TrackedIntersections);
+
+        bool committed = await uow.CommitAsync(deferIfEmpty, ct).ConfigureAwait(false);
+
+        if (committed)
+        {
+            _pendingDeferred.Clear();
+        }
+        else
+        {
+            // No data was written; stash all currently-known intersections
+            // for the next data-bearing block. Newer points overwrite older
+            // ones for the same reducer (assignment semantics).
+            _pendingDeferred.Clear();
+            foreach ((string name, Point point) in snapshot)
+            {
+                _pendingDeferred[name] = point;
+            }
+        }
+
+        await uow.DisposeAsync().ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Pipeline {Reducer} failed processing envelope")]

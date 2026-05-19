@@ -1,6 +1,7 @@
 using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Argus.Sync.Data.Stores;
 
@@ -17,17 +18,34 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
     where TContext : CardanoDbContext
 {
     private readonly TContext _dbContext;
+    private readonly IDbContextTransaction _transaction;
     private readonly Dictionary<string, Point> _trackedIntersections = [];
+    private readonly Dictionary<string, ulong> _trackedRollbacks = [];
+    private bool _dataChanged;
+    private bool _completed;
     private bool _disposed;
 
     /// <summary>
-    /// Creates a UoW that owns the given context. The context is disposed
-    /// when this UoW is disposed.
+    /// Creates a UoW that owns the given context and opens a transaction
+    /// synchronously. Prefer <see cref="EfBlockUnitOfWorkFactory{TContext}"/>
+    /// in framework code so transaction creation can be async.
     /// </summary>
     public EfBlockUnitOfWork(TContext dbContext)
+        : this(dbContext, BeginTransaction(dbContext))
+    {
+    }
+
+    /// <summary>
+    /// Creates a UoW that owns the given context and transaction. The
+    /// transaction is committed by <see cref="CommitAsync"/> or rolled back by
+    /// <see cref="RollbackAsync"/>/<see cref="DisposeAsync"/>.
+    /// </summary>
+    public EfBlockUnitOfWork(TContext dbContext, IDbContextTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(transaction);
         _dbContext = dbContext;
+        _transaction = transaction;
     }
 
     /// <inheritdoc />
@@ -47,32 +65,68 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
         ArgumentNullException.ThrowIfNull(reducerName);
         ArgumentNullException.ThrowIfNull(point);
         _trackedIntersections[reducerName] = point;
+        _ = _trackedRollbacks.Remove(reducerName);
     }
 
     /// <inheritdoc />
-    public async Task CommitAsync(CancellationToken ct = default)
+    public void TrackRollback(string reducerName, ulong rollbackSlot)
     {
-        if (_trackedIntersections.Count > 0)
+        ArgumentNullException.ThrowIfNull(reducerName);
+        _ = _trackedIntersections.Remove(reducerName);
+        _trackedRollbacks[reducerName] = rollbackSlot;
+    }
+
+    /// <inheritdoc />
+    public void MarkDataChanged() => _dataChanged = true;
+
+    /// <inheritdoc />
+    public IReadOnlyDictionary<string, Point> TrackedIntersections => _trackedIntersections;
+
+    /// <inheritdoc />
+    public async Task<bool> CommitAsync(bool deferIfEmpty = false, CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+
+        // Snapshot data-change state before we add state-row writes; otherwise
+        // tracked ReducerState entities would inflate the count and fool the
+        // deferral check. Rollback checkpoint rewinds are never deferred.
+        bool hasDataChanges = _dataChanged || _dbContext.ChangeTracker.HasChanges();
+        bool hasRollbackStateChanges = _trackedRollbacks.Count > 0;
+        if (deferIfEmpty && !hasDataChanges && !hasRollbackStateChanges)
         {
-            await UpsertTrackedIntersectionsAsync(ct).ConfigureAwait(false);
+            // No reducer wrote anything for this block; caller preserves
+            // _trackedIntersections via TrackedIntersections and re-tracks them
+            // against the next block. We still clear the tracker (cheap) but
+            // leave _trackedIntersections intact so the caller can read them.
+            _dbContext.ChangeTracker.Clear();
+            _dataChanged = false;
+            return false;
         }
 
+        await ApplyTrackedReducerStatesAsync(ct).ConfigureAwait(false);
         _ = await _dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+        await _transaction.CommitAsync(ct).ConfigureAwait(false);
+        _completed = true;
 
-        // Long-running indexers must clear the change-tracker after each
-        // commit — EF's tracker is O(n^2) past a few thousand entities.
-        _dbContext.ChangeTracker.Clear();
-        _trackedIntersections.Clear();
+        ClearAfterCompletion();
+        return true;
     }
 
     /// <inheritdoc />
-    public Task RollbackAsync(CancellationToken ct = default)
+    public async Task RollbackAsync(CancellationToken ct = default)
     {
-        // Discard pending changes by clearing the tracker; nothing has been
-        // saved yet because CommitAsync hasn't been called.
-        _dbContext.ChangeTracker.Clear();
-        _trackedIntersections.Clear();
-        return Task.CompletedTask;
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (!_completed)
+        {
+            await _transaction.RollbackAsync(ct).ConfigureAwait(false);
+            _completed = true;
+        }
+
+        ClearAfterCompletion();
     }
 
     /// <inheritdoc />
@@ -83,16 +137,65 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
             return;
         }
         _disposed = true;
+
+        if (!_completed)
+        {
+            try
+            {
+                await _transaction.RollbackAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Dispose should not mask the original pipeline error.
+            }
+            _completed = true;
+        }
+
+        await _transaction.DisposeAsync().ConfigureAwait(false);
         await _dbContext.DisposeAsync().ConfigureAwait(false);
     }
 
-    private async Task UpsertTrackedIntersectionsAsync(CancellationToken ct)
+    private void ClearAfterCompletion()
     {
-        List<string> names = [.. _trackedIntersections.Keys];
+        // Long-running indexers must clear the change-tracker after each
+        // commit — EF's tracker is O(n^2) past a few thousand entities.
+        _dbContext.ChangeTracker.Clear();
+        _trackedIntersections.Clear();
+        _trackedRollbacks.Clear();
+        _dataChanged = false;
+    }
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+    }
+
+    private static IDbContextTransaction BeginTransaction(TContext dbContext)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        return dbContext.Database.BeginTransaction();
+    }
+
+    private async Task ApplyTrackedReducerStatesAsync(CancellationToken ct)
+    {
+        List<string> names = [.. _trackedIntersections.Keys.Concat(_trackedRollbacks.Keys).Distinct()];
+        if (names.Count == 0)
+        {
+            return;
+        }
+
         List<ReducerState> existing = await _dbContext.ReducerStates
             .Where(r => names.Contains(r.Name))
             .ToListAsync(ct).ConfigureAwait(false);
         Dictionary<string, ReducerState> existingByName = existing.ToDictionary(r => r.Name);
+
+        foreach ((string reducerName, ulong rollbackSlot) in _trackedRollbacks)
+        {
+            if (existingByName.TryGetValue(reducerName, out ReducerState? row))
+            {
+                row.LatestIntersections = [.. row.LatestIntersections.Where(p => p.Slot < rollbackSlot)];
+            }
+        }
 
         foreach ((string reducerName, Point point) in _trackedIntersections)
         {
