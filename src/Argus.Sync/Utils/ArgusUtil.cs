@@ -35,8 +35,18 @@ public static class ArgusUtil
     /// <returns>The deserialized block.</returns>
     public static IBlock? DeserializeBlockWithEra(ReadOnlyMemory<byte> blockCbor)
     {
+        // Defensive copy: Chrysalis IBlock lazy-decodes from a ReadOnlyMemory<byte>
+        // reference. Chrysalis' multi-segment ChannelBuffer path can compact
+        // bytes in-place while downstream Argus reducers still hold prior
+        // decoded blocks. With the channel-pipeline architecture, downstream
+        // reducers can dequeue an IBlock long after the chain consumer has pulled
+        // the next block; owning the bytes here
+        // guarantees stable decoding for the lifetime of the IBlock.
+        byte[] owned = blockCbor.ToArray();
+        ReadOnlyMemory<byte> ownedMemory = owned;
+
         ReadOnlyMemory<byte> innerBytes;
-        CborReader probe = new(blockCbor, CborConformanceMode.Lax);
+        CborReader probe = new(ownedMemory, CborConformanceMode.Lax);
         if (probe.PeekState() == CborReaderState.Tag)
         {
             CborTag tag = probe.ReadTag();
@@ -48,7 +58,7 @@ public static class ArgusUtil
         }
         else
         {
-            innerBytes = blockCbor;
+            innerBytes = ownedMemory;
         }
 
         BlockWithEra blockWithEra = CborSerializer.Deserialize<BlockWithEra>(innerBytes);
