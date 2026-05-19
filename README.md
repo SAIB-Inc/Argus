@@ -215,6 +215,8 @@ Start your application to begin synchronizing with the blockchain:
 dotnet run
 ```
 
+For a bounded real-node smoke run, see [src/Argus.Sync.Example/README.md](src/Argus.Sync.Example/README.md).
+
 When successfully running, you should see the Argus dashboard:
 
 <div align="center">
