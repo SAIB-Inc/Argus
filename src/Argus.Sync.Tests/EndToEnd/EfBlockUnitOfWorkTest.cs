@@ -135,6 +135,79 @@ public sealed class EfBlockUnitOfWorkTest(ITestOutputHelper output) : IAsyncLife
 
     [Fact]
     [Trait("Category", "Integration")]
+    public async Task CommitAsync_ShouldCapPersistedIntersectionsToRollbackBuffer()
+    {
+        IDbContextFactory<TestDbContext> factory = DbFactory();
+
+        await using (TestDbContext seed = await factory.CreateDbContextAsync())
+        {
+            _ = seed.ReducerStates.Add(new ReducerState("CappedReducer", DateTimeOffset.UtcNow)
+            {
+                StartIntersection = new Point("h10", 10),
+                LatestIntersections =
+                [
+                    new Point("h30", 30),
+                    new Point("h20", 20),
+                    new Point("h10", 10),
+                ],
+            });
+            _ = await seed.SaveChangesAsync();
+        }
+
+        EfBlockUnitOfWorkFactory<TestDbContext> uowFactory = new(factory, RollbackBufferConfig(3));
+        await using (IBlockUnitOfWork uow = await uowFactory.CreateAsync())
+        {
+            uow.TrackIntersection("CappedReducer", new Point("h40", 40));
+            bool committed = await uow.CommitAsync();
+
+            Assert.True(committed);
+        }
+
+        await using TestDbContext fresh = await factory.CreateDbContextAsync();
+        ReducerState state = await fresh.ReducerStates.SingleAsync(r => r.Name == "CappedReducer");
+        Assert.Equal([40UL, 30UL, 20UL], state.LatestIntersections.Select(p => p.Slot));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task TrackRollback_ShouldRewindAndCapPersistedIntersections()
+    {
+        IDbContextFactory<TestDbContext> factory = DbFactory();
+
+        await using (TestDbContext seed = await factory.CreateDbContextAsync())
+        {
+            _ = seed.ReducerStates.Add(new ReducerState("RollbackCappedReducer", DateTimeOffset.UtcNow)
+            {
+                StartIntersection = new Point("h50", 50),
+                LatestIntersections =
+                [
+                    new Point("h100", 100),
+                    new Point("h90", 90),
+                    new Point("h80", 80),
+                    new Point("h70", 70),
+                    new Point("h60", 60),
+                    new Point("h50", 50),
+                ],
+            });
+            _ = await seed.SaveChangesAsync();
+        }
+
+        EfBlockUnitOfWorkFactory<TestDbContext> uowFactory = new(factory, RollbackBufferConfig(3));
+        await using (IBlockUnitOfWork uow = await uowFactory.CreateAsync())
+        {
+            uow.TrackRollback("RollbackCappedReducer", 95);
+            bool committed = await uow.CommitAsync();
+
+            Assert.True(committed);
+        }
+
+        await using TestDbContext fresh = await factory.CreateDbContextAsync();
+        ReducerState state = await fresh.ReducerStates.SingleAsync(r => r.Name == "RollbackCappedReducer");
+        Assert.Equal([90UL, 80UL, 70UL], state.LatestIntersections.Select(p => p.Slot));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
     public async Task CommitAsync_WithDeferredEmptyBlock_ShouldSkipStateWrite()
     {
         IDbContextFactory<TestDbContext> factory = DbFactory();
@@ -260,6 +333,14 @@ public sealed class EfBlockUnitOfWorkTest(ITestOutputHelper output) : IAsyncLife
 
     private IDbContextFactory<TestDbContext> DbFactory()
         => _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+
+    private static IConfiguration RollbackBufferConfig(int rollbackBuffer)
+        => new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["CardanoNodeConnection:RollbackBuffer"] = rollbackBuffer.ToString(CultureInfo.InvariantCulture),
+            })
+            .Build();
 
     private static async Task WaitForAsync(Func<Task<bool>> condition, TimeSpan timeout)
     {

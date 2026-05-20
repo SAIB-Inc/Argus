@@ -234,4 +234,42 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
             Assert.Equal("hash1300", latestIntersection.Hash);
         }
     }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task SafeIntersection_ShouldNormalizeLegacyOversizedStateBeforeChainSync()
+    {
+        IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
+        await using TestDbContext dbContext = await dbContextFactory.CreateDbContextAsync();
+
+        ReducerState txReducerState = new("TransactionTestReducer", DateTimeOffset.UtcNow)
+        {
+            StartIntersection = new Point("genesis", 0),
+            LatestIntersections = Enumerable.Range(1, 20)
+                .Select(i => new Point($"hash{i}", (ulong)i))
+        };
+
+        _ = dbContext.ReducerStates.Add(txReducerState);
+        _ = await dbContext.SaveChangesAsync();
+
+        TransactionTestReducer txReducer = new();
+        List<IReducer> reducers = [txReducer];
+
+        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
+        using (loggerFactory)
+        using (cts)
+        using (worker)
+        {
+            await BuildGraphAndInitializeAsync(worker, cts.Token);
+
+            Type workerType = typeof(CardanoIndexWorker<TestDbContext>);
+            MethodInfo? getSafeIntersectionMethod = workerType.GetMethod("GetSafeIntersectionPoints",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            List<Point> intersections = [.. (IEnumerable<Point>)getSafeIntersectionMethod!.Invoke(worker, ["TransactionTestReducer"])!];
+
+            Assert.Equal(10, intersections.Count);
+            Assert.Equal(20UL, intersections[0].Slot);
+            Assert.Equal(11UL, intersections[^1].Slot);
+        }
+    }
 }

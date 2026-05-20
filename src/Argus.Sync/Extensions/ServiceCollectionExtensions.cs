@@ -59,7 +59,10 @@ public static class ServiceCollectionExtensions
         // registrations with their own implementations after calling
         // AddCardanoIndexer.
         _ = services.AddSingleton<IReducerStateStore, EfReducerStateStore<T>>();
-        _ = services.AddSingleton<IBlockUnitOfWorkFactory, EfBlockUnitOfWorkFactory<T>>();
+        _ = services.AddSingleton<IBlockUnitOfWorkFactory>(sp =>
+            new EfBlockUnitOfWorkFactory<T>(
+                sp.GetRequiredService<IDbContextFactory<T>>(),
+                configuration));
 
         // Register chain provider factory - use provided factory or default to configuration-based
         if (chainProviderFactory != null)

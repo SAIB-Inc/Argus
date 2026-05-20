@@ -19,6 +19,7 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
 {
     private readonly TContext _dbContext;
     private readonly IDbContextTransaction _transaction;
+    private readonly int _rollbackBuffer;
     private readonly Dictionary<string, Point> _trackedIntersections = [];
     private readonly Dictionary<string, ulong> _trackedRollbacks = [];
     private bool _dataChanged;
@@ -31,7 +32,7 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
     /// in framework code so transaction creation can be async.
     /// </summary>
     public EfBlockUnitOfWork(TContext dbContext)
-        : this(dbContext, BeginTransaction(dbContext))
+        : this(dbContext, BeginTransaction(dbContext), ReducerStateCheckpointWindow.DefaultMaxCount)
     {
     }
 
@@ -40,12 +41,13 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
     /// transaction is committed by <see cref="CommitAsync"/> or rolled back by
     /// <see cref="RollbackAsync"/>/<see cref="DisposeAsync"/>.
     /// </summary>
-    public EfBlockUnitOfWork(TContext dbContext, IDbContextTransaction transaction)
+    public EfBlockUnitOfWork(TContext dbContext, IDbContextTransaction transaction, int rollbackBuffer = ReducerStateCheckpointWindow.DefaultMaxCount)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(transaction);
         _dbContext = dbContext;
         _transaction = transaction;
+        _rollbackBuffer = Math.Max(1, rollbackBuffer);
     }
 
     /// <inheritdoc />
@@ -193,7 +195,10 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
         {
             if (existingByName.TryGetValue(reducerName, out ReducerState? row))
             {
-                row.LatestIntersections = [.. row.LatestIntersections.Where(p => p.Slot < rollbackSlot)];
+                row.LatestIntersections = ReducerStateCheckpointWindow.ApplyRollback(
+                    row.LatestIntersections,
+                    rollbackSlot,
+                    _rollbackBuffer);
             }
         }
 
@@ -201,8 +206,10 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
         {
             if (existingByName.TryGetValue(reducerName, out ReducerState? row))
             {
-                List<Point> updated = [point, .. row.LatestIntersections.Where(p => p.Slot < point.Slot)];
-                row.LatestIntersections = updated;
+                row.LatestIntersections = ReducerStateCheckpointWindow.AddRollForward(
+                    row.LatestIntersections,
+                    point,
+                    _rollbackBuffer);
             }
             else
             {

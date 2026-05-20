@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Providers;
@@ -80,8 +81,8 @@ public partial class CardanoIndexWorker<T>(
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to get the initial intersection for {Reducer}")]
     private static partial void LogFailedInitialIntersection(ILogger logger, string reducer);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Starting chain sync for {Reducer} with {Count} intersection point(s). Slots: [{Slots}]")]
-    private static partial void LogStartingReducerChainSync(ILogger logger, string reducer, int count, string slots);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting chain sync for {Reducer} with {Count} intersection point(s). LatestSlot={LatestSlot}, OldestSlot={OldestSlot}, SlotPreview=[{SlotPreview}]")]
+    private static partial void LogStartingReducerChainSync(ILogger logger, string reducer, int count, string latestSlot, string oldestSlot, string slotPreview);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Rollback successfully completed. Please disable rollback mode to start syncing.")]
     private static partial void LogRollbackCompleted(ILogger logger);
@@ -323,8 +324,8 @@ public partial class CardanoIndexWorker<T>(
 
             // Log intersection points for debugging
             List<Point> intersectionList = [.. intersections];
-            string slotsDisplay = string.Join(", ", intersectionList.OrderByDescending(p => p.Slot).Select(p => p.Slot));
-            LogStartingReducerChainSync(logger, reducerName, intersectionList.Count, slotsDisplay);
+            (string latestSlot, string oldestSlot, string slotPreview) = SummarizeIntersections(intersectionList);
+            LogStartingReducerChainSync(logger, reducerName, intersectionList.Count, latestSlot, oldestSlot, slotPreview);
 
             string rootReducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
             ReducerPipeline rootPipeline = _pipelines[rootReducerName];
@@ -405,10 +406,12 @@ public partial class CardanoIndexWorker<T>(
     {
         if (_reducerStates.TryGetValue(reducerName, out ReducerState? currentState))
         {
-            IEnumerable<Point> latestIntersections = UpdateLatestIntersections(currentState.LatestIntersections, point);
             _reducerStates[reducerName] = currentState with
             {
-                LatestIntersections = latestIntersections
+                LatestIntersections = ReducerStateCheckpointWindow.AddRollForward(
+                    currentState.LatestIntersections,
+                    point,
+                    _rollbackBuffer)
             };
         }
     }
@@ -417,10 +420,12 @@ public partial class CardanoIndexWorker<T>(
     {
         if (_reducerStates.TryGetValue(reducerName, out ReducerState? currentState))
         {
-            IEnumerable<Point> latestIntersections = currentState.LatestIntersections.Where(i => i.Slot < rollbackSlot);
             _reducerStates[reducerName] = currentState with
             {
-                LatestIntersections = latestIntersections
+                LatestIntersections = ReducerStateCheckpointWindow.ApplyRollback(
+                    currentState.LatestIntersections,
+                    rollbackSlot,
+                    _rollbackBuffer)
             };
         }
     }
@@ -567,17 +572,19 @@ public partial class CardanoIndexWorker<T>(
     {
         ReducerState? state = await stateStore.GetAsync(reducerName, stoppingToken).ConfigureAwait(false);
 
-        if (state is not null && !state.LatestIntersections.Any())
+        if (state is not null)
         {
-            state = state with
+            IEnumerable<Point> intersections = state.LatestIntersections.Any()
+                ? state.LatestIntersections
+                : [state.StartIntersection];
+
+            return state with
             {
-                LatestIntersections = [state.StartIntersection]
+                LatestIntersections = ReducerStateCheckpointWindow.Normalize(intersections, _rollbackBuffer)
             };
         }
 
-        ReducerState initialState = GetDefaultReducerState(reducerName);
-
-        return state ?? initialState;
+        return GetDefaultReducerState(reducerName);
     }
 
     private ReducerState GetDefaultReducerState(string reducerName)
@@ -596,21 +603,26 @@ public partial class CardanoIndexWorker<T>(
         return initialState;
     }
 
-    private IEnumerable<Point> UpdateLatestIntersections(IEnumerable<Point> latestIntersections, Point newIntersection)
+    private static (string LatestSlot, string OldestSlot, string SlotPreview) SummarizeIntersections(List<Point> intersections)
     {
-        // Always add the new intersection first
-        IEnumerable<Point> updated = latestIntersections.Append(newIntersection);
-
-        // Order by slot descending (newest first)
-        updated = updated.OrderByDescending(i => i.Slot);
-
-        // Keep only the most recent _rollbackBuffer intersections
-        if (updated.Count() > _rollbackBuffer)
+        if (intersections.Count == 0)
         {
-            updated = updated.Take(_rollbackBuffer);
+            return ("none", "none", "none");
         }
 
-        return updated;
+        List<ulong> orderedSlots = [.. intersections
+            .OrderByDescending(p => p.Slot)
+            .Select(p => p.Slot)];
+        string preview = string.Join(", ", orderedSlots.Take(5));
+        if (orderedSlots.Count > 5)
+        {
+            preview = $"{preview}, ...";
+        }
+
+        return (
+            orderedSlots[0].ToString(CultureInfo.InvariantCulture),
+            orderedSlots[^1].ToString(CultureInfo.InvariantCulture),
+            preview);
     }
 
     private async Task InitDashboardAsync(CancellationToken stoppingToken)
