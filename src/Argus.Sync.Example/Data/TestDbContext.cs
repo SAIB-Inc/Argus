@@ -12,6 +12,7 @@ public class TestDbContext
 {
     public DbSet<BlockTest> BlockTests => Set<BlockTest>();
     public DbSet<TransactionTest> TransactionTests => Set<TransactionTest>();
+    public DbSet<WalletUtxo> WalletUtxos => Set<WalletUtxo>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,6 +27,13 @@ public class TestDbContext
         _ = modelBuilder.Entity<TransactionTest>(entity =>
         {
             _ = entity.HasKey(e => new { e.TxHash, e.TxIndex });
+        });
+
+        _ = modelBuilder.Entity<WalletUtxo>(entity =>
+        {
+            _ = entity.HasKey(u => new { u.TxHash, u.TxIndex });
+            _ = entity.HasIndex(u => u.Address);
+            _ = entity.HasIndex(u => u.SpentSlot);
         });
     }
 }
