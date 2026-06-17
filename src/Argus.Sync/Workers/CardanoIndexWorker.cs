@@ -279,25 +279,35 @@ public partial class CardanoIndexWorker<T>(
         string rootReducerNames = string.Join(", ", _rootReducers);
         LogStartingChainSync(logger, rootReducerInstances.Count, rootReducerNames);
 
-        List<Task> chainSyncTasks = [.. rootReducerInstances.Select(reducer => StartReducerChainSyncAsync(reducer, workerCts.Token))];
+        // The worker's run loop: start chain sync for each root, then wait for every
+        // chain-sync task AND its pipelines to finish, re-throwing the moment any one
+        // faults (WhenAll, fail-fast). Waiting on the pipelines — not just the chain-sync
+        // tasks — is what both drains in-flight work before exit and stops a faulted
+        // reducer from deadlocking on backpressure; surfacing their faults is what stops a
+        // chain-consumer error from being masked as exit 0. Returns only on graceful
+        // completion of all roots, the first fault, or host shutdown.
+        List<Task> running =
+        [
+            .. rootReducerInstances.Select(reducer => StartReducerChainSyncAsync(reducer, workerCts.Token)),
+            .. _pipelineRunTasks,
+        ];
 
-        // Wake on the FIRST of: a root chain-sync ending normally, OR any reducer
-        // pipeline faulting. Awaiting the pipeline tasks here is the fix — previously
-        // only the chain-sync tasks were awaited, so a faulted pipeline (its exception
-        // otherwise unobserved) left the worker hung on bounded-channel backpressure.
-        _ = await Task.WhenAny([.. chainSyncTasks, .. _pipelineRunTasks]);
-
-        Task? faultedPipeline = _pipelineRunTasks.Find(t => t.IsFaulted);
-        if (faultedPipeline is not null)
+        while (running.Count > 0)
         {
-            // Unblock the chain consumers, then resurface the reducer fault out of
-            // ExecuteAsync (no Exit() -> the host sees a real failure, not exit 0).
-            if (!workerCts.IsCancellationRequested)
-            {
-                await workerCts.CancelAsync();
-            }
+            Task completed = await Task.WhenAny(running);
+            _ = running.Remove(completed);
 
-            await faultedPipeline;
+            if (completed.IsFaulted)
+            {
+                // Cancel so the other consumers' parked EnqueueAsync unwind, then re-throw
+                // out of ExecuteAsync so the host sees a real failure (not a masked exit 0).
+                if (!workerCts.IsCancellationRequested)
+                {
+                    await workerCts.CancelAsync();
+                }
+
+                await completed; // re-throws the original exception
+            }
         }
 
         Exit();
