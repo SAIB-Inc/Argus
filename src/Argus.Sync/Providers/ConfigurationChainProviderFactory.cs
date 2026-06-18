@@ -18,7 +18,7 @@ public class ConfigurationChainProviderFactory(IConfiguration configuration) : I
         return connectionType switch
         {
             "UnixSocket" => CreateN2CProvider(),
-            "TCP" => throw new NotImplementedException("TCP connection type is not yet implemented."),
+            "TCP" => CreateN2NProvider(),
             "gRPC" => CreateU5CProvider(),
             _ => throw new InvalidOperationException($"Invalid chain provider connection type: {connectionType}")
         };
@@ -30,6 +30,17 @@ public class ConfigurationChainProviderFactory(IConfiguration configuration) : I
             ?? throw new InvalidOperationException("Socket path is not configured for UnixSocket connection type.");
 
         return new N2CProvider(socketPath);
+    }
+
+    private N2NProvider CreateN2NProvider()
+    {
+        string host = configuration.GetValue<string?>("CardanoNodeConnection:TCP:Host")
+            ?? throw new InvalidOperationException("Host is not configured for TCP connection type.");
+
+        int port = configuration.GetValue<int?>("CardanoNodeConnection:TCP:Port")
+            ?? throw new InvalidOperationException("Port is not configured for TCP connection type.");
+
+        return new N2NProvider(host, port);
     }
 
     private U5CProvider CreateU5CProvider()

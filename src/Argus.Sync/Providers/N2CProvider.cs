@@ -87,13 +87,9 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
             MessageNextResponse? nextResponse = await client.ChainSync!.NextRequestAsync(token);
             switch (nextResponse)
             {
-                case MessageRollBackward msg when msg.Point is SpecificPoint rbPoint:
-                    yield return new NextResponse(
-                          NextResponseAction.RollBack,
-                          RollBackType.Exclusive,
-                          null,
-                          rbPoint.Slot
-                      );
+                case MessageRollBackward msg:
+                    // Handles both SpecificPoint (Exclusive) and OriginPoint (Inclusive/0).
+                    yield return ArgusUtil.RollBackwardResponse(msg.Point);
                     break;
                 case MessageRollForward msg:
                     IBlock? block = ArgusUtil.DeserializeBlockWithEra(msg.Payload.Value);

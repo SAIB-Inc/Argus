@@ -1,6 +1,8 @@
 using System.Formats.Cbor;
+using Argus.Sync.Data.Models;
 using Chrysalis.Codec.Serialization;
 using Chrysalis.Codec.Types.Cardano.Core;
+using Chrysalis.Network.Cbor.Common;
 
 namespace Argus.Sync.Utils;
 
@@ -63,5 +65,33 @@ public static class ArgusUtil
 
         BlockWithEra blockWithEra = CborSerializer.Deserialize<BlockWithEra>(innerBytes);
         return blockWithEra.Block;
+    }
+
+    /// <summary>
+    /// Maps a Chrysalis ChainSync rollback point to an Argus rollback <see cref="NextResponse"/>,
+    /// applying standard Ouroboros chain-sync semantics (verified against ouroboros-network's
+    /// <c>Ouroboros.Network.Mock.Chain.rollback</c>, Pallas, and Dolos):
+    /// <list type="bullet">
+    /// <item><description><b>SpecificPoint(X)</b> → <see cref="RollBackType.Exclusive"/>: the rollback
+    /// point block is preserved (the consumer keeps block X and discards everything after it), so the
+    /// worker deletes slots strictly greater than X.</description></item>
+    /// <item><description><b>OriginPoint</b> → <see cref="RollBackType.Inclusive"/> at slot 0: a rollback
+    /// to genesis discards the entire chain, so the worker deletes every slot (≥ 0).</description></item>
+    /// </list>
+    /// Shared by the N2C and N2N providers; both speak standard Ouroboros chain-sync, where a rollback
+    /// always keeps the rollback point itself.
+    /// </summary>
+    /// <param name="rollbackPoint">The point carried by a <c>MessageRollBackward</c>.</param>
+    /// <returns>A roll-back <see cref="NextResponse"/> with the correct rollback type and slot.</returns>
+    /// <exception cref="InvalidOperationException">The point is neither a specific point nor the origin.</exception>
+    public static NextResponse RollBackwardResponse(Chrysalis.Network.Cbor.Common.Point rollbackPoint)
+    {
+        ArgumentNullException.ThrowIfNull(rollbackPoint);
+        return rollbackPoint switch
+        {
+            SpecificPoint specific => new NextResponse(NextResponseAction.RollBack, RollBackType.Exclusive, null, specific.Slot),
+            OriginPoint => new NextResponse(NextResponseAction.RollBack, RollBackType.Inclusive, null, 0UL),
+            _ => throw new InvalidOperationException($"Unsupported ChainSync rollback point type: {rollbackPoint.GetType().Name}")
+        };
     }
 }
