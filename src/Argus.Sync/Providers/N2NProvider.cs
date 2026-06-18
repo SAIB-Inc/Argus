@@ -107,10 +107,10 @@ public class N2NProvider(string Host, int Port) : ICardanoChainProvider, IAsyncD
                     CacheTip(msg.Tip);
                     yield return ArgusUtil.RollBackwardResponse(msg.Point);
                     break;
-                case MessageRollForward msg:
+                case N2NMessageRollForward msg:
                     // N2N delivers only the header; fetch the body before forwarding a full block.
                     CacheTip(msg.Tip);
-                    IBlock block = await FetchBlockAsync(client, msg.Payload.Value, token);
+                    IBlock block = await FetchBlockAsync(client, msg.Payload, token);
                     yield return new NextResponse(
                           NextResponseAction.RollForward,
                           null,
@@ -129,9 +129,10 @@ public class N2NProvider(string Host, int Port) : ICardanoChainProvider, IAsyncD
     /// Resolves a header delivered by N2N chain-sync to a full block by extracting its point and
     /// fetching the body over the BlockFetch mini-protocol.
     /// </summary>
-    private static async Task<IBlock> FetchBlockAsync(PeerClient client, ReadOnlyMemory<byte> headerCbor, CancellationToken token)
+    private static async Task<IBlock> FetchBlockAsync(PeerClient client, N2NBlockHeader headerPayload, CancellationToken token)
     {
-        ChainSyncHeader header = ChainSyncHeader.Decode(headerCbor);
+        // N2N RollForward carries [era, #6.24(header)]; rebuild the era-aware header to extract its point.
+        ChainSyncHeader header = new((byte)headerPayload.EraTag, null, headerPayload.HeaderCbor.Value);
         ChainPoint chainPoint = header.ExtractPoint();
         SpecificPoint fetchPoint = new(chainPoint.Slot, chainPoint.Hash);
 

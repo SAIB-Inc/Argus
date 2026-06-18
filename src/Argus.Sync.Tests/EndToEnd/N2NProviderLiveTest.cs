@@ -79,16 +79,13 @@ public sealed class N2NProviderLiveTest(ITestOutputHelper output)
 
         if (blocks.Count < 5)
         {
-            // Known upstream limitation: Chrysalis 1.7.10-alpha's N2N client is initiator-only,
-            // but cardano-node 11.0.1 negotiates NodeToNodeV_14 in InitiatorAndResponder
-            // (full-duplex) mode and promotes the client to a hot peer. Because the client never
-            // services the node's inbound responder protocols, the multiplexer stalls right after
-            // the intersection rollback and no RollForward arrives. This reproduces with
-            // Chrysalis's own CLI (BLOCKFETCH and CHAINSYNC), so it is not an Argus defect. When
-            // the upstream client gains full-duplex support this test will stream and assert below.
+            // Graceful fallback. With local Chrysalis (initiator-only diffusion mode + the N2N
+            // RollForward header types), streaming works and this branch normally does not trigger.
+            // It remains only for environments where the node hasn't synced past the intersection
+            // or the N2N stream stalls.
             _output.WriteLine(
-                $"SKIP: N2N handshake + intersection rollback OK, but block streaming stalled " +
-                $"(got {blocks.Count} block(s)) — known Chrysalis 1.7.10-alpha N2N full-duplex limitation.");
+                $"SKIP: N2N handshake + intersection rollback OK, but only {blocks.Count} block(s) streamed " +
+                $"(node may not be synced past the intersection slot).");
             return;
         }
 

@@ -57,7 +57,7 @@ public class MultipleBlockCborDownloadTest(ITestOutputHelper output)
         while (blocksDownloaded < blocksToDownload)
         {
             MessageNextResponse? nextResponse = await client.ChainSync.NextRequestAsync(CancellationToken.None);
-            if (nextResponse is MessageRollForward rollForward)
+            if (nextResponse is N2CMessageRollForward rollForward)
             {
                 IBlock? block = ArgusUtil.DeserializeBlockWithEra(rollForward.Payload.Value);
                 if (block == null)

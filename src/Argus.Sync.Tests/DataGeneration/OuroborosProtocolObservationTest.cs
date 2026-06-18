@@ -72,7 +72,7 @@ public class OuroborosProtocolObservationTest(ITestOutputHelper output)
                     output.WriteLine($"   This establishes the intersection point for chain sync");
                     break;
 
-                case MessageRollForward rollforward:
+                case N2CMessageRollForward rollforward:
                     output.WriteLine($"ROLLFORWARD Message:");
                     output.WriteLine($"   Type: {rollforward.GetType().Name}");
                     output.WriteLine($"   Tip Slot: {rollforward.Tip?.Slot}");

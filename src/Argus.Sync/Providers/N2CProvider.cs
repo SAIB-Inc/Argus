@@ -91,7 +91,7 @@ public class N2CProvider(string NodeSocketPath) : ICardanoChainProvider, IAsyncD
                     // Handles both SpecificPoint (Exclusive) and OriginPoint (Inclusive/0).
                     yield return ArgusUtil.RollBackwardResponse(msg.Point);
                     break;
-                case MessageRollForward msg:
+                case N2CMessageRollForward msg:
                     IBlock? block = ArgusUtil.DeserializeBlockWithEra(msg.Payload.Value);
                     yield return new NextResponse(
                           NextResponseAction.RollForward,

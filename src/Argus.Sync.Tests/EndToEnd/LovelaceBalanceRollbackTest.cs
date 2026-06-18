@@ -1,6 +1,8 @@
+using Argus.Sync.Data.Models;
 using Argus.Sync.Data.Stores;
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Reducers;
+using Argus.Sync.Providers;
 using Argus.Sync.Reducers;
 using Argus.Sync.Tests.Infrastructure;
 using Argus.Sync.Utils;
@@ -41,6 +43,10 @@ public sealed class LovelaceBalanceRollbackTest(ITestOutputHelper output) : IAsy
     // intersection to start streaming from.
     private const ulong IntersectionSlot = 126025608UL;
     private const string IntersectionHash = "7ef942e6a670af6310737e9230b22e11a4bb1af69bed9affb09b1025b371d1cd";
+
+    // N2N TCP endpoint of the same preprod node (for the N2N variant of this test).
+    private const string N2NHost = "localhost";
+    private const int N2NPort = 3001;
 
     // Watched addresses: friendly name, bech32 (for display), raw base16 (for matching).
     private static readonly (string Name, string Bech32, string Hex)[] WatchedAddresses =
@@ -113,37 +119,120 @@ public sealed class LovelaceBalanceRollbackTest(ITestOutputHelper output) : IAsy
             return;
         }
 
+        await RunBalanceRollbackScenarioAsync(blocks, "N2C");
+    }
+
+    /// <summary>
+    /// N2N variant: fetch the exact same watched blocks over the node-to-node path (header
+    /// chain-sync → BlockFetch body) and run the identical forward → rollback → replay assertions.
+    /// Directly proves balance + rollback accuracy on N2N, not just N2C.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task N2N_RollbackThenStepForward_TracksBalanceAccuratelyAtEveryStep()
+    {
+        if (!await IsN2NReachableAsync(N2NHost, N2NPort))
+        {
+            _output.WriteLine($"SKIP: N2N port {N2NHost}:{N2NPort} not reachable.");
+            return;
+        }
+
+        IReadOnlyList<IBlock> blocks = await FetchWatchedBlocksViaN2NAsync(N2NHost, N2NPort);
+        if (blocks.Count != Oracle.Length)
+        {
+            _output.WriteLine($"SKIP: fetched {blocks.Count}/{Oracle.Length} watched blocks over N2N — preprod history differs or node not synced.");
+            return;
+        }
+
+        await RunBalanceRollbackScenarioAsync(blocks, "N2N");
+    }
+
+    /// <summary>
+    /// Provider-independent core: drive the reducer forward over every watched block, roll back the
+    /// last N balance-changes, then replay one block at a time — asserting the oracle balance at
+    /// every step. Identical for N2C and N2N (both deliver the same full <see cref="IBlock"/>s).
+    /// </summary>
+    private async Task RunBalanceRollbackScenarioAsync(IReadOnlyList<IBlock> blocks, string mode)
+    {
         LovelaceBalanceByAddressReducer reducer = new(BuildWatchConfiguration());
         IDbContextFactory<TestDbContext> factory = _db!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
 
-        // 2. Forward pass: build the full UTxO state, asserting the oracle after each block.
-        _output.WriteLine("=== forward pass (building state) ===");
+        // 1. Forward pass: build the full UTxO state, asserting the oracle after each block.
+        _output.WriteLine($"=== [{mode}] forward pass (building state) ===");
         for (int i = 0; i < blocks.Count; i++)
         {
             await RollForwardAsync(reducer, factory, blocks[i]);
-            await AssertBalancesAsync(Oracle[i], $"forward block {i} @ slot {Oracle[i].Slot}");
+            await AssertBalancesAsync(Oracle[i], $"[{mode}] forward block {i} @ slot {Oracle[i].Slot}");
         }
 
-        // 3. Roll back the last N balance-changes.
+        // 2. Roll back the last N balance-changes.
         int firstUndoneIndex = Oracle.Length - RollbackChanges; // first change to undo/replay
         ulong rollbackSlot = Oracle[firstUndoneIndex].Slot;
         (ulong Slot, ulong A, ulong B) asOfBeforeRollback = Oracle[firstUndoneIndex - 1];
 
-        _output.WriteLine($"=== rollback last {RollbackChanges} changes: RollBackwardAsync({rollbackSlot}) ===");
+        _output.WriteLine($"=== [{mode}] rollback last {RollbackChanges} changes: RollBackwardAsync({rollbackSlot}) ===");
         await RollBackwardAsync(reducer, factory, rollbackSlot);
-        await AssertBalancesAsync(asOfBeforeRollback, $"post-rollback (as of slot {asOfBeforeRollback.Slot})");
+        await AssertBalancesAsync(asOfBeforeRollback, $"[{mode}] post-rollback (as of slot {asOfBeforeRollback.Slot})");
 
-        // 4. Controlled step-forward replay: one block at a time, assert accuracy at each.
-        _output.WriteLine("=== controlled step-forward replay ===");
+        // 3. Controlled step-forward replay: one block at a time, assert accuracy at each.
+        _output.WriteLine($"=== [{mode}] controlled step-forward replay ===");
         for (int i = firstUndoneIndex; i < blocks.Count; i++)
         {
             await RollForwardAsync(reducer, factory, blocks[i]);
-            await AssertBalancesAsync(Oracle[i], $"replay block {i} @ slot {Oracle[i].Slot}");
+            await AssertBalancesAsync(Oracle[i], $"[{mode}] replay block {i} @ slot {Oracle[i].Slot}");
         }
 
-        // 5. Final anchor.
-        await AssertBalancesAsync(Oracle[^1], "final");
-        _output.WriteLine($"PASS: rollback of {RollbackChanges} changes + step-forward replay reproduced every balance exactly.");
+        // 4. Final anchor.
+        await AssertBalancesAsync(Oracle[^1], $"[{mode}] final");
+        _output.WriteLine($"PASS [{mode}]: rollback of {RollbackChanges} changes + step-forward replay reproduced every balance exactly.");
+    }
+
+    private static async Task<IReadOnlyList<IBlock>> FetchWatchedBlocksViaN2NAsync(string host, int port)
+    {
+        HashSet<ulong> wantedSlots = [.. Oracle.Select(o => o.Slot)];
+        ulong lastSlot = Oracle[^1].Slot;
+        Dictionary<ulong, IBlock> collected = [];
+
+        await using N2NProvider provider = new(host, port);
+        List<Argus.Sync.Data.Models.Point> intersection = [new(IntersectionHash, IntersectionSlot)];
+        using CancellationTokenSource cts = new(TimeSpan.FromSeconds(60));
+
+        await foreach (NextResponse response in provider.StartChainSyncAsync(intersection, NetworkMagic, cts.Token))
+        {
+            if (response.Action != NextResponseAction.RollForward)
+            {
+                continue; // initial RollBackward to the intersection, etc.
+            }
+
+            IBlock block = response.Block!;
+            ulong slot = block.Header().HeaderBody().Slot();
+            if (wantedSlots.Contains(slot))
+            {
+                collected[slot] = block;
+            }
+
+            if (slot > lastSlot || collected.Count == wantedSlots.Count)
+            {
+                break;
+            }
+        }
+
+        return [.. collected.OrderBy(kvp => kvp.Key).Select(kvp => kvp.Value)];
+    }
+
+    private static async Task<bool> IsN2NReachableAsync(string host, int port)
+    {
+        try
+        {
+            using System.Net.Sockets.TcpClient client = new();
+            using CancellationTokenSource cts = new(TimeSpan.FromSeconds(2));
+            await client.ConnectAsync(host, port, cts.Token);
+            return client.Connected;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task<IReadOnlyList<IBlock>> FetchWatchedBlocksAsync(string socketPath)
@@ -166,7 +255,7 @@ public sealed class LovelaceBalanceRollbackTest(ITestOutputHelper output) : IAsy
         for (int guard = 0; guard < 5000 && collected.Count < wantedSlots.Count; guard++)
         {
             MessageNextResponse? next = await client.ChainSync.NextRequestAsync(CancellationToken.None);
-            if (next is not MessageRollForward rollForward)
+            if (next is not N2CMessageRollForward rollForward)
             {
                 continue; // initial RollBackward to the intersection, etc.
             }
