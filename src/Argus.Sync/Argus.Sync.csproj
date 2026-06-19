@@ -17,4 +17,8 @@
     <PackageReference Include="Utxorpc.Sdk" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Argus.Sync.Tests" />
+  </ItemGroup>
+
 </Project>

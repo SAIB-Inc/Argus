@@ -24,13 +24,19 @@ public static class ReducerExtensions
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        // Check if we're running migrations
-        bool isEfDesignTime = AppDomain.CurrentDomain.GetAssemblies()
-            .Any(a => a.GetName().Name == "ef");
-
-        if (isEfDesignTime)
+        // Skip reducer registration when invoked by the `dotnet ef` design-time tools (migrations,
+        // scaffolding): the tool runs as an assembly literally named "ef", and we don't want the indexer's
+        // reducers + hosted worker spun up during a migration command. We check the ENTRY assembly only —
+        // not every loaded assembly — so a referenced/transitive assembly that merely happens to be named
+        // "ef" can't trip it.
+        if (IsEfDesignTime(System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name))
         {
-            // During migrations, just add DbContext without reducers
+            // If a real application's entry assembly is genuinely named "ef", this would otherwise register
+            // ZERO reducers and the indexer would silently do nothing — so surface the reason.
+            Console.Error.WriteLine(
+                "[Argus] Entry assembly is named 'ef' — assuming a `dotnet ef` design-time invocation and " +
+                "skipping reducer registration. If this is your application (not the EF CLI), rename the " +
+                "startup project; a project named 'ef' collides with the EF tool's assembly name.");
             return;
         }
 
@@ -92,6 +98,14 @@ public static class ReducerExtensions
             RegisterReducer(services, reducerType);
         }
     }
+
+    /// <summary>
+    /// True when the process entry assembly is the <c>dotnet ef</c> design-time tool (assembly name "ef"),
+    /// used to skip reducer/worker registration during migrations. Entry-assembly only and case-sensitive,
+    /// so a referenced assembly named "ef" or a differently-cased project name does not match.
+    /// </summary>
+    internal static bool IsEfDesignTime(string? entryAssemblyName) =>
+        string.Equals(entryAssemblyName, "ef", StringComparison.Ordinal);
 
     private static void ValidateReducerDependencies(Type reducerType)
     {
