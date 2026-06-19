@@ -303,6 +303,66 @@ public sealed class EfBlockUnitOfWorkTest(ITestOutputHelper output) : IAsyncLife
 
     [Fact]
     [Trait("Category", "Integration")]
+    public async Task RawSqlOnEmptyBlock_WithoutMarkDataChanged_IsDropped()
+    {
+        // P1-7 footgun: the deferral check reads EF's change-tracker, which does NOT see raw SQL /
+        // ExecuteUpdate. A reducer whose only write is raw SQL and that forgets MarkDataChanged()
+        // gets its write silently deferred away (the transaction is never committed). Pin it so a
+        // future change can't quietly alter the contract.
+        IDbContextFactory<TestDbContext> factory = DbFactory();
+        EfBlockUnitOfWorkFactory<TestDbContext> uowFactory = new(factory);
+
+        await using (IBlockUnitOfWork uow = await uowFactory.CreateAsync())
+        {
+            TestDbContext dbContext = uow.GetStorage<TestDbContext>();
+            _ = await dbContext.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"BlockTests\" (\"Hash\", \"Height\", \"Slot\", \"CreatedAt\") VALUES ({0}, {1}, {2}, {3})",
+                "raw-no-mark",
+                1UL,
+                600UL,
+                DateTime.UtcNow);
+            // Deliberately NOT calling uow.MarkDataChanged().
+
+            bool committed = await uow.CommitAsync(deferIfEmpty: true);
+
+            Assert.False(committed); // deferred — the change-tracker saw nothing
+        }
+
+        await using TestDbContext fresh = await factory.CreateDbContextAsync();
+        Assert.False(await fresh.BlockTests.AnyAsync(b => b.Hash == "raw-no-mark")); // silently dropped
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task RawSqlOnEmptyBlock_WithMarkDataChanged_Survives()
+    {
+        // MarkDataChanged() is the escape hatch: it tells the UoW there is data the change-tracker
+        // can't see, so the commit is not deferred and the raw write persists.
+        IDbContextFactory<TestDbContext> factory = DbFactory();
+        EfBlockUnitOfWorkFactory<TestDbContext> uowFactory = new(factory);
+
+        await using (IBlockUnitOfWork uow = await uowFactory.CreateAsync())
+        {
+            TestDbContext dbContext = uow.GetStorage<TestDbContext>();
+            _ = await dbContext.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"BlockTests\" (\"Hash\", \"Height\", \"Slot\", \"CreatedAt\") VALUES ({0}, {1}, {2}, {3})",
+                "raw-with-mark",
+                1UL,
+                601UL,
+                DateTime.UtcNow);
+            uow.MarkDataChanged();
+
+            bool committed = await uow.CommitAsync(deferIfEmpty: true);
+
+            Assert.True(committed);
+        }
+
+        await using TestDbContext fresh = await factory.CreateDbContextAsync();
+        Assert.True(await fresh.BlockTests.AnyAsync(b => b.Hash == "raw-with-mark")); // survived
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
     public async Task PipelineLazyCommit_ShouldPersistCurrentCheckpointAfterDeferredNoOp()
     {
         string testDataDir = Path.Combine(Directory.GetCurrentDirectory(), "TestData");
