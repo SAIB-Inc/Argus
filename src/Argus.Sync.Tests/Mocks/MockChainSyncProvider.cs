@@ -16,11 +16,17 @@ namespace Argus.Sync.Tests.Mocks;
 public class MockChainSyncProvider : ICardanoChainProvider
 {
     private readonly List<IBlock> _availableBlocks;
+    private readonly ulong? _initialRollbackSlot;
     private readonly Channel<NextResponse> _controlChannel;
     private readonly ChannelWriter<NextResponse> _controlWriter;
     private readonly ChannelReader<NextResponse> _controlReader;
 
-    public MockChainSyncProvider(string testDataDirectory)
+    /// <param name="testDataDirectory">Directory whose <c>Blocks/*.cbor</c> are loaded.</param>
+    /// <param name="initialRollbackSlot">
+    /// Slot for the opening Ouroboros rollback (intersection). Defaults to the lowest available block;
+    /// set it to simulate a node reconnecting at a specific checkpoint (e.g. a restart after a crash).
+    /// </param>
+    public MockChainSyncProvider(string testDataDirectory, ulong? initialRollbackSlot = null)
     {
         _availableBlocks = DiscoverAllBlocks(testDataDirectory);
 
@@ -29,6 +35,7 @@ public class MockChainSyncProvider : ICardanoChainProvider
             throw new InvalidOperationException($"No blocks found in {testDataDirectory}");
         }
 
+        _initialRollbackSlot = initialRollbackSlot;
         _controlChannel = Channel.CreateUnbounded<NextResponse>();
         _controlWriter = _controlChannel.Writer;
         _controlReader = _controlChannel.Reader;
@@ -70,9 +77,10 @@ public class MockChainSyncProvider : ICardanoChainProvider
 
     public async IAsyncEnumerable<NextResponse> StartChainSyncAsync(IEnumerable<Point> intersection, ulong networkMagic = 2, CancellationToken? stoppingToken = null)
     {
-        // Send initial rollback to establish intersection (standard Ouroboros behavior)
-        IBlock intersectionBlock = _availableBlocks.First();
-        yield return new NextResponse(NextResponseAction.RollBack, RollBackType.Exclusive, null, intersectionBlock.Header().HeaderBody().Slot());
+        // Send initial rollback to establish intersection (standard Ouroboros behavior). Defaults to
+        // the lowest available block, or the configured checkpoint to simulate a reconnect after a crash.
+        ulong intersectionSlot = _initialRollbackSlot ?? _availableBlocks.First().Header().HeaderBody().Slot();
+        yield return new NextResponse(NextResponseAction.RollBack, RollBackType.Exclusive, null, intersectionSlot);
 
         // Then wait for external control signals - test must trigger all subsequent events
         await foreach (NextResponse response in _controlReader.ReadAllAsync(stoppingToken ?? CancellationToken.None))

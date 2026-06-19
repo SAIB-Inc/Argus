@@ -7,13 +7,13 @@ namespace Argus.Sync.Tests.Mocks;
 /// Each call to CreateProvider() returns a new provider instance for separate reducer synchronization.
 /// Collects all created providers so the test can trigger events on all instances simultaneously.
 /// </summary>
-public class MockChainProviderFactory(string testDataDirectory) : IChainProviderFactory
+public class MockChainProviderFactory(string testDataDirectory, ulong? initialRollbackSlot = null) : IChainProviderFactory
 {
     private readonly List<MockChainSyncProvider> _createdProviders = [];
 
     public ICardanoChainProvider CreateProvider()
     {
-        MockChainSyncProvider provider = new(testDataDirectory);
+        MockChainSyncProvider provider = new(testDataDirectory, initialRollbackSlot);
         _createdProviders.Add(provider);
         return provider;
     }
