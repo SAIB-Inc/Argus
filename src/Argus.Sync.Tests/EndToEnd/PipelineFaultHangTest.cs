@@ -1,5 +1,4 @@
 using System.Globalization;
-using Argus.Sync.Data;
 using Argus.Sync.Data.Stores;
 using Argus.Sync.Example.Data;
 using Argus.Sync.Reducers;
@@ -82,11 +81,10 @@ public sealed class PipelineFaultHangTest(ITestOutputHelper output) : IAsyncLife
         ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
         ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
 
-        IReducerStateStore stateStore = new EfReducerStateStore<TestDbContext>(dbf);
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
         List<IReducer> reducers = [new ThrowingReducer(throwSlot)];
 
-        CardanoIndexWorker<TestDbContext> worker = new(config, logger, stateStore, uowFactory, reducers, _mockFactory);
+        CardanoIndexWorker<TestDbContext> worker = new(config, logger, uowFactory, reducers, _mockFactory);
 
         try
         {

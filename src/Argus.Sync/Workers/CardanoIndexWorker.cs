@@ -21,15 +21,13 @@ namespace Argus.Sync.Workers;
 /// <typeparam name="T">The database context type, must inherit from <see cref="CardanoDbContext"/>.</typeparam>
 /// <param name="configuration">Application configuration for sync settings.</param>
 /// <param name="logger">Logger instance for diagnostic output.</param>
-/// <param name="stateStore">Store for reducer-state checkpoints (default: <see cref="Argus.Sync.Data.Stores.EfReducerStateStore{T}"/>).</param>
-/// <param name="unitOfWorkFactory">Factory for per-block per-branch units of work (default: <see cref="Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory{T}"/>).</param>
+/// <param name="unitOfWorkFactory">Storage backend: per-block per-branch units of work + reducer-checkpoint reads (default: <see cref="Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory{T}"/>).</param>
 /// <param name="reducers">Collection of registered reducer instances.</param>
 /// <param name="chainProviderFactory">Factory for creating chain provider connections.</param>
 /// <param name="singleInstanceLock">Optional cross-instance guard; when present, the worker waits for it before processing so only one indexer runs per database. Null disables gating.</param>
 public partial class CardanoIndexWorker<T>(
     IConfiguration configuration,
     ILogger<CardanoIndexWorker<T>> logger,
-    IReducerStateStore stateStore,
     IBlockUnitOfWorkFactory unitOfWorkFactory,
     IEnumerable<IReducer> reducers,
     IChainProviderFactory chainProviderFactory,
@@ -615,7 +613,7 @@ public partial class CardanoIndexWorker<T>(
 
     private async Task<ReducerState> GetReducerStateAsync(string reducerName, CancellationToken stoppingToken)
     {
-        ReducerState? state = await stateStore.GetAsync(reducerName, stoppingToken).ConfigureAwait(false);
+        ReducerState? state = await unitOfWorkFactory.GetReducerStateAsync(reducerName, stoppingToken).ConfigureAwait(false);
 
         if (state is not null)
         {

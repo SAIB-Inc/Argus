@@ -77,11 +77,9 @@ public static class ServiceCollectionExtensions
                 );
         });
 
-        // Register the default EF-backed reducer state store and unit-of-work
-        // factory. Consumers using a non-relational backend can replace these
-        // registrations with their own implementations after calling
-        // AddCardanoIndexer.
-        _ = services.AddSingleton<IReducerStateStore, EfReducerStateStore<T>>();
+        // Register the default EF-backed unit-of-work factory — the storage-backend seam: it creates
+        // transactional per-branch units AND reads reducer checkpoints. Consumers using a non-relational
+        // backend replace this single registration with their own implementation after calling AddCardanoIndexer.
         _ = services.AddSingleton<IBlockUnitOfWorkFactory>(sp =>
             new EfBlockUnitOfWorkFactory<T>(
                 sp.GetRequiredService<IDbContextFactory<T>>(),

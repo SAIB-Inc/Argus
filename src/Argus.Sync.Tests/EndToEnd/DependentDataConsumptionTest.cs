@@ -1,5 +1,4 @@
 using System.Globalization;
-using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Data.Stores;
 using Argus.Sync.Example.Data;
@@ -157,11 +156,10 @@ public sealed class DependentDataConsumptionTest(ITestOutputHelper output) : IAs
         ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
 
         IConfiguration config = BuildConfig(firstBlock);
-        IReducerStateStore stateStore = new EfReducerStateStore<TestDbContext>(dbf);
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
 
         MockChainProviderFactory factory = new(tempDir);
-        using CardanoIndexWorker<TestDbContext> worker = new(config, logger, stateStore, uowFactory, buildReducers(config), factory);
+        using CardanoIndexWorker<TestDbContext> worker = new(config, logger, uowFactory, buildReducers(config), factory);
 
         try
         {

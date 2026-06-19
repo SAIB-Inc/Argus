@@ -1,5 +1,4 @@
 using System.Globalization;
-using Argus.Sync.Data;
 using Argus.Sync.Data.Stores;
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Reducers;
@@ -124,7 +123,6 @@ public sealed class ForkDependentCrashRecoveryTest(ITestOutputHelper output) : I
         using ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Warning));
         ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
         IConfiguration config = BuildConfig(firstBlock);
-        IReducerStateStore stateStore = new EfReducerStateStore<TestDbContext>(dbf);
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
 
         try
@@ -137,7 +135,7 @@ public sealed class ForkDependentCrashRecoveryTest(ITestOutputHelper output) : I
                 new WatchedAddressBalanceReducer(config),
                 new CrashOnceBalanceReducer(config, crashSlot, armed: true),
             ];
-            using (CardanoIndexWorker<TestDbContext> crashWorker = new(config, logger, stateStore, uowFactory, crashReducers, crashFactory))
+            using (CardanoIndexWorker<TestDbContext> crashWorker = new(config, logger, uowFactory, crashReducers, crashFactory))
             {
                 await crashWorker.StartAsync(CancellationToken.None);
                 MockChainSyncProvider crashProvider = await WaitForProviderAsync(crashFactory);
@@ -174,7 +172,7 @@ public sealed class ForkDependentCrashRecoveryTest(ITestOutputHelper output) : I
                 new WatchedAddressBalanceReducer(config),
                 new CrashOnceBalanceReducer(config, crashSlot, armed: false),
             ];
-            using CardanoIndexWorker<TestDbContext> recoverWorker = new(config, logger, stateStore, uowFactory, recoverReducers, recoverFactory);
+            using CardanoIndexWorker<TestDbContext> recoverWorker = new(config, logger, uowFactory, recoverReducers, recoverFactory);
             try
             {
                 await recoverWorker.StartAsync(CancellationToken.None);

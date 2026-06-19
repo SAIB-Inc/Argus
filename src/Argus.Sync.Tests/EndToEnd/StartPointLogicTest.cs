@@ -67,12 +67,10 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
         ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
         MockChainProviderFactory mockProviderFactory = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
 
-        Argus.Sync.Data.IReducerStateStore stateStore = new Argus.Sync.Data.Stores.EfReducerStateStore<TestDbContext>(dbContextFactory);
         Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
         CardanoIndexWorker<TestDbContext> worker = new(
             configuration,
             logger,
-            stateStore,
             uowFactory,
             reducers,
             mockProviderFactory

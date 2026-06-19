@@ -1,5 +1,4 @@
 using System.Globalization;
-using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Data.Stores;
 using Argus.Sync.Example.Data;
@@ -89,13 +88,12 @@ public sealed class WorkerCrashRecoveryTest(ITestOutputHelper output) : IAsyncLi
         IConfiguration config = BuildConfig(blocks[0]);
         using ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
         ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
-        IReducerStateStore stateStore = new EfReducerStateStore<TestDbContext>(dbf);
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
 
         // ---- Phase 1: crash while processing N+1 -------------------------------------
         MockChainProviderFactory crashFactory = new(testDataDir);
         List<IReducer> crashReducers = [new RecordingReducer(crashOnSlot: crashingSlot)];
-        CardanoIndexWorker<TestDbContext> crashWorker = new(config, logger, stateStore, uowFactory, crashReducers, crashFactory);
+        CardanoIndexWorker<TestDbContext> crashWorker = new(config, logger, uowFactory, crashReducers, crashFactory);
 
         try
         {
@@ -134,7 +132,7 @@ public sealed class WorkerCrashRecoveryTest(ITestOutputHelper output) : IAsyncLi
         // ---- Phase 2: restart, exclusive rollback to N, replay N+1, resume to N+2 ----
         MockChainProviderFactory recoverFactory = new(testDataDir);
         List<IReducer> recoverReducers = [new RecordingReducer(crashOnSlot: null)];
-        CardanoIndexWorker<TestDbContext> recoverWorker = new(config, logger, stateStore, uowFactory, recoverReducers, recoverFactory);
+        CardanoIndexWorker<TestDbContext> recoverWorker = new(config, logger, uowFactory, recoverReducers, recoverFactory);
 
         try
         {

@@ -1,3 +1,4 @@
+using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -39,5 +40,15 @@ public sealed class EfBlockUnitOfWorkFactory<TContext> : IBlockUnitOfWorkFactory
         Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction =
             await dbContext.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
         return new EfBlockUnitOfWork<TContext>(dbContext, transaction, _rollbackBuffer);
+    }
+
+    /// <inheritdoc />
+    public async Task<ReducerState?> GetReducerStateAsync(string reducerName, CancellationToken ct = default)
+    {
+        await using TContext dbContext = await _dbContextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        return await dbContext.ReducerStates
+            .AsNoTracking()
+            .Where(s => s.Name == reducerName)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
     }
 }
