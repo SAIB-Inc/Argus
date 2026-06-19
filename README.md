@@ -23,6 +23,9 @@
   <a href="https://www.postgresql.org/">
     <img src="https://img.shields.io/badge/PostgreSQL-Compatible-336791?style=flat-square" alt="PostgreSQL">
   </a>
+  <a href="https://www.mongodb.com/">
+    <img src="https://img.shields.io/badge/MongoDB-Compatible-47A248?style=flat-square" alt="MongoDB">
+  </a>
   <a href="https://cardano.org/">
     <img src="https://img.shields.io/badge/Cardano-Compatible-0033AD?style=flat-square" alt="Cardano">
   </a>
@@ -30,68 +33,86 @@
 
 ## 📖 Overview
 
-Argus is a .NET library that simplifies interactions with the Cardano blockchain by providing an efficient indexing framework. It processes block data into structured, queryable formats stored in a database, making blockchain data easier to work with for .NET developers.
+Argus is a .NET library that turns the Cardano blockchain into structured, queryable data. You write **reducers** that describe how to transform blocks into your own database models, and Argus handles the chain connection, synchronization, rollbacks, ordering, and atomic persistence.
 
-🎥 **Video Tutorial**: For a detailed explanation and demo, check out [this video](https://x.com/clarkalesna/status/1859042521856532883)!
+🎥 **Video Tutorial**: For a walkthrough and demo, check out [this video](https://x.com/clarkalesna/status/1859042521856532883).
 
-**Key Components:**
-
-- 🔍 **Blockchain Indexing** - Transform raw blockchain data into structured database records
-- 🧩 **Reducers** - Define the transformation logic for blockchain data
-- 🔄 **Chain Providers** - Connect to Cardano nodes through various protocols
-- 📊 **CardanoIndexWorker** - Coordinates the synchronization process
-- 🛡️ **CardanoDbContext** - Manages database operations via Entity Framework Core
+> **This is the single source of documentation for the repository.** It covers both how to *use* Argus and how the internals work (for contributors). The runnable reference is [`src/Argus.Sync.Example`](src/Argus.Sync.Example).
 
 ## ✨ Features
 
-- 🛠️ **Customizable Reducers** - Define exactly how blockchain data should be processed and stored
-- 🔌 **Flexible Connectivity Options** - Connect to Cardano in the way that suits you best
-- 🔙 **Robust Rollback Handling** - Ensure data consistency when blockchain reorganizations occur
-- 📊 **Comprehensive Monitoring** - Track indexing progress with built-in dashboard
-- 🧰 **Developer-Friendly Integration** - Built for .NET developers with full Entity Framework Core support
+- 🧩 **Customizable reducers** — define exactly how blockchain data is processed and stored.
+- 🗄️ **Storage-agnostic** — ship on **PostgreSQL** (Entity Framework Core) or **MongoDB** out of the box; add your own backend behind one interface.
+- 🔌 **Flexible connectivity** — connect to a node via Unix socket (N2C), TCP (N2N), or gRPC/UtxoRPC (U5C).
+- ⚡ **Channel pipeline** — reducers run as a `System.Threading.Channels` graph, decoupling per-block latency from dependency depth.
+- 🔗 **Reducer dependencies** — declare `[DependsOn(...)]` and a dependent sees its parent's writes in-process, before they're even committed.
+- 🔄 **Robust rollback handling** — chain reorganizations and operator-initiated rewinds are first-class.
+- 🛡️ **Crash-safe & single-writer** — data and checkpoint commit in one transaction; a per-database lock prevents two indexers from clobbering each other.
+- 📊 **Built-in dashboard** — track sync progress in the terminal.
+
+## 🧩 How It Works
+
+| Component | Role |
+| --------- | ---- |
+| **Chain Provider** | Connects to a Cardano node and streams roll-forward / roll-backward events (`N2CProvider`, `U5CProvider`, `N2NProvider`). |
+| **`CardanoIndexWorker`** | The hosted service that drives synchronization: builds the reducer dependency graph, manages connections, and feeds blocks into the pipeline. |
+| **`ReducerPipeline`** | A `System.Threading.Channels` graph mirroring your `[DependsOn]` declarations. Each reducer has a bounded inbox and its own run-loop; backpressure is automatic. |
+| **`IReducer`** | Your transformation logic — `RollForwardAsync` / `RollBackwardAsync`. |
+| **`IBlockUnitOfWork`** | A framework-managed, per-branch transactional unit. Reducers register writes against it; the framework commits data **and** the sync checkpoint atomically. |
+| **`IBlockUnitOfWorkFactory`** | The storage-backend seam. One implementation per backend (EF/Postgres, Mongo, …). |
+| **Single-instance lock** | Guarantees exactly one active indexer per database (Postgres advisory lock / Mongo lease). |
+
+**A few design points worth knowing up front:**
+
+- **The framework owns commit timing.** Reducers never call `SaveChangesAsync` (or a Mongo equivalent). You register writes through the unit of work; Argus commits your data and the reducer's checkpoint together, in one transaction, once per block per dependency branch. If anything throws, the whole branch rolls back — no partial writes.
+- **Dependents read their parent's pending writes.** Within one branch the unit of work shares a single storage handle, so a dependent reducer can see what its parent just wrote via the change-tracker's `Local` view — no DB round-trip, no stale read.
+- **Recovery is fail-fast + restart.** Argus does not retry database faults in-process. On an unrecoverable error it stops the host; your supervisor (systemd, Kubernetes, `docker restart`) restarts the process, which resumes from the last committed checkpoint and replays. Because data and checkpoint are committed together, replay is at-least-once and idempotent.
+
+<div align="center">
+  <img src="assets/argus_architecture.png" alt="Argus Architecture" width="100%" />
+</div>
 
 ## 🚀 Getting Started
 
-### 1️⃣ Installation
-
-Install the required packages:
+### 1️⃣ Install
 
 ```bash
-# Install the main package
-dotnet add package Argus.Sync --version 0.3.1-alpha
+# Core library (PostgreSQL backend included)
+dotnet add package Argus.Sync
 
-# Required dependencies
+# EF Core tooling for migrations + the Postgres provider
 dotnet add package Microsoft.EntityFrameworkCore.Design
 dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
+
+# Optional: MongoDB backend
+dotnet add package Argus.Sync.MongoDb
 ```
 
-### 2️⃣ Define Your Data Models
+### 2️⃣ Define your data models
 
-Create models that represent the blockchain data you want to store:
+A model is any type implementing `IReducerModel`. The interface requires a `Slot` — Argus uses it to roll your data back during reorganizations.
 
 ```csharp
 using Argus.Sync.Data.Models;
 
-// Define your model
 public record BlockInfo(
-    string Hash,       // Block hash
-    ulong Number,      // Block number
-    ulong Slot,        // Block slot number
-    DateTime CreatedAt // Timestamp
+    string Hash,
+    ulong  Height,
+    ulong  Slot,        // required by IReducerModel — used for rollbacks
+    DateTime CreatedAt
 ) : IReducerModel;
 ```
 
-### 3️⃣ Set Up Database Context
+### 3️⃣ Set up a database context (PostgreSQL)
 
-Create a database context to manage your models:
+Extend `CardanoDbContext` and expose your models. Argus manages its own `ReducerStates` table on the same context.
 
 ```csharp
 using Argus.Sync.Data;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 
 public class MyDbContext(
-    DbContextOptions options,
+    DbContextOptions<MyDbContext> options,
     IConfiguration configuration
 ) : CardanoDbContext(options, configuration)
 {
@@ -103,274 +124,304 @@ public class MyDbContext(
 
         modelBuilder.Entity<BlockInfo>(entity =>
         {
-            entity.HasKey(e => e.Hash);
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.HasKey(b => new { b.Hash, b.Slot });
         });
     }
 }
 ```
 
-### 4️⃣ Implement Reducers
+### 4️⃣ Implement a reducer
 
-Create reducers that process blockchain data:
+Reducers implement the non-generic `IReducer`. Get your storage handle from the unit of work, register writes, and return — **do not** call `SaveChangesAsync`.
 
 ```csharp
 using Argus.Sync.Reducers;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 
-public class BlockReducer(IDbContextFactory<MyDbContext> dbContextFactory)
-    : IReducer<BlockInfo>
+public class BlockReducer : IReducer
 {
-    public async Task RollForwardAsync(Block block)
+    public Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {
-        // Extract block data
-        string hash = block.Header().Hash();
-        ulong number = block.Header().HeaderBody().BlockNumber();
-        ulong slot = block.Header().HeaderBody().Slot();
+        MyDbContext db = uow.GetStorage<MyDbContext>();
 
-        // Store in database
-        using var db = dbContextFactory.CreateDbContext();
-        db.Blocks.Add(new BlockInfo(hash, number, slot, DateTime.UtcNow));
-        await db.SaveChangesAsync();
+        string hash   = block.Header().Hash();
+        ulong  height = block.Header().HeaderBody().BlockNumber();
+        ulong  slot   = block.Header().HeaderBody().Slot();
+
+        db.Blocks.Add(new BlockInfo(hash, height, slot, DateTime.UtcNow));
+        return Task.CompletedTask; // the framework commits this branch atomically
     }
 
-    public async Task RollBackwardAsync(ulong slot)
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)
     {
-        // Remove any blocks at or after the rollback slot
-        using var db = dbContextFactory.CreateDbContext();
-        db.Blocks.RemoveRange(
-            db.Blocks.Where(b => b.Slot >= slot)
-        );
-        await db.SaveChangesAsync();
+        MyDbContext db = uow.GetStorage<MyDbContext>();
+        db.Blocks.RemoveRange(db.Blocks.AsNoTracking().Where(b => b.Slot >= slot));
+        return Task.CompletedTask;
     }
 }
 ```
 
-### 5️⃣ Configure Application Settings
-
-Create an `appsettings.json` file with necessary configuration:
+### 5️⃣ Configure `appsettings.json`
 
 ```json
 {
   "ConnectionStrings": {
-    "CardanoContext": "Host=localhost;Database=argus;Username=postgres;Password=password;Port=5432",
-    "CardanoContextSchema": "cardanoindexer"
+    "CardanoContext": "Host=localhost;Database=argus;Username=postgres;Password=postgres;Port=5432",
+    "CardanoContextSchema": "public"
   },
   "CardanoNodeConnection": {
     "ConnectionType": "UnixSocket",
-    "UnixSocket": {
-      "Path": "/path/to/node.socket"
-    },
+    "UnixSocket": { "Path": "/path/to/node.socket" },
+    "TCP":  { "Host": "localhost", "Port": 3001 },
+    "gRPC": { "Endpoint": "https://your-utxorpc-endpoint", "ApiKey": "..." },
     "NetworkMagic": 764824073,
-    "MaxRollbackSlots": 1000,
-    "RollbackBuffer": 10,
     "Slot": 139522569,
-    "Hash": "3fd9925888302fca267c580d8fe6ebc923380d0b984523a1dfbefe88ef089b66"
+    "Hash": "3fd9925888302fca267c580d8fe6ebc923380d0b984523a1dfbefe88ef089b66",
+    "MaxRollbackSlots": 10000,
+    "RollbackBuffer": 10
+  },
+  "CardanoIndexReducers": {
+    "ActiveReducers": [ "BlockReducer" ]
   },
   "Sync": {
-    "Dashboard": {
-      "TuiMode": true,
-      "RefreshInterval": 5000,
-      "DisplayType": "sync"
-    }
+    "Dashboard": { "TuiMode": true, "RefreshInterval": 5000 }
   }
 }
 ```
 
-### 6️⃣ Register Services
+- `NetworkMagic`: `764824073` mainnet, `1` preprod, `2` preview.
+- `Slot` / `Hash`: the intersection point to start a fresh sync from (a known block at or before where you want to begin).
+- `CardanoIndexReducers:ActiveReducers`: **only the reducers listed here run.** Leave it out to run all discovered reducers.
 
-Register Argus services in your Program.cs:
+### 6️⃣ Register services
 
 ```csharp
 using Argus.Sync.Extensions;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-// Register Argus services
-builder.Services.AddCardanoIndexer<MyDbContext>(builder.Configuration);
-builder.Services.AddReducers<MyDbContext, IReducerModel>(builder.Configuration);
+builder.Services.AddCardanoPostgresIndexer<MyDbContext>(builder.Configuration);
+builder.Services.AddReducers(builder.Configuration);
 
-var app = builder.Build();
-app.Run();
+WebApplication app = builder.Build();
+await app.RunAsync();
 ```
 
-### 7️⃣ Create and Apply Migrations
+You pick your storage backend by which method you call: `AddCardanoPostgresIndexer<TContext>` (above) or `AddCardanoMongoIndexer` (see [Storage Backends](#-storage-backends)).
 
-Generate and apply Entity Framework migrations:
+### 7️⃣ Create and apply migrations (PostgreSQL)
 
 ```bash
-# Create the initial migration
 dotnet ef migrations add InitialMigration
-
-# Apply the migration to the database
 dotnet ef database update
 ```
 
-### 8️⃣ Run Your Application
-
-Start your application to begin synchronizing with the blockchain:
+### 8️⃣ Run
 
 ```bash
 dotnet run
 ```
 
-For a bounded real-node smoke run, see [src/Argus.Sync.Example/README.md](src/Argus.Sync.Example/README.md).
-
-When successfully running, you should see the Argus dashboard:
+You should see the Argus dashboard as it begins indexing. For a bounded real-node smoke run, see [`src/Argus.Sync.Example/README.md`](src/Argus.Sync.Example/README.md).
 
 <div align="center">
   <img src="assets/argus_running.png" alt="Argus Running" width="90%" />
-  <p><strong>🎉 Congratulations!</strong> You've successfully set up Argus and started indexing the Cardano blockchain. Your application is now processing blocks and storing structured data in your database.</p>
 </div>
 
-### 9️⃣ Create APIs with Your Indexed Data
+### 9️⃣ Serve your indexed data
 
-One of the key benefits of Argus is that it stores blockchain data in a structured database accessible through Entity Framework Core. This makes it simple to create APIs that expose this data to your applications.
-
-Here's how you can quickly add API endpoints using ASP.NET Core minimal APIs:
+Because the data lands in your own database, exposing it is ordinary EF Core:
 
 ```csharp
-// Add to your Program.cs
-app.MapGet("/api/blocks/latest", async (IDbContextFactory<MyDbContext> dbContextFactory) =>
+app.MapGet("/api/blocks/latest", async (IDbContextFactory<MyDbContext> dbf) =>
 {
-    using var db = dbContextFactory.CreateDbContext();
-    return await db.Blocks
-        .OrderByDescending(b => b.Number)
-        .Take(10)
-        .ToListAsync();
-});
-
-app.MapGet("/api/blocks/{hash}", async (string hash, IDbContextFactory<MyDbContext> dbContextFactory) =>
-{
-    using var db = dbContextFactory.CreateDbContext();
-    var block = await db.Blocks.FindAsync(hash);
-    return block is null ? Results.NotFound() : Results.Ok(block);
-});
-
-// If you track transactions
-app.MapGet("/api/transactions/by-block/{blockHash}", async (string blockHash, IDbContextFactory<MyDbContext> dbContextFactory) =>
-{
-    using var db = dbContextFactory.CreateDbContext();
-    return await db.Transactions
-        .Where(tx => tx.BlockHash == blockHash)
-        .ToListAsync();
+    await using MyDbContext db = await dbf.CreateDbContextAsync();
+    return await db.Blocks.OrderByDescending(b => b.Height).Take(10).ToListAsync();
 });
 ```
 
-With these few lines of code, you've created a blockchain API that can:
-- Return the latest 10 blocks
-- Look up block details by hash
-- List transactions in a specific block
+## 🔗 Reducer Dependencies
 
-Since Argus uses standard Entity Framework Core, you can leverage all its powerful querying capabilities, including:
-- Complex LINQ queries
-- Eager loading of related data
-- Pagination
-- Filtering
-- Sorting
-- Projections
+A reducer can declare a single dependency with `[DependsOn]`. Argus builds a dependency graph at startup, gives **root** reducers (no dependencies) the chain connections, and forwards blocks down to dependents through the pipeline.
 
-## ⚡ Performance
+```csharp
+[DependsOn(typeof(BlockReducer))]
+public class TransactionReducer : IReducer
+{
+    public Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
+    {
+        MyDbContext db = uow.GetStorage<MyDbContext>();
+        ulong slot = block.Header().HeaderBody().Slot();
 
-Argus is optimized for performance with:
+        // BlockReducer ran first in this branch. Its pending Add() is visible here
+        // via the change-tracker's Local view — before it's committed to the DB.
+        bool parentWroteThisBlock = db.Blocks.Local.Any(b => b.Slot == slot);
+        // ... your read-modify-write logic ...
+        return Task.CompletedTask;
+    }
 
-- Efficient processing of blockchain data
-- Connection pooling for database operations
-- Parallel processing where appropriate
-- Optimized serialization/deserialization of blockchain data
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)
+        => Task.CompletedTask;
+}
+```
 
-## 🔄 Connection Types Support
+**Rules and behavior:**
 
-Argus provides multiple options for connecting to the Cardano blockchain:
+- **Single dependency per reducer** (prevents the diamond problem); circular dependencies are rejected at startup.
+- **Only root reducers open chain connections** — fewer connections, less node load.
+- **Linear chains share one unit of work**, so a dependent reads its parent's uncommitted writes from `Local`. At a **fork** (one parent, multiple dependents) the parent commits first and each child gets a fresh unit of work, reading the parent's now-committed data from the database.
+- **Start points auto-adjust**: a fresh dependent of an already-synced parent begins at the parent's position instead of replaying from genesis.
+- **Atomicity is per-branch, not across a fork.** Each branch commits in its own transaction; a fork child failing does not roll back a sibling or the parent that already committed.
+
+## 💾 Storage Backends
+
+A backend is one implementation of `IBlockUnitOfWorkFactory` (create a per-branch transactional unit + read a reducer's checkpoint). Reducers stay backend-agnostic by calling `uow.GetStorage<T>()`.
+
+### PostgreSQL (Entity Framework Core)
+
+The default. Your `CardanoDbContext`-derived context *is* the storage handle:
+
+```csharp
+builder.Services.AddCardanoPostgresIndexer<MyDbContext>(builder.Configuration);
+builder.Services.AddReducers(builder.Configuration);
+```
+
+`uow.GetStorage<MyDbContext>()` returns your context. EF features work as expected — tracked entities, `ExecuteUpdate`/`ExecuteDelete`, raw SQL, ADO.NET, bulk extensions — all enrolled in the framework-owned transaction. (Non-tracked writes such as raw SQL must call `uow.MarkDataChanged()` so an otherwise-empty block isn't skipped by commit deferral.)
+
+### MongoDB
+
+Add the `Argus.Sync.MongoDb` package and register the Mongo indexer:
+
+```csharp
+using Argus.Sync.MongoDb;
+
+builder.Services.AddCardanoMongoIndexer(builder.Configuration);
+builder.Services.AddReducers(builder.Configuration);
+```
+
+```json
+{
+  "ConnectionStrings": { "CardanoMongo": "mongodb://localhost:27017/?replicaSet=rs0" },
+  "Mongo": { "Database": "argus" }
+}
+```
+
+Reducers obtain the Mongo handle via `uow.GetStorage<MongoStorage>()` (database + transaction session) and pass the session on their writes. **The connection must target a replica set (or sharded cluster)** — MongoDB multi-document transactions require it, and Argus writes your data and the checkpoint in one transaction. A reference reducer lives in [`src/Argus.Sync.Tests/Mongo`](src/Argus.Sync.Tests/Mongo).
+
+## 🔌 Chain Providers
+
+Set `CardanoNodeConnection:ConnectionType` to pick one:
 
 <table>
 <thead>
-  <tr>
-    <th>Connection Type</th>
-    <th>Provider Class</th>
-    <th>Config Value</th>
-    <th>Description</th>
-    <th>Status</th>
-  </tr>
+  <tr><th>Connection</th><th>Provider</th><th><code>ConnectionType</code></th><th>Description</th><th>Status</th></tr>
 </thead>
 <tbody>
-  <tr>
-    <td><strong>Unix Socket</strong></td>
-    <td>N2CProvider</td>
-    <td><code>"UnixSocket"</code></td>
-    <td>Direct connection to a local Cardano node via unix socket</td>
-    <td align="center">✅</td>
-  </tr>
-  <tr>
-    <td><strong>gRPC</strong></td>
-    <td>U5CProvider</td>
-    <td><code>"gRPC"</code></td>
-    <td>Remote connection via gRPC services (UtxoRPC)</td>
-    <td align="center">✅</td>
-  </tr>
-  <tr>
-    <td><strong>TCP</strong></td>
-    <td>N2NProvider</td>
-    <td><code>"TCP"</code></td>
-    <td>Direct TCP connection to a Cardano node</td>
-    <td align="center">🚧</td>
-  </tr>
+  <tr><td><strong>Unix Socket</strong></td><td>N2CProvider</td><td><code>"UnixSocket"</code></td><td>Node-to-Client: Ouroboros mini-protocols over a local node's Unix socket</td><td align="center">✅</td></tr>
+  <tr><td><strong>TCP</strong></td><td>N2NProvider</td><td><code>"TCP"</code></td><td>Node-to-Node: chain-sync + block-fetch over TCP/IP</td><td align="center">✅</td></tr>
+  <tr><td><strong>gRPC</strong></td><td>U5CProvider</td><td><code>"gRPC"</code></td><td>Remote connection via UtxoRPC, ideal for cloud deployments</td><td align="center">✅</td></tr>
 </tbody>
 </table>
 
-**Legend**:
+Custom providers implement `ICardanoChainProvider`.
 
-- ✅ Fully Supported
-- 🚧 In Development
+## 🔙 Rollbacks
 
-## 🧩 Architecture
+**Automatic (chain reorganizations).** When the node rolls the chain back, Argus invokes each affected reducer's `RollBackwardAsync(slot, …)`. The slot boundary respects the provider's rollback semantics so your deletion logic is uniform — typically `Where(x => x.Slot >= slot)`:
 
-Argus consists of several specialized components:
+- **N2C (Unix socket)** — exclusive: the rollback point itself is preserved (removes `slot > point`).
+- **U5C (gRPC)** — `Undo` is inclusive (removes `slot >= point`); `Reset` is exclusive.
+- **N2N (TCP)** — same exclusive mapping as N2C.
 
-| Component | Description |
-| --------- | ----------- |
-| **Chain Providers** | Connect to the Cardano blockchain through various protocols |
-| **Reducers** | Process and transform blockchain data |
-| **CardanoIndexWorker** | Manages the synchronization process |
-| **CardanoDbContext** | Base context for database operations |
+A configurable depth limit (`CardanoNodeConnection:MaxRollbackSlots`, default `10000`) guards against runaway rollbacks, and a rolling buffer of recent intersections (`RollbackBuffer`, default `10`) supports recovery.
 
-### Chain Providers
+**Operator-initiated (manual rewind).** To force the index to rewind to a specific point — e.g. to recover from a bad deploy — enable rollback mode. The whole feature lives under `Sync:Rollback:*`:
 
-Chain providers are the connection layer between Argus and the Cardano blockchain. They abstract the underlying communication protocols:
+```json
+{
+  "Sync": {
+    "Rollback": {
+      "Enabled": true,
+      "Hash": "<block hash to rewind to>",
+      "Slot": 12345678,
+      "Reducers": {
+        "SomeReducer": { "Enabled": false }
+      }
+    }
+  }
+}
+```
 
-- **N2CProvider (UnixSocket)**: Implements Ouroboros mini-protocols directly over Unix sockets for local node connections
-- **U5CProvider (gRPC)**: Uses UtxoRPC to connect to remote Cardano nodes via gRPC, ideal for cloud deployments
-- **N2NProvider (TCP)**: Implements Ouroboros mini-protocols over TCP/IP connections
+On the next start every reducer rewinds to the global `Hash`/`Slot`; you can override the target per reducer under `Reducers:{name}:Hash`/`:Slot`, or exclude a reducer with `Reducers:{name}:Enabled: false`. **It re-applies on every start while enabled, so turn it back off once the rewind has run.**
 
-The modular design allows for new providers to be added when new connection methods become available. Custom providers can be implemented by extending the `ICardanoChainProvider` interface, making Argus adaptable to future Cardano network developments.
+## ⚙️ Configuration Reference
 
-<div align="center">
-  <img src="assets/argus_architecture.png" alt="Argus Architecture" width="100%" />
-</div>
+| Key | Default | Description |
+| --- | ------- | ----------- |
+| `ConnectionStrings:CardanoContext` | — | PostgreSQL connection string. |
+| `ConnectionStrings:CardanoContextSchema` | — | Schema for Argus tables; also scopes the single-instance lock. |
+| `ConnectionStrings:CardanoMongo` | — | MongoDB connection string (Mongo backend; replica set required). |
+| `Mongo:Database` | `argus` | MongoDB database name (Mongo backend). |
+| `CardanoNodeConnection:ConnectionType` | — | `UnixSocket` \| `TCP` \| `gRPC`. |
+| `CardanoNodeConnection:UnixSocket:Path` | — | Node socket path (N2C). |
+| `CardanoNodeConnection:TCP:Host` / `:Port` | — | Node host/port (N2N). |
+| `CardanoNodeConnection:gRPC:Endpoint` / `:ApiKey` | — | UtxoRPC endpoint/key (U5C). |
+| `CardanoNodeConnection:NetworkMagic` | `2` | `764824073` mainnet · `1` preprod · `2` preview. |
+| `CardanoNodeConnection:Slot` / `:Hash` | — | Intersection point for a fresh sync. |
+| `CardanoNodeConnection:MaxRollbackSlots` | `10000` | Maximum automatic rollback depth. |
+| `CardanoNodeConnection:RollbackBuffer` | `10` | Recent intersections retained per reducer. |
+| `CardanoIndexReducers:ActiveReducers` | (all) | Allow-list of reducer class names to run. |
+| `Sync:Pipeline:ChannelCapacity` | `256` | Bounded inbox size per reducer (backpressure). |
+| `Sync:SingleInstanceLock:Enabled` | `true` | Enforce one active indexer per database. |
+| `Sync:Rollback:Enabled` | `false` | Operator rollback mode (see [Rollbacks](#-rollbacks)). |
+| `Sync:Worker:ExitOnCompletion` | `true` | Exit the process when sync reaches tip (set `false` in tests). |
+| `Sync:Dashboard:TuiMode` | `true` | Terminal dashboard; `RefreshInterval` (ms) controls redraw. |
 
-## 📚 Documentation
+## 🛠️ Building & Testing
 
-For detailed documentation:
+```bash
+# Build
+dotnet build
 
-- [API Documentation](https://docs.argus.dev) - Coming soon
-- [Getting Started Guide](https://docs.argus.dev/guides/getting-started) - Coming soon
+# Run the example indexer
+dotnet run --project src/Argus.Sync.Example
 
-> Note: The documentation is currently in development. In the meantime, this README and the included example project provide a good starting point.
+# Run the test suite
+dotnet test
+
+# Skip integration tests (which need a live node and/or Mongo)
+dotnet test --filter "Category!=Integration"
+
+# Pack the NuGet packages
+dotnet pack src/Argus.Sync           --configuration Release
+dotnet pack src/Argus.Sync.MongoDb   --configuration Release
+```
+
+Integration tests run against a real preprod/preview node and a local PostgreSQL (and, for the Mongo suite, a MongoDB replica set); they self-skip when those aren't reachable. The end-to-end suite under `src/Argus.Sync.Tests/EndToEnd` exercises the worker, the dependency pipeline, per-branch atomicity, crash-recovery, the single-instance lock, and both storage backends against real Conway-era blocks.
+
+## 📂 Project Layout
+
+| Project | Purpose |
+| ------- | ------- |
+| `src/Argus.Sync` | Core library: worker, pipeline, reducers, EF/Postgres backend. |
+| `src/Argus.Sync.MongoDb` | MongoDB storage backend (`AddCardanoMongoIndexer`). |
+| `src/Argus.Sync.Example` | Runnable reference app with example models and reducers. |
+| `src/Argus.Sync.Tests` | Unit + end-to-end tests. |
 
 ## 🤝 Contributing
-
-We welcome contributions! To get started:
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/amazing-feature`
 3. Commit your changes: `git commit -m 'feat: add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
+4. Push the branch: `git push origin feature/amazing-feature`
 5. Open a Pull Request
 
 ## 📄 License
 
-Argus is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+Argus is licensed under the Apache 2.0 License — see [LICENSE](LICENSE).
 
 ---
 
