@@ -128,7 +128,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         return (new BlockTestReducer(), new TransactionTestReducer());
     }
 
-    private async Task<(CardanoIndexWorker<TestDbContext> Worker, ILoggerFactory LoggerFactory)> CreateCardanoIndexWorkerWithFactoryAsync()
+    private async Task<(CardanoIndexWorker Worker, ILoggerFactory LoggerFactory)> CreateCardanoIndexWorkerWithFactoryAsync()
     {
         // Clear any existing ReducerStates to ensure clean test
         _databaseManager!.DbContext.ReducerStates.RemoveRange(_databaseManager.DbContext.ReducerStates);
@@ -136,13 +136,13 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
         IConfiguration configuration = CreateMinimalTestConfiguration();
         ILoggerFactory loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
         (BlockTestReducer? blockReducer, TransactionTestReducer? txReducer) = CreateReducers();
         List<IReducer> reducers = [blockReducer, txReducer];
 
         Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
-        return (new CardanoIndexWorker<TestDbContext>(configuration, logger, uowFactory, reducers, _mockFactory!), loggerFactory);
+        return (new CardanoIndexWorker(configuration, logger, uowFactory, reducers, _mockFactory!), loggerFactory);
     }
 
     private IConfiguration CreateMinimalTestConfiguration()
@@ -228,7 +228,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
 
     private async Task StartFactoryBasedChainSyncAsync()
     {
-        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory) = await CreateCardanoIndexWorkerWithFactoryAsync();
+        (CardanoIndexWorker worker, ILoggerFactory loggerFactory) = await CreateCardanoIndexWorkerWithFactoryAsync();
         await Task.Run(async () =>
         {
             using CancellationTokenSource cts = new(TimeSpan.FromSeconds(30));

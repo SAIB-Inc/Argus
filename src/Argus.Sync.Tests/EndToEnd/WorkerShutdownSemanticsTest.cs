@@ -77,12 +77,12 @@ public sealed class WorkerShutdownSemanticsTest(ITestOutputHelper output) : IAsy
 
         IDbContextFactory<TestDbContext> dbf = _db.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
         ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
 
         // Two independent ROOT reducers (distinct types) -> two chain providers.
         List<IReducer> reducers = [new BlockTestReducer(), new TransactionTestReducer()];
-        CardanoIndexWorker<TestDbContext> worker = new(config, logger, uowFactory, reducers, _mockFactory);
+        CardanoIndexWorker worker = new(config, logger, uowFactory, reducers, _mockFactory);
 
         try
         {

@@ -50,7 +50,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
         }
     }
 
-    private static (CardanoIndexWorker<TestDbContext> Worker, ILoggerFactory LoggerFactory, CancellationTokenSource Cts) CreateWorkerWithReducers(
+    private static (CardanoIndexWorker Worker, ILoggerFactory LoggerFactory, CancellationTokenSource Cts) CreateWorkerWithReducers(
         IDbContextFactory<TestDbContext> dbContextFactory,
         List<IReducer> reducers)
     {
@@ -64,11 +64,11 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
             .Build();
 
         ILoggerFactory loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(b => b.AddConsole());
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
         MockChainProviderFactory mockProviderFactory = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
 
         Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
-        CardanoIndexWorker<TestDbContext> worker = new(
+        CardanoIndexWorker worker = new(
             configuration,
             logger,
             uowFactory,
@@ -80,10 +80,10 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
     }
 
     private static async Task<ConcurrentDictionary<string, ReducerState>> BuildGraphAndInitializeAsync(
-        CardanoIndexWorker<TestDbContext> worker,
+        CardanoIndexWorker worker,
         CancellationToken cancellationToken)
     {
-        Type workerType = typeof(CardanoIndexWorker<TestDbContext>);
+        Type workerType = typeof(CardanoIndexWorker);
 
         MethodInfo? buildGraphMethod = workerType.GetMethod("BuildDependencyGraph",
             BindingFlags.NonPublic | BindingFlags.Instance);
@@ -134,7 +134,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
         DependentTransactionReducer dependentReducer = new();
         List<IReducer> reducers = [blockReducer, dependentReducer];
 
-        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
+        (CardanoIndexWorker worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)
         using (cts)
         using (worker)
@@ -191,7 +191,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
             new ChainedDependentReducer()
         ];
 
-        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
+        (CardanoIndexWorker worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)
         using (cts)
         using (worker)
@@ -243,7 +243,7 @@ public class StartPointLogicTest(ITestOutputHelper output) : IAsyncLifetime, IDi
             new DependentTransactionReducer()
         ];
 
-        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
+        (CardanoIndexWorker worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)
         using (cts)
         using (worker)

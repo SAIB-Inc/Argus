@@ -18,21 +18,20 @@ namespace Argus.Sync.Workers;
 /// Background service that manages Cardano blockchain synchronization by coordinating
 /// multiple reducers, handling block processing, rollbacks, and chain provider connections.
 /// </summary>
-/// <typeparam name="T">The database context type, must inherit from <see cref="CardanoDbContext"/>.</typeparam>
 /// <param name="configuration">Application configuration for sync settings.</param>
 /// <param name="logger">Logger instance for diagnostic output.</param>
 /// <param name="unitOfWorkFactory">Storage backend: per-block per-branch units of work + reducer-checkpoint reads (default: <see cref="Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory{T}"/>).</param>
 /// <param name="reducers">Collection of registered reducer instances.</param>
 /// <param name="chainProviderFactory">Factory for creating chain provider connections.</param>
 /// <param name="singleInstanceLock">Optional cross-instance guard; when present, the worker waits for it before processing so only one indexer runs per database. Null disables gating.</param>
-public partial class CardanoIndexWorker<T>(
+public partial class CardanoIndexWorker(
     IConfiguration configuration,
-    ILogger<CardanoIndexWorker<T>> logger,
+    ILogger<CardanoIndexWorker> logger,
     IBlockUnitOfWorkFactory unitOfWorkFactory,
     IEnumerable<IReducer> reducers,
     IChainProviderFactory chainProviderFactory,
     ISingleInstanceLock? singleInstanceLock = null
-) : BackgroundService where T : CardanoDbContext
+) : BackgroundService
 {
     private readonly ConcurrentDictionary<string, ReducerState> _reducerStates = [];
     private ulong EffectiveTipSlot;
@@ -902,7 +901,7 @@ public partial class CardanoIndexWorker<T>(
                         .Label("[bold underline]CPU Usage (%)[/]")
                         .CenterLabel()
                         .WithMaxValue(100)
-                        .AddItem("Current", Math.Round(cpuUsage, 1), CardanoIndexWorker<T>.GetCpuColor(cpuUsage));
+                        .AddItem("Current", Math.Round(cpuUsage, 1), CardanoIndexWorker.GetCpuColor(cpuUsage));
 
                     // Create the combined panel
                     Panel systemMonitorPanel = new(

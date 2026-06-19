@@ -397,11 +397,11 @@ public sealed class EfBlockUnitOfWorkTest(ITestOutputHelper output) : IAsyncLife
 
         IDbContextFactory<TestDbContext> factory = DbFactory();
         using ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
         EfBlockUnitOfWorkFactory<TestDbContext> uowFactory = new(factory);
         SparseBlockReducer reducer = new(secondSlot);
 
-        using CardanoIndexWorker<TestDbContext> worker = new(
+        using CardanoIndexWorker worker = new(
             configuration,
             logger,
             uowFactory,

@@ -79,12 +79,12 @@ public sealed class PipelineFaultHangTest(ITestOutputHelper output) : IAsyncLife
         IConfiguration config = BuildConfig(blocks[0]);
         IDbContextFactory<TestDbContext> dbf = _db!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
         ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
 
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
         List<IReducer> reducers = [new ThrowingReducer(throwSlot)];
 
-        CardanoIndexWorker<TestDbContext> worker = new(config, logger, uowFactory, reducers, _mockFactory);
+        CardanoIndexWorker worker = new(config, logger, uowFactory, reducers, _mockFactory);
 
         try
         {

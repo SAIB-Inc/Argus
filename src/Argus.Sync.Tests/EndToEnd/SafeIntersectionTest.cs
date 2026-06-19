@@ -49,7 +49,7 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
         }
     }
 
-    private static (CardanoIndexWorker<TestDbContext> Worker, ILoggerFactory LoggerFactory, CancellationTokenSource Cts) CreateWorkerWithReducers(
+    private static (CardanoIndexWorker Worker, ILoggerFactory LoggerFactory, CancellationTokenSource Cts) CreateWorkerWithReducers(
         IDbContextFactory<TestDbContext> dbContextFactory,
         List<IReducer> reducers)
     {
@@ -64,11 +64,11 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
             .Build();
 
         ILoggerFactory loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(b => b.AddConsole());
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
         MockChainProviderFactory mockProviderFactory = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
 
         Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
-        CardanoIndexWorker<TestDbContext> worker = new(
+        CardanoIndexWorker worker = new(
             configuration,
             logger,
             uowFactory,
@@ -80,10 +80,10 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
     }
 
     private static async Task BuildGraphAndInitializeAsync(
-        CardanoIndexWorker<TestDbContext> worker,
+        CardanoIndexWorker worker,
         CancellationToken cancellationToken)
     {
-        Type workerType = typeof(CardanoIndexWorker<TestDbContext>);
+        Type workerType = typeof(CardanoIndexWorker);
 
         MethodInfo? buildGraphMethod = workerType.GetMethod("BuildDependencyGraph",
             BindingFlags.NonPublic | BindingFlags.Instance);
@@ -148,7 +148,7 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
         ChainedDependentReducer chainedReducer = new();
         List<IReducer> reducers = [blockReducer, dependentReducer, chainedReducer];
 
-        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
+        (CardanoIndexWorker worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)
         using (cts)
         using (worker)
@@ -156,7 +156,7 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
             await BuildGraphAndInitializeAsync(worker, cts.Token);
 
             // Get the safe intersection points for BlockTestReducer
-            Type workerType = typeof(CardanoIndexWorker<TestDbContext>);
+            Type workerType = typeof(CardanoIndexWorker);
             MethodInfo? getSafeIntersectionMethod = workerType.GetMethod("GetSafeIntersectionPoints",
                 BindingFlags.NonPublic | BindingFlags.Instance);
             IEnumerable<Point> intersections = (IEnumerable<Point>)getSafeIntersectionMethod!.Invoke(worker, ["BlockTestReducer"])!;
@@ -209,7 +209,7 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
         TransactionTestReducer txReducer = new();
         List<IReducer> reducers = [txReducer];
 
-        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
+        (CardanoIndexWorker worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)
         using (cts)
         using (worker)
@@ -217,7 +217,7 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
             await BuildGraphAndInitializeAsync(worker, cts.Token);
 
             // Get the safe intersection points
-            Type workerType = typeof(CardanoIndexWorker<TestDbContext>);
+            Type workerType = typeof(CardanoIndexWorker);
             MethodInfo? getSafeIntersectionMethod = workerType.GetMethod("GetSafeIntersectionPoints",
                 BindingFlags.NonPublic | BindingFlags.Instance);
             IEnumerable<Point> intersections = (IEnumerable<Point>)getSafeIntersectionMethod!.Invoke(worker, ["TransactionTestReducer"])!;
@@ -253,14 +253,14 @@ public class SafeIntersectionTest(ITestOutputHelper output) : IAsyncLifetime, ID
         TransactionTestReducer txReducer = new();
         List<IReducer> reducers = [txReducer];
 
-        (CardanoIndexWorker<TestDbContext> worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
+        (CardanoIndexWorker worker, ILoggerFactory loggerFactory, CancellationTokenSource cts) = CreateWorkerWithReducers(dbContextFactory, reducers);
         using (loggerFactory)
         using (cts)
         using (worker)
         {
             await BuildGraphAndInitializeAsync(worker, cts.Token);
 
-            Type workerType = typeof(CardanoIndexWorker<TestDbContext>);
+            Type workerType = typeof(CardanoIndexWorker);
             MethodInfo? getSafeIntersectionMethod = workerType.GetMethod("GetSafeIntersectionPoints",
                 BindingFlags.NonPublic | BindingFlags.Instance);
             List<Point> intersections = [.. (IEnumerable<Point>)getSafeIntersectionMethod!.Invoke(worker, ["TransactionTestReducer"])!];

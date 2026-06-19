@@ -121,7 +121,7 @@ public sealed class ForkDependentCrashRecoveryTest(ITestOutputHelper output) : I
 
         IDbContextFactory<TestDbContext> dbf = _db!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
         using ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Warning));
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
         IConfiguration config = BuildConfig(firstBlock);
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
 
@@ -135,7 +135,7 @@ public sealed class ForkDependentCrashRecoveryTest(ITestOutputHelper output) : I
                 new WatchedAddressBalanceReducer(config),
                 new CrashOnceBalanceReducer(config, crashSlot, armed: true),
             ];
-            using (CardanoIndexWorker<TestDbContext> crashWorker = new(config, logger, uowFactory, crashReducers, crashFactory))
+            using (CardanoIndexWorker crashWorker = new(config, logger, uowFactory, crashReducers, crashFactory))
             {
                 await crashWorker.StartAsync(CancellationToken.None);
                 MockChainSyncProvider crashProvider = await WaitForProviderAsync(crashFactory);
@@ -172,7 +172,7 @@ public sealed class ForkDependentCrashRecoveryTest(ITestOutputHelper output) : I
                 new WatchedAddressBalanceReducer(config),
                 new CrashOnceBalanceReducer(config, crashSlot, armed: false),
             ];
-            using CardanoIndexWorker<TestDbContext> recoverWorker = new(config, logger, uowFactory, recoverReducers, recoverFactory);
+            using CardanoIndexWorker recoverWorker = new(config, logger, uowFactory, recoverReducers, recoverFactory);
             try
             {
                 await recoverWorker.StartAsync(CancellationToken.None);

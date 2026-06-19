@@ -72,13 +72,13 @@ public sealed class ForkBranchAtomicityTest(ITestOutputHelper output) : IAsyncLi
         IDbContextFactory<TestDbContext> dbf = _db!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
         IConfiguration config = BuildConfig(blocks[0]);
         using ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Warning));
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
 
         // Fork: BlockTestReducer (root) → { survivor, crasher }.
         List<IReducer> reducers = [new BlockTestReducer(), new ForkSurvivorReducer(), new ForkCrasherReducer(crashSlot)];
         MockChainProviderFactory factory = new(testDataDir);
-        CardanoIndexWorker<TestDbContext> worker = new(config, logger, uowFactory, reducers, factory);
+        CardanoIndexWorker worker = new(config, logger, uowFactory, reducers, factory);
 
         try
         {

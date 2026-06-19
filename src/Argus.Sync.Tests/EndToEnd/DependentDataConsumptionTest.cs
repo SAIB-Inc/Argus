@@ -153,13 +153,13 @@ public sealed class DependentDataConsumptionTest(ITestOutputHelper output) : IAs
 
         IDbContextFactory<TestDbContext> dbf = _db!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
         using ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Warning));
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = loggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = loggerFactory.CreateLogger<CardanoIndexWorker>();
 
         IConfiguration config = BuildConfig(firstBlock);
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
 
         MockChainProviderFactory factory = new(tempDir);
-        using CardanoIndexWorker<TestDbContext> worker = new(config, logger, uowFactory, buildReducers(config), factory);
+        using CardanoIndexWorker worker = new(config, logger, uowFactory, buildReducers(config), factory);
 
         try
         {

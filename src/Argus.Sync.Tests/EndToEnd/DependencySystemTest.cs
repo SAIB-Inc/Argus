@@ -85,7 +85,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
         List<(string reducer, string action, ulong slot, DateTime time)> executionOrder = [];
 
         // Create worker with dependency-enabled reducers
-        using CardanoIndexWorker<TestDbContext> worker = await CreateWorkerWithDependenciesAsync();
+        using CardanoIndexWorker worker = await CreateWorkerWithDependenciesAsync();
         Assert.NotNull(worker);
 
         using CancellationTokenSource cancellationTokenSource = new();
@@ -249,7 +249,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
         Assert.Equal(0, remainingTxs);
     }
 
-    private Task<CardanoIndexWorker<TestDbContext>> CreateWorkerWithDependenciesAsync()
+    private Task<CardanoIndexWorker> CreateWorkerWithDependenciesAsync()
     {
         // Create configuration
         MockChainSyncProvider tempProvider = new(Path.Combine(Directory.GetCurrentDirectory(), "TestData"));
@@ -267,7 +267,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
 
         // Create logger - stored in field for disposal
         _workerLoggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
-        ILogger<CardanoIndexWorker<TestDbContext>> logger = _workerLoggerFactory.CreateLogger<CardanoIndexWorker<TestDbContext>>();
+        ILogger<CardanoIndexWorker> logger = _workerLoggerFactory.CreateLogger<CardanoIndexWorker>();
 
         // Get database factory
         IDbContextFactory<TestDbContext> dbContextFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
@@ -287,7 +287,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
         ];
 
         Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
-        return Task.FromResult(new CardanoIndexWorker<TestDbContext>(configuration, logger, uowFactory, reducers, _mockProviderFactory!));
+        return Task.FromResult(new CardanoIndexWorker(configuration, logger, uowFactory, reducers, _mockProviderFactory!));
     }
 
     private async Task VerifyDependencyChainProcessed(ulong slot)

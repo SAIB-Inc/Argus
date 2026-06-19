@@ -11,22 +11,17 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Argus.Sync.Extensions;
 
 /// <summary>
-/// Extension methods for registering the Cardano indexer services with the dependency injection container.
+/// Extension methods for registering the Cardano indexer with a dependency-injection container. Pick the
+/// method matching your storage backend — <see cref="AddCardanoPostgresIndexer{T}"/> for EF Core/Postgres,
+/// or a backend package's equivalent (e.g. <c>AddCardanoMongoIndexer</c> from <c>Argus.Sync.MongoDb</c>) —
+/// then call <c>AddReducers</c> to register your reducers.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the Cardano indexer services using the default configuration-based chain provider factory.
-    /// </summary>
-    /// <typeparam name="T">The database context type inheriting from <see cref="CardanoDbContext"/>.</typeparam>
-    /// <param name="services">The service collection.</param>
-    /// <param name="configuration">The application configuration.</param>
-    /// <param name="commandTimout">The database command timeout in seconds.</param>
-    /// <returns>The service collection for method chaining.</returns>
-    public static IServiceCollection AddCardanoIndexer<T>(this IServiceCollection services, IConfiguration configuration, int commandTimout = 60) where T : CardanoDbContext => AddCardanoIndexer<T>(services, configuration, commandTimout, null);
-
-    /// <summary>
-    /// Registers the Cardano indexer services with an optional custom chain provider factory for testing scenarios.
+    /// Registers the Cardano indexer on the EF Core / PostgreSQL backend: a pooled DbContext factory, the EF
+    /// unit-of-work factory (data + checkpoint storage), a Postgres single-instance advisory lock, the
+    /// chain-provider factory, and the indexer worker as a hosted service.
     /// </summary>
     /// <remarks>
     /// <para><b>Transient-fault recovery.</b> Argus does not retry database faults in-process. EF Core's
@@ -37,7 +32,7 @@ public static class ServiceCollectionExtensions
     /// <list type="number">
     /// <item>A fault while processing a block rolls that block-branch's transaction back atomically — no partial
     /// writes (tracked rows, raw SQL, and the reducer-state checkpoint all roll back together).</item>
-    /// <item>The fault propagates out of <see cref="CardanoIndexWorker{T}"/>'s execute loop, which stops the host
+    /// <item>The fault propagates out of <see cref="CardanoIndexWorker"/>'s execute loop, which stops the host
     /// (the default <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> behavior).</item>
     /// <item>An external supervisor (systemd, Kubernetes, Docker <c>restart:</c>) restarts the process, which
     /// resumes from the last atomically-committed checkpoint and replays the failed block.</item>
@@ -51,8 +46,15 @@ public static class ServiceCollectionExtensions
     /// <param name="commandTimout">The database command timeout in seconds.</param>
     /// <param name="chainProviderFactory">An optional custom chain provider factory; defaults to configuration-based if null.</param>
     /// <returns>The service collection for method chaining.</returns>
-    public static IServiceCollection AddCardanoIndexer<T>(this IServiceCollection services, IConfiguration configuration, int commandTimout, IChainProviderFactory? chainProviderFactory) where T : CardanoDbContext
+    public static IServiceCollection AddCardanoPostgresIndexer<T>(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        int commandTimout = 60,
+        IChainProviderFactory? chainProviderFactory = null) where T : CardanoDbContext
     {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
         _ = services.AddDbContextFactory<T>(options =>
         {
             Assembly? contextAssembly = typeof(T).Assembly;
@@ -61,31 +63,48 @@ public static class ServiceCollectionExtensions
             // user-initiated transactions not wrapped in CreateExecutionStrategy().ExecuteAsync(...), and the
             // per-block-branch transaction spans multiple pipeline tasks (and captures raw ExecuteUpdate/SQL),
             // so it cannot be a single retriable delegate. Transient faults are recovered out-of-process via
-            // fail-fast + restart + checkpoint-resume — see the AddCardanoIndexer remarks.
-            _ = options
-                .UseNpgsql(
-                    configuration.GetConnectionString("CardanoContext"),
-                        x =>
-                        {
-                            _ = x.MigrationsAssembly(contextAssembly!.FullName);
-                            _ = x.CommandTimeout(commandTimout);
-                            _ = x.MigrationsHistoryTable(
-                                "__EFMigrationsHistory",
-                                configuration!.GetConnectionString("CardanoContextSchema")
-                            );
-                        }
-                );
+            // fail-fast + restart + checkpoint-resume — see the remarks above.
+            _ = options.UseNpgsql(
+                configuration.GetConnectionString("CardanoContext"),
+                x =>
+                {
+                    _ = x.MigrationsAssembly(contextAssembly!.FullName);
+                    _ = x.CommandTimeout(commandTimout);
+                    _ = x.MigrationsHistoryTable("__EFMigrationsHistory", configuration!.GetConnectionString("CardanoContextSchema"));
+                });
         });
 
-        // Register the default EF-backed unit-of-work factory — the storage-backend seam: it creates
-        // transactional per-branch units AND reads reducer checkpoints. Consumers using a non-relational
-        // backend replace this single registration with their own implementation after calling AddCardanoIndexer.
+        // EF unit-of-work factory — the storage-backend seam: transactional per-branch units + checkpoint reads.
         _ = services.AddSingleton<IBlockUnitOfWorkFactory>(sp =>
-            new EfBlockUnitOfWorkFactory<T>(
-                sp.GetRequiredService<IDbContextFactory<T>>(),
-                configuration));
+            new EfBlockUnitOfWorkFactory<T>(sp.GetRequiredService<IDbContextFactory<T>>(), configuration));
 
-        // Register chain provider factory - use provided factory or default to configuration-based
+        // Postgres single-instance guard (advisory lock): ONE shared singleton, exposed both as
+        // ISingleInstanceLock (the indexer's gate) and as a hosted service (runs the acquire/hold/release loop).
+        // The factory indirection keeps both roles on the SAME instance. Opt out via Sync:SingleInstanceLock:Enabled=false.
+        if (configuration.GetValue("Sync:SingleInstanceLock:Enabled", true))
+        {
+            _ = services.AddSingleton<PostgresSingleInstanceLockWorker>();
+            _ = services.AddSingleton<ISingleInstanceLock>(sp => sp.GetRequiredService<PostgresSingleInstanceLockWorker>());
+            _ = services.AddHostedService(sp => sp.GetRequiredService<PostgresSingleInstanceLockWorker>());
+        }
+
+        return services.AddCardanoIndexerCore(chainProviderFactory);
+    }
+
+    /// <summary>
+    /// Registers the backend-agnostic indexer pieces: the chain-provider factory and the indexer worker as a
+    /// hosted service. Each storage-backend entry point (Postgres, Mongo, …) calls this after registering its
+    /// own <see cref="IBlockUnitOfWorkFactory"/> and (optionally) <see cref="ISingleInstanceLock"/>.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="chainProviderFactory">An optional custom chain provider factory; defaults to configuration-based if null.</param>
+    /// <returns>The service collection for method chaining.</returns>
+    public static IServiceCollection AddCardanoIndexerCore(
+        this IServiceCollection services,
+        IChainProviderFactory? chainProviderFactory = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
         if (chainProviderFactory != null)
         {
             _ = services.AddSingleton(chainProviderFactory);
@@ -95,22 +114,7 @@ public static class ServiceCollectionExtensions
             _ = services.AddSingleton<IChainProviderFactory, ConfigurationChainProviderFactory>();
         }
 
-        // Single-instance guard (Postgres advisory lock): ONE shared singleton, exposed both as
-        // ISingleInstanceLock (the indexer's gate) and as a hosted service (runs the acquire/
-        // hold/release loop). The factory indirection keeps both roles on the SAME instance, so
-        // the lock the runner holds is the gate the indexer awaits. Opt out via
-        // Sync:SingleInstanceLock:Enabled=false.
-        if (configuration.GetValue("Sync:SingleInstanceLock:Enabled", true))
-        {
-            _ = services.AddSingleton<PostgresSingleInstanceLockWorker>();
-            _ = services.AddSingleton<ISingleInstanceLock>(sp => sp.GetRequiredService<PostgresSingleInstanceLockWorker>());
-            _ = services.AddHostedService(sp => sp.GetRequiredService<PostgresSingleInstanceLockWorker>());
-        }
-
-        // Registering the hosted service
-        _ = services.AddHostedService<CardanoIndexWorker<T>>();
-
-        // Return IServiceCollection to support method chaining
+        _ = services.AddHostedService<CardanoIndexWorker>();
         return services;
     }
 }

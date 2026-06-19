@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddCardanoIndexer<TestDbContext>(builder.Configuration);
+builder.Services.AddCardanoPostgresIndexer<TestDbContext>(builder.Configuration);
 builder.Services.AddReducers(builder.Configuration);
 builder.Services.AddHostedService<LiveSmokeMonitor>();
 
