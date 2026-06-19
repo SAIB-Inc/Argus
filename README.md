@@ -411,6 +411,27 @@ Integration tests run against a real preprod/preview node and a local PostgreSQL
 | `src/Argus.Sync.Example` | Runnable reference app with example models and reducers. |
 | `src/Argus.Sync.Tests` | Unit + end-to-end tests. |
 
+## 🔼 Migrating from v0.x (pre-rearchitecture)
+
+The rearchitecture — channel pipeline, storage-agnostic unit of work, and the package split — is a major version with breaking changes. The mapping:
+
+| Area | Before (v0.x) | Now |
+| --- | --- | --- |
+| Reducer interface | `IReducer<T>` (generic) | `IReducer` (non-generic) |
+| `RollForwardAsync` | `RollForwardAsync(Block block)` | `RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)` |
+| `RollBackwardAsync` | `RollBackwardAsync(ulong slot)` | `RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)` |
+| Block type | `Block` (`Chrysalis.Cbor.Types…`) | `IBlock` (`Chrysalis.Codec.Types.Cardano.Core`) |
+| Data access | inject `IDbContextFactory<T>`; call `db.SaveChangesAsync()` | `uow.GetStorage<T>()`; the framework commits — **never** call `SaveChangesAsync` |
+| Postgres registration | `AddCardanoIndexer<T>()` (core package) | `AddCardanoPostgresIndexer<T>()` from the **`Argus.Sync.EntityFramework`** package |
+| Reducer registration | `AddReducers<T, V>(config)` | `AddReducers(config)` (non-generic) |
+| Packages | `Argus.Sync` (EF baked in) | `Argus.Sync` (core) **+** `Argus.Sync.EntityFramework` (Postgres) or `Argus.Sync.MongoDb` |
+| `IReducerModel` | marker interface | now requires `ulong Slot { get; }` |
+| Rollback-mode config | `CardanoIndexReducers:RollbackMode:*` | `Sync:Rollback:*` |
+| Removed config | `Sync:State:ReducerStateSyncInterval` | gone |
+| N2N (TCP) provider | not implemented | supported (`ConnectionType: "TCP"`) |
+
+**To upgrade a reducer in practice:** drop the `IDbContextFactory` constructor parameter and the `<T>` on `IReducer`; change both methods to take `(…, IBlockUnitOfWork uow, CancellationToken ct)`; replace `dbContextFactory.CreateDbContext()` with `uow.GetStorage<YourDbContext>()`; and delete every `SaveChangesAsync` call. Then add the `Argus.Sync.EntityFramework` package reference, and switch `AddCardanoIndexer<T>` → `AddCardanoPostgresIndexer<T>` and `AddReducers<T, V>` → `AddReducers`.
+
 ## 🤝 Contributing
 
 1. Fork the repository
