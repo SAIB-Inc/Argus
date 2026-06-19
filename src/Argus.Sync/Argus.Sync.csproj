@@ -13,7 +13,6 @@
     <PackageReference Include="CborSerializer" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Configuration" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="Utxorpc.Sdk" />
   </ItemGroup>

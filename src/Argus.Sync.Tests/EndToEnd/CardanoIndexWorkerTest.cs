@@ -141,7 +141,7 @@ public class CardanoIndexWorkerTest(ITestOutputHelper output) : IAsyncLifetime, 
         (BlockTestReducer? blockReducer, TransactionTestReducer? txReducer) = CreateReducers();
         List<IReducer> reducers = [blockReducer, txReducer];
 
-        Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
+        Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.EntityFramework.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
         return (new CardanoIndexWorker(configuration, logger, uowFactory, reducers, _mockFactory!), loggerFactory);
     }
 

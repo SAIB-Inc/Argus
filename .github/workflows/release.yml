@@ -33,7 +33,10 @@ jobs:
       - name: Pack
         run: |
           mkdir -p out
-          dotnet pack src/Argus.Sync/Argus.Sync.csproj -c Release -o out -p:Version=${{ steps.version.outputs.version }}
+          V="${{ steps.version.outputs.version }}"
+          dotnet pack src/Argus.Sync/Argus.Sync.csproj -c Release -o out -p:Version="$V"
+          dotnet pack src/Argus.Sync.EntityFramework/Argus.Sync.EntityFramework.csproj -c Release -o out -p:Version="$V"
+          dotnet pack src/Argus.Sync.MongoDb/Argus.Sync.MongoDb.csproj -c Release -o out -p:Version="$V"
 
       - name: Push to NuGet
         run: dotnet nuget push ./out/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

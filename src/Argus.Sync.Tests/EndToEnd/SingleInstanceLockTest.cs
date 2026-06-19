@@ -1,5 +1,5 @@
+using Argus.Sync.EntityFramework;
 using Argus.Sync.Tests.Infrastructure;
-using Argus.Sync.Workers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;

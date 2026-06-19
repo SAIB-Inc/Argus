@@ -286,7 +286,7 @@ public class DependencySystemTest(ITestOutputHelper output) : IAsyncLifetime, ID
             chainedReducer
         ];
 
-        Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
+        Argus.Sync.Reducers.IBlockUnitOfWorkFactory uowFactory = new Argus.Sync.EntityFramework.EfBlockUnitOfWorkFactory<TestDbContext>(dbContextFactory);
         return Task.FromResult(new CardanoIndexWorker(configuration, logger, uowFactory, reducers, _mockProviderFactory!));
     }
 

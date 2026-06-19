@@ -1,11 +1,12 @@
 using System.Data;
 using System.Text;
+using Argus.Sync.Workers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
-namespace Argus.Sync.Workers;
+namespace Argus.Sync.EntityFramework;
 
 /// <summary>
 /// <see cref="BackgroundService"/> that holds a Postgres <em>session-level advisory lock</em>

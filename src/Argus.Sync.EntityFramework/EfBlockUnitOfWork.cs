@@ -1,9 +1,10 @@
+using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
-namespace Argus.Sync.Data.Stores;
+namespace Argus.Sync.EntityFramework;
 
 /// <summary>
 /// EF Core implementation of <see cref="IBlockUnitOfWork"/>. Wraps a single

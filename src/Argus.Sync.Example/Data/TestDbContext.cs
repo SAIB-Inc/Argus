@@ -1,4 +1,4 @@
-using Argus.Sync.Data;
+using Argus.Sync.EntityFramework;
 using Argus.Sync.Example.Models;
 using Microsoft.EntityFrameworkCore;
 

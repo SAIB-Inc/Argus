@@ -1,5 +1,5 @@
 using System.Globalization;
-using Argus.Sync.Data.Stores;
+using Argus.Sync.EntityFramework;
 using Argus.Sync.Example.Data;
 using Argus.Sync.Reducers;
 using Argus.Sync.Tests.Infrastructure;

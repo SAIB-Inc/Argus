@@ -18,7 +18,7 @@ namespace Argus.Sync.Workers;
 /// </summary>
 /// <param name="configuration">Application configuration for sync settings.</param>
 /// <param name="logger">Logger instance for diagnostic output.</param>
-/// <param name="unitOfWorkFactory">Storage backend: per-block per-branch units of work + reducer-checkpoint reads (default: <see cref="Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory{T}"/>).</param>
+/// <param name="unitOfWorkFactory">Storage backend: per-block per-branch units of work + reducer-checkpoint reads, supplied by a backend package (e.g. <c>AddCardanoPostgresIndexer</c> from Argus.Sync.EntityFramework, or <c>AddCardanoMongoIndexer</c> from Argus.Sync.MongoDb).</param>
 /// <param name="reducers">Collection of registered reducer instances.</param>
 /// <param name="chainProviderFactory">Factory for creating chain provider connections.</param>
 /// <param name="singleInstanceLock">Optional cross-instance guard; when present, the worker waits for it before processing so only one indexer runs per database. Null disables gating.</param>

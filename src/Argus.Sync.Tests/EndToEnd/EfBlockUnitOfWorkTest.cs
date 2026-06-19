@@ -1,6 +1,6 @@
 using System.Globalization;
 using Argus.Sync.Data.Models;
-using Argus.Sync.Data.Stores;
+using Argus.Sync.EntityFramework;
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;

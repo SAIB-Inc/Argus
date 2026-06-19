@@ -3,7 +3,7 @@ using Argus.Sync.Data.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
-namespace Argus.Sync.Data;
+namespace Argus.Sync.EntityFramework;
 
 /// <summary>
 /// Base database context for EF Core consumers. Inherit from this to colocate
