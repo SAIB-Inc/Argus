@@ -338,16 +338,21 @@ public partial class CardanoIndexWorker(
                 throw new InvalidOperationException($"Failed to determine chainsync intersection for {reducerName}");
             }
 
+            // Rollback mode: a one-shot operational mode that, instead of resuming from the saved checkpoint,
+            // rewinds the chain to an operator-configured intersection. The whole feature lives under a single
+            // Sync:Rollback:* namespace — the master switch (Sync:Rollback:Enabled), the global target
+            // (Sync:Rollback:Hash / :Slot), and optional per-reducer overrides
+            // (Sync:Rollback:Reducers:{name}:Enabled / :Hash / :Slot).
             if (_rollbackModeEnabled)
             {
-                rollbackMode = configuration.GetValue($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:Enabled", true);
+                rollbackMode = configuration.GetValue($"Sync:Rollback:Reducers:{reducerName}:Enabled", true);
 
                 if (rollbackMode)
                 {
-                    string? defaultRollbackHash = configuration.GetValue<string>("CardanoIndexReducers:RollbackMode:RollbackHash");
-                    ulong defaultRollbackSlot = configuration.GetValue<ulong>("CardanoIndexReducers:RollbackMode:Slot");
-                    string? selfRollbackHash = configuration.GetValue<string>($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:RollbackHash");
-                    ulong selfRollbackSlot = configuration.GetValue<ulong>($"CardanoIndexReducers:RollbackMode:Reducers:{reducerName}:RollbackSlot");
+                    string? defaultRollbackHash = configuration.GetValue<string>("Sync:Rollback:Hash");
+                    ulong defaultRollbackSlot = configuration.GetValue<ulong>("Sync:Rollback:Slot");
+                    string? selfRollbackHash = configuration.GetValue<string>($"Sync:Rollback:Reducers:{reducerName}:Hash");
+                    ulong selfRollbackSlot = configuration.GetValue<ulong>($"Sync:Rollback:Reducers:{reducerName}:Slot");
                     string rollbackHash = selfRollbackHash ?? defaultRollbackHash ?? throw new InvalidOperationException("Rollback hash not configured");
                     ulong rollbackSlot = selfRollbackSlot != 0 ? selfRollbackSlot : defaultRollbackSlot != 0 ? defaultRollbackSlot : throw new InvalidOperationException("Rollback slot not configured");
 
