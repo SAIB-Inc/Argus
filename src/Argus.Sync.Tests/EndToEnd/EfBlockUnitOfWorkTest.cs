@@ -97,6 +97,59 @@ public sealed class EfBlockUnitOfWorkTest(ITestOutputHelper output) : IAsyncLife
 
     [Fact]
     [Trait("Category", "Integration")]
+    public async Task CommitAsync_WhenWriteFails_RollsBackBranchLeavingNoPartialData()
+    {
+        // P0-3 recovery model: there is no in-process EF retry (incompatible with the
+        // per-branch manual transaction). Safe recovery instead relies on branch-commit
+        // ATOMICITY — a failed commit must leave zero partial writes (tracked rows, raw
+        // SQL, and the checkpoint all roll back together), so a restarted worker can
+        // replay the block from the last committed checkpoint without duplicating data.
+        IDbContextFactory<TestDbContext> factory = DbFactory();
+        EfBlockUnitOfWorkFactory<TestDbContext> uowFactory = new(factory);
+
+        await using (IBlockUnitOfWork uow = await uowFactory.CreateAsync())
+        {
+            TestDbContext dbContext = uow.GetStorage<TestDbContext>();
+
+            // A raw-SQL write executes immediately inside the branch transaction.
+            _ = await dbContext.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"BlockTests\" (\"Hash\", \"Height\", \"Slot\", \"CreatedAt\") VALUES ({0}, {1}, {2}, {3})",
+                "partial-raw-hash",
+                1UL,
+                500UL,
+                DateTime.UtcNow);
+            uow.MarkDataChanged();
+
+            // Seed the conflicting key via raw SQL (the change-tracker doesn't know
+            // about it), then track an entity with the same composite PK (Hash, Slot).
+            // The clash surfaces as a DB unique-violation when the commit flushes via
+            // SaveChanges — not at Add-time — exercising the transaction rollback path.
+            _ = await dbContext.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"BlockTests\" (\"Hash\", \"Height\", \"Slot\", \"CreatedAt\") VALUES ({0}, {1}, {2}, {3})",
+                "conflict-hash",
+                1UL,
+                501UL,
+                DateTime.UtcNow);
+            _ = dbContext.BlockTests.Add(new BlockTest("conflict-hash", 2, 501, DateTime.UtcNow));
+            uow.TrackIntersection("AtomicReducer", new Point("conflict-hash", 501));
+
+            // The commit surfaces the DB fault rather than swallowing it.
+            _ = await Assert.ThrowsAnyAsync<Exception>(async () => await uow.CommitAsync());
+
+            // Mirror the pipeline's fault path: the branch UoW is rolled back
+            // before the error is rethrown to the worker (ReducerPipeline).
+            await uow.RollbackAsync();
+        }
+
+        // Atomicity: neither the raw write, the tracked write, nor the checkpoint survives.
+        await using TestDbContext fresh = await factory.CreateDbContextAsync();
+        Assert.False(await fresh.BlockTests.AnyAsync(b => b.Hash == "partial-raw-hash"));
+        Assert.False(await fresh.BlockTests.AnyAsync(b => b.Hash == "conflict-hash"));
+        Assert.False(await fresh.ReducerStates.AnyAsync(r => r.Name == "AtomicReducer"));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
     public async Task TrackRollback_ShouldPersistCheckpointRewindOnCommit()
     {
         IDbContextFactory<TestDbContext> factory = DbFactory();

@@ -28,6 +28,23 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Registers the Cardano indexer services with an optional custom chain provider factory for testing scenarios.
     /// </summary>
+    /// <remarks>
+    /// <para><b>Transient-fault recovery.</b> Argus does not retry database faults in-process. EF Core's
+    /// <c>EnableRetryOnFailure</c> execution strategy hard-throws on user-initiated transactions, and Argus
+    /// opens one manual transaction per block-branch (it spans multiple pipeline tasks and captures raw
+    /// <c>ExecuteUpdate</c>/SQL atomically) — a unit that cannot be expressed as a single retriable delegate.
+    /// See the <c>UseNpgsql</c> note below. Recovery is fail-fast and crash-safe instead:</para>
+    /// <list type="number">
+    /// <item>A fault while processing a block rolls that block-branch's transaction back atomically — no partial
+    /// writes (tracked rows, raw SQL, and the reducer-state checkpoint all roll back together).</item>
+    /// <item>The fault propagates out of <see cref="CardanoIndexWorker{T}"/>'s execute loop, which stops the host
+    /// (the default <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> behavior).</item>
+    /// <item>An external supervisor (systemd, Kubernetes, Docker <c>restart:</c>) restarts the process, which
+    /// resumes from the last atomically-committed checkpoint and replays the failed block.</item>
+    /// </list>
+    /// <para>Because data and checkpoint commit in one transaction, replay is at-least-once with idempotent
+    /// re-processing — no data loss or corruption. Configure your host with a restart policy.</para>
+    /// </remarks>
     /// <typeparam name="T">The database context type inheriting from <see cref="CardanoDbContext"/>.</typeparam>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">The application configuration.</param>
@@ -39,6 +56,12 @@ public static class ServiceCollectionExtensions
         _ = services.AddDbContextFactory<T>(options =>
         {
             Assembly? contextAssembly = typeof(T).Assembly;
+
+            // EnableRetryOnFailure is intentionally NOT configured: EF's retrying execution strategy throws on
+            // user-initiated transactions not wrapped in CreateExecutionStrategy().ExecuteAsync(...), and the
+            // per-block-branch transaction spans multiple pipeline tasks (and captures raw ExecuteUpdate/SQL),
+            // so it cannot be a single retriable delegate. Transient faults are recovered out-of-process via
+            // fail-fast + restart + checkpoint-resume — see the AddCardanoIndexer remarks.
             _ = options
                 .UseNpgsql(
                     configuration.GetConnectionString("CardanoContext"),
