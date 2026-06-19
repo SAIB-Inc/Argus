@@ -24,16 +24,21 @@ using Xunit.Abstractions;
 namespace Argus.Sync.Tests.EndToEnd;
 
 /// <summary>
-/// Fork-point integration test (backlog P1-5). Builds a 1-parent → 2-dependent fork:
-/// <c>LovelaceBalanceByAddressReducer</c> (root) feeds two siblings — <see cref="WatchedAddressBalanceReducer"/>
-/// and <see cref="WatchedAddressBalanceSiblingReducer"/> — that each derive the watched balances from the
-/// parent's committed <c>WalletUtxo</c> rows. Driving the real watched blocks through the worker exercises
-/// the actual fork forwarding (parent commits, then spawns a fresh unit-of-work per child). Asserting both
-/// children match the on-chain oracle at every slot proves each independently reads the parent's data with
-/// its own empty change-tracker; a rollback then proves the cascade reaches both. Requires a synced preprod
-/// node (skips otherwise).
+/// Integration coverage for dependents that CONSUME their parent's data (backlog P1-5), in both
+/// dependency topologies, driven by the real watched preprod blocks through the worker:
+/// <list type="bullet">
+/// <item><b>Linear</b> (<c>balance → 1 dependent</c>): parent and dependent share one unit-of-work,
+/// so the dependent must read the parent's THIS-block writes from the in-memory change-tracker
+/// (<c>.Local</c>) — they are not yet committed. Matching the oracle at each slot proves it does.</item>
+/// <item><b>Fork</b> (<c>balance → 2 dependents</c>): the parent commits before forking and each
+/// child gets a fresh empty <c>.Local</c>, so each reads the parent's committed rows from the DB —
+/// independently, with its own unit-of-work.</item>
+/// </list>
+/// The same topology-agnostic <see cref="WatchedAddressBalanceReducer"/> is used in both; only the
+/// wiring differs. Each scenario also asserts a single chain connection and a rollback cascade.
+/// Requires a synced preprod node (skips otherwise).
 /// </summary>
-public sealed class ForkDependencyTest(ITestOutputHelper output) : IAsyncLifetime, IDisposable
+public sealed class DependentDataConsumptionTest(ITestOutputHelper output) : IAsyncLifetime, IDisposable
 {
     private const string SocketEnvVar = "CARDANO_NODE_SOCKET_PATH";
     private const string DefaultSocketPath = "/home/rawriclark/CardanoPreprod/ipc/node.socket";
@@ -66,8 +71,6 @@ public sealed class ForkDependencyTest(ITestOutputHelper output) : IAsyncLifetim
     ];
 
     private const int RollbackChanges = 5;
-    private static readonly string[] DependentNames =
-        [nameof(WatchedAddressBalanceReducer), nameof(WatchedAddressBalanceSiblingReducer)];
 
     private readonly ITestOutputHelper _output = output;
     private TestDatabaseManager? _db;
@@ -96,23 +99,50 @@ public sealed class ForkDependencyTest(ITestOutputHelper output) : IAsyncLifetim
 
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task ForkedDependents_BothDeriveParentBalance_AndCascadeOnRollback()
+    public Task LinearDependent_ReadsParentLocalData_AndCascadesOnRollback()
+        => RunScenarioAsync(
+            "linear",
+            config => [new LovelaceBalanceByAddressReducer(config), new WatchedAddressBalanceReducer(config)],
+            [nameof(WatchedAddressBalanceReducer)]);
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public Task ForkedDependents_EachReadParentCommittedData_AndCascadeOnRollback()
+        => RunScenarioAsync(
+            "fork",
+            config =>
+            [
+                new LovelaceBalanceByAddressReducer(config),
+                new WatchedAddressBalanceReducer(config),
+                new WatchedAddressBalanceSiblingReducer(config),
+            ],
+            [nameof(WatchedAddressBalanceReducer), nameof(WatchedAddressBalanceSiblingReducer)]);
+
+    /// <summary>
+    /// Drives the watched blocks through a worker built from <paramref name="buildReducers"/> and asserts
+    /// every dependent in <paramref name="dependentNames"/> matches the oracle at each slot, that only the
+    /// root opens a chain connection, and that a rollback cascades to every dependent.
+    /// </summary>
+    private async Task RunScenarioAsync(
+        string label,
+        Func<IConfiguration, List<IReducer>> buildReducers,
+        string[] dependentNames)
     {
         string socketPath = Environment.GetEnvironmentVariable(SocketEnvVar) ?? DefaultSocketPath;
         if (!File.Exists(socketPath))
         {
-            _output.WriteLine($"SKIP: node socket '{socketPath}' not found.");
+            _output.WriteLine($"SKIP [{label}]: node socket '{socketPath}' not found.");
             return;
         }
 
         Dictionary<ulong, byte[]> rawBlocks = await FetchWatchedBlockBytesAsync(socketPath);
         if (rawBlocks.Count != Oracle.Length)
         {
-            _output.WriteLine($"SKIP: fetched {rawBlocks.Count}/{Oracle.Length} watched blocks — preprod history differs.");
+            _output.WriteLine($"SKIP [{label}]: fetched {rawBlocks.Count}/{Oracle.Length} watched blocks — preprod history differs.");
             return;
         }
 
-        string tempDir = Path.Combine(Path.GetTempPath(), $"argus-fork-{Guid.NewGuid():N}");
+        string tempDir = Path.Combine(Path.GetTempPath(), $"argus-dep-{label}-{Guid.NewGuid():N}");
         _ = Directory.CreateDirectory(Path.Combine(tempDir, "Blocks"));
         foreach ((ulong slot, byte[] bytes) in rawBlocks)
         {
@@ -130,16 +160,8 @@ public sealed class ForkDependencyTest(ITestOutputHelper output) : IAsyncLifetim
         IReducerStateStore stateStore = new EfReducerStateStore<TestDbContext>(dbf);
         IBlockUnitOfWorkFactory uowFactory = new EfBlockUnitOfWorkFactory<TestDbContext>(dbf);
 
-        // The fork: balance reducer (root) → two snapshot dependents.
-        List<IReducer> reducers =
-        [
-            new LovelaceBalanceByAddressReducer(config),
-            new WatchedAddressBalanceReducer(config),
-            new WatchedAddressBalanceSiblingReducer(config),
-        ];
-
         MockChainProviderFactory factory = new(tempDir);
-        using CardanoIndexWorker<TestDbContext> worker = new(config, logger, stateStore, uowFactory, reducers, factory);
+        using CardanoIndexWorker<TestDbContext> worker = new(config, logger, stateStore, uowFactory, buildReducers(config), factory);
 
         try
         {
@@ -147,28 +169,28 @@ public sealed class ForkDependencyTest(ITestOutputHelper output) : IAsyncLifetim
             MockChainSyncProvider provider = await WaitForProviderAsync(factory);
             await Task.Delay(500); // let the initial intersection rollback settle
 
-            // Forward pass: drive every watched block; both fork children must match the oracle.
+            // Forward pass: every dependent must derive the oracle balance at every slot.
             foreach ((ulong slot, ulong oracleA, ulong oracleB) in Oracle)
             {
                 await provider.TriggerRollForwardAsync(slot);
                 await WaitForAsync(
-                    async () => await BothDependentsSnapshottedAsync(dbf, slot),
+                    async () => await AllDependentsSnapshottedAsync(dbf, dependentNames, slot),
                     TimeSpan.FromSeconds(15),
-                    $"both fork dependents did not snapshot slot {slot}");
+                    $"[{label}] dependents did not snapshot slot {slot}");
 
-                foreach (string dependent in DependentNames)
+                foreach (string dependent in dependentNames)
                 {
                     Assert.Equal(oracleA, await BalanceAsync(dbf, dependent, "A", slot));
                     Assert.Equal(oracleB, await BalanceAsync(dbf, dependent, "B", slot));
                 }
             }
-            _output.WriteLine($"Forward: both fork dependents matched the oracle across all {Oracle.Length} slots.");
+            _output.WriteLine($"[{label}] forward: {dependentNames.Length} dependent(s) matched the oracle across all {Oracle.Length} slots.");
 
             // Only the root reducer gets a chain connection; dependents are fed by forwarding.
             _ = Assert.Single(factory.CreatedProviders);
 
-            // Rollback: exclusive to a mid slot → removes the last RollbackChanges from BOTH children.
-            int keepThrough = Oracle.Length - RollbackChanges; // keep Oracle[0..keepThrough-1]
+            // Rollback: exclusive to a mid slot → removes the last RollbackChanges from every dependent.
+            int keepThrough = Oracle.Length - RollbackChanges;
             (ulong keptSlot, ulong keptA, ulong keptB) = Oracle[keepThrough - 1];
             ulong removedSlot = Oracle[keepThrough].Slot;
 
@@ -176,18 +198,16 @@ public sealed class ForkDependencyTest(ITestOutputHelper output) : IAsyncLifetim
             await WaitForAsync(
                 async () => !await AnySnapshotAtOrAfterAsync(dbf, removedSlot),
                 TimeSpan.FromSeconds(15),
-                "rollback did not cascade to the fork dependents");
+                $"[{label}] rollback did not cascade to the dependents");
 
-            foreach (string dependent in DependentNames)
+            foreach (string dependent in dependentNames)
             {
-                // Latest surviving snapshot is the kept slot, with the kept oracle value...
                 Assert.Equal(keptA, await BalanceAsync(dbf, dependent, "A", keptSlot));
                 Assert.Equal(keptB, await BalanceAsync(dbf, dependent, "B", keptSlot));
-                // ...and nothing beyond it survived.
                 await using TestDbContext ctx = await dbf.CreateDbContextAsync();
                 Assert.False(await ctx.WatchedAddressBalances.AnyAsync(s => s.Reducer == dependent && s.Slot > keptSlot));
             }
-            _output.WriteLine($"Rollback cascaded to both dependents: kept through slot {keptSlot}, removed {RollbackChanges} changes.");
+            _output.WriteLine($"[{label}] rollback cascaded to all dependents: kept through slot {keptSlot}, removed {RollbackChanges} changes.");
         }
         finally
         {
@@ -229,10 +249,10 @@ public sealed class ForkDependencyTest(ITestOutputHelper output) : IAsyncLifetim
             .SingleOrDefaultAsync();
     }
 
-    private static async Task<bool> BothDependentsSnapshottedAsync(IDbContextFactory<TestDbContext> dbf, ulong slot)
+    private static async Task<bool> AllDependentsSnapshottedAsync(IDbContextFactory<TestDbContext> dbf, string[] dependentNames, ulong slot)
     {
         await using TestDbContext ctx = await dbf.CreateDbContextAsync();
-        foreach (string dependent in DependentNames)
+        foreach (string dependent in dependentNames)
         {
             if (!await ctx.WatchedAddressBalances.AsNoTracking().AnyAsync(s => s.Reducer == dependent && s.Slot == slot))
             {

@@ -9,13 +9,14 @@ using Microsoft.EntityFrameworkCore;
 namespace Argus.Sync.Example.Reducers;
 
 /// <summary>
-/// Fork dependent of <see cref="LovelaceBalanceByAddressReducer"/>: each block, derives every
-/// watched address's unspent balance from the parent's <see cref="WalletUtxo"/> rows and records a
-/// per-slot snapshot. Demonstrates a dependent consuming its parent's data. In a fork the parent
-/// commits its unit-of-work before forking, and each child gets a fresh empty change-tracker — so
-/// a dependent reads the parent's fully-committed data straight from the database. The reusable
+/// Dependent of <see cref="LovelaceBalanceByAddressReducer"/>: each block, derives every watched
+/// address's unspent balance from the parent's <see cref="WalletUtxo"/> rows and records a per-slot
+/// snapshot. Demonstrates a dependent consuming its parent's data <em>topology-agnostically</em> —
+/// reading the parent's uncommitted writes from the shared change-tracker (<c>.Local</c>) when wired
+/// as a linear dependent, or the committed rows from the database when wired as a fork child (empty
+/// <c>.Local</c>). See <see cref="WriteSnapshotAsync"/>. The reusable
 /// <see cref="WriteSnapshotAsync"/>/<see cref="RemoveSnapshotsAsync"/> helpers are shared with the
-/// fork sibling so both children run identical logic under their own name.
+/// fork sibling so both run identical logic under their own name.
 /// </summary>
 [DependsOn(typeof(LovelaceBalanceByAddressReducer))]
 public class WatchedAddressBalanceReducer(IConfiguration configuration) : IReducer
@@ -61,11 +62,23 @@ public class WatchedAddressBalanceReducer(IConfiguration configuration) : IReduc
         ArgumentNullException.ThrowIfNull(watched);
         TestDbContext ctx = uow.GetStorage<TestDbContext>();
 
-        // Fork child: read the parent's committed rows from the DB (the parent commits before
-        // forking, and this child's change-tracker starts empty). Sum in memory to avoid EF
-        // translating SUM over an unsigned column.
-        List<WalletUtxo> live = await ctx.WalletUtxos.Where(u => u.SpentSlot == null).ToListAsync(ct);
-        Dictionary<string, ulong> balanceByName = live
+        // Topology-agnostic read of the parent's UTxO set:
+        //  - LINEAR chain: parent and dependent share this unit-of-work, so the parent's writes for
+        //    THIS block live in .Local and are not yet in the DB — they must be included.
+        //  - FORK: the parent commits before forking and this child's .Local is empty, so the rows
+        //    come from the committed DB.
+        // Union both, dedupe by UTxO id (the tracked instance wins), and evaluate "unspent" in
+        // memory — the parent marks spends by mutating SpentSlot on the tracked entity, which a SQL
+        // filter on the uncommitted value would miss. (The watched set is small; a high-cardinality
+        // reducer would scope this rather than read the whole table.)
+        List<WalletUtxo> merged =
+        [
+            .. ctx.WalletUtxos.Local,
+            .. await ctx.WalletUtxos.ToListAsync(ct),
+        ];
+        Dictionary<string, ulong> balanceByName = merged
+            .DistinctBy(u => (u.TxHash, u.TxIndex))
+            .Where(u => u.SpentSlot is null)
             .GroupBy(u => u.AddressName)
             .ToDictionary(g => g.Key, g => g.Aggregate(0UL, (sum, u) => sum + u.Amount));
 
