@@ -25,13 +25,15 @@ namespace Argus.Sync.Workers;
 /// <param name="unitOfWorkFactory">Factory for per-block per-branch units of work (default: <see cref="Argus.Sync.Data.Stores.EfBlockUnitOfWorkFactory{T}"/>).</param>
 /// <param name="reducers">Collection of registered reducer instances.</param>
 /// <param name="chainProviderFactory">Factory for creating chain provider connections.</param>
+/// <param name="singleInstanceLock">Optional cross-instance guard; when present, the worker waits for it before processing so only one indexer runs per database. Null disables gating.</param>
 public partial class CardanoIndexWorker<T>(
     IConfiguration configuration,
     ILogger<CardanoIndexWorker<T>> logger,
     IReducerStateStore stateStore,
     IBlockUnitOfWorkFactory unitOfWorkFactory,
     IEnumerable<IReducer> reducers,
-    IChainProviderFactory chainProviderFactory
+    IChainProviderFactory chainProviderFactory,
+    ISingleInstanceLock? singleInstanceLock = null
 ) : BackgroundService where T : CardanoDbContext
 {
     private readonly ConcurrentDictionary<string, ReducerState> _reducerStates = [];
@@ -235,6 +237,15 @@ public partial class CardanoIndexWorker<T>(
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Single-instance gate: park here until this process holds the cross-instance advisory
+        // lock, so a redeploy overlap can never run two indexers against one database. Null when
+        // the guard is disabled (Sync:SingleInstanceLock:Enabled=false) or in tests that
+        // construct the worker directly — in which case there is nothing to wait on.
+        if (singleInstanceLock is not null)
+        {
+            await singleInstanceLock.WaitForAcquisitionAsync(stoppingToken).ConfigureAwait(false);
+        }
+
         // Build dependency graph first
         BuildDependencyGraph();
         BuildPipelines();

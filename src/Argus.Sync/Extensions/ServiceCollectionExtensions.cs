@@ -97,6 +97,18 @@ public static class ServiceCollectionExtensions
             _ = services.AddSingleton<IChainProviderFactory, ConfigurationChainProviderFactory>();
         }
 
+        // Single-instance guard (Postgres advisory lock): ONE shared singleton, exposed both as
+        // ISingleInstanceLock (the indexer's gate) and as a hosted service (runs the acquire/
+        // hold/release loop). The factory indirection keeps both roles on the SAME instance, so
+        // the lock the runner holds is the gate the indexer awaits. Opt out via
+        // Sync:SingleInstanceLock:Enabled=false.
+        if (configuration.GetValue("Sync:SingleInstanceLock:Enabled", true))
+        {
+            _ = services.AddSingleton<PostgresSingleInstanceLockWorker>();
+            _ = services.AddSingleton<ISingleInstanceLock>(sp => sp.GetRequiredService<PostgresSingleInstanceLockWorker>());
+            _ = services.AddHostedService(sp => sp.GetRequiredService<PostgresSingleInstanceLockWorker>());
+        }
+
         // Registering the hosted service
         _ = services.AddHostedService<CardanoIndexWorker<T>>();
 
