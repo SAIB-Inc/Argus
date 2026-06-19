@@ -18,6 +18,7 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0" />
+    <PackageVersion Include="MongoDB.Driver" Version="3.9.0" />
 
     <!-- UI / API -->
     <PackageVersion Include="Spectre.Console" Version="0.53.1" />
