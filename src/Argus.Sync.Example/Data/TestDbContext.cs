@@ -13,6 +13,7 @@ public class TestDbContext
     public DbSet<BlockTest> BlockTests => Set<BlockTest>();
     public DbSet<TransactionTest> TransactionTests => Set<TransactionTest>();
     public DbSet<WalletUtxo> WalletUtxos => Set<WalletUtxo>();
+    public DbSet<WatchedAddressBalanceSnapshot> WatchedAddressBalances => Set<WatchedAddressBalanceSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -34,6 +35,11 @@ public class TestDbContext
             _ = entity.HasKey(u => new { u.TxHash, u.TxIndex });
             _ = entity.HasIndex(u => u.Address);
             _ = entity.HasIndex(u => u.SpentSlot);
+        });
+
+        _ = modelBuilder.Entity<WatchedAddressBalanceSnapshot>(entity =>
+        {
+            _ = entity.HasKey(s => new { s.Reducer, s.AddressName, s.Slot });
         });
     }
 }
