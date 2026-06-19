@@ -1,4 +1,5 @@
 using Argus.Sync.Data.Models;
+using Argus.Sync.MongoDb;
 using Argus.Sync.Reducers;
 using Argus.Sync.Tests.Mongo;
 using Argus.Sync.Utils;

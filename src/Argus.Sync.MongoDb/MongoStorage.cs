@@ -2,7 +2,7 @@ using Argus.Sync.Data.Models;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 
-namespace Argus.Sync.Tests.Mongo;
+namespace Argus.Sync.MongoDb;
 
 /// <summary>
 /// The storage handle a reducer receives from <c>uow.GetStorage&lt;MongoStorage&gt;()</c>: the database

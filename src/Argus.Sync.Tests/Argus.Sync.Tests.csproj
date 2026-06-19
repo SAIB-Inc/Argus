@@ -26,6 +26,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
     <ProjectReference Include="..\Argus.Sync.Example\Argus.Sync.Example.csproj" />
+    <ProjectReference Include="..\Argus.Sync.MongoDb\Argus.Sync.MongoDb.csproj" />
   </ItemGroup>
 
   <ItemGroup>

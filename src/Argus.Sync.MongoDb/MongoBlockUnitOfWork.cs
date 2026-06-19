@@ -3,7 +3,7 @@ using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
 using MongoDB.Driver;
 
-namespace Argus.Sync.Tests.Mongo;
+namespace Argus.Sync.MongoDb;
 
 /// <summary>
 /// MongoDB implementation of <see cref="IBlockUnitOfWork"/>. Wraps one client session with an open

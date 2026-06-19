@@ -1,3 +1,4 @@
+using Argus.Sync.MongoDb;
 using Argus.Sync.Reducers;
 using Chrysalis.Codec.Extensions.Cardano.Core;
 using Chrysalis.Codec.Extensions.Cardano.Core.Common;
