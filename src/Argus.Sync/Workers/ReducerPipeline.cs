@@ -28,6 +28,14 @@ namespace Argus.Sync.Workers;
 /// slow, the producer's <c>WriteAsync</c> suspends; the suspension propagates
 /// upstream until the chain consumer stops pulling from the node. Memory is
 /// bounded by `Σ (channel_capacity × envelope_size)` across all pipelines.
+///
+/// **Per-branch atomicity (NOT per-block across a fork)**: each branch commits in its own
+/// transaction — the branch leaf, or the fork node before it spawns children. A fork is therefore
+/// not atomic across its children: if one child faults, the worker fails fast, but a sibling (or the
+/// parent) that already committed is <em>not</em> rolled back. That is by design — independent
+/// branches commit independently so they can run in parallel. Recovery is by restart + replay from
+/// the last committed checkpoint, which is safe because each commit persists that reducer's
+/// checkpoint atomically with its data; replay re-derives the failed branch's block.
 /// </summary>
 internal sealed partial class ReducerPipeline
 {
