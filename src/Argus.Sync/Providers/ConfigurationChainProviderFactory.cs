@@ -40,7 +40,10 @@ public class ConfigurationChainProviderFactory(IConfiguration configuration) : I
         int port = configuration.GetValue<int?>("CardanoNodeConnection:TCP:Port")
             ?? throw new InvalidOperationException("Port is not configured for TCP connection type.");
 
-        return new N2NProvider(host, port);
+        // Max chain-sync requests kept in flight while catching up (N2N pipelining). Default 100.
+        int pipelineDepth = configuration.GetValue<int?>("CardanoNodeConnection:TCP:PipelineDepth") ?? 100;
+
+        return new N2NProvider(host, port, pipelineDepth);
     }
 
     private U5CProvider CreateU5CProvider()
