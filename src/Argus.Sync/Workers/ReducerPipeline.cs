@@ -190,13 +190,15 @@ internal sealed partial class ReducerPipeline
 
     private async Task ProcessEnvelopeAsync(Envelope envelope, CancellationToken ct)
     {
-        // Batched independent leaf (0 dependents): accumulate forward blocks into one
-        // UoW and commit on size / delay / drain, so the fsync amortizes across the
-        // batch. A rollback commits the open batch first (then the normal path below
-        // deletes any over-committed tip blocks) — committing, not discarding, so a
-        // rollback inside the batch keeps the valid pre-fork blocks the chain won't
-        // re-deliver. batchSize == 1 skips this entirely (per-block commit).
-        if (_batchSize > 1 && _dependents.Count == 0)
+        // Batched standalone independent reducer (no parent, no dependents — it owns
+        // its UoW): accumulate forward blocks into one UoW and commit on size / delay /
+        // drain, so the fsync amortizes across the batch. The BranchUow == null guard
+        // excludes a dependency-chain leaf, which receives a forwarded UoW it must
+        // commit, not replace. A rollback commits the open batch first (then the normal
+        // path below deletes any over-committed tip blocks) — committing, not
+        // discarding, so a rollback inside the batch keeps valid pre-fork blocks the
+        // chain won't re-deliver. batchSize == 1 skips this entirely (per-block commit).
+        if (_batchSize > 1 && _dependents.Count == 0 && envelope.BranchUow is null)
         {
             if (envelope.Response.Action == NextResponseAction.RollForward)
             {

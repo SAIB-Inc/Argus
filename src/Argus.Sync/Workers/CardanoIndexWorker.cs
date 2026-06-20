@@ -52,7 +52,12 @@ public partial class CardanoIndexWorker(
     private readonly List<Task> _pipelineRunTasks = [];
 
     private readonly int _pipelineChannelCapacity = configuration.GetValue("Sync:Pipeline:ChannelCapacity", 256);
-    private readonly int _commitBatchSize = Math.Max(1, configuration.GetValue("Sync:Commit:BatchSize", 1));
+    // Default the commit batch size to 500 (the throughput knee in benchmarks — the
+    // per-block fsync is fully amortized by there). Batching only engages while
+    // catching up — the drain-at-tip trigger commits per-block once caught up — so
+    // steady-state behavior is unchanged. Set Sync:Commit:BatchSize=1 to force strict
+    // per-block commits.
+    private readonly int _commitBatchSize = Math.Max(1, configuration.GetValue("Sync:Commit:BatchSize", 500));
     private readonly TimeSpan _commitMaxDelay = TimeSpan.FromMilliseconds(Math.Max(1, configuration.GetValue("Sync:Commit:MaxDelayMs", 1000)));
 
     private readonly long _maxRollbackSlots = configuration.GetValue("CardanoNodeConnection:MaxRollbackSlots", 10_000);

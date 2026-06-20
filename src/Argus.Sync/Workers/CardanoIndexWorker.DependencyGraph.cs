@@ -59,6 +59,12 @@ public partial class CardanoIndexWorker
     {
         foreach ((string reducerName, IReducer reducer) in _reducersByName)
         {
+            // Batch-commit only standalone reducers — no dependency AND no dependents,
+            // so the pipeline owns its unit of work outright. Chain members and fork
+            // children forward or receive a shared UoW and must commit per block, so
+            // they run with batchSize 1.
+            bool standalone = _reducerDependency[reducerName] is null
+                && _dependentReducers[reducerName].Count == 0;
             _pipelines[reducerName] = new ReducerPipeline(
                 reducer: reducer,
                 uowFactory: unitOfWorkFactory,
@@ -67,7 +73,7 @@ public partial class CardanoIndexWorker
                 telemetryRecorder: RecordTelemetry,
                 intersectionRecorder: UpdateInMemoryStateRollforward,
                 rollbackRecorder: UpdateInMemoryStateRollback,
-                batchSize: _commitBatchSize,
+                batchSize: standalone ? _commitBatchSize : 1,
                 maxBatchDelay: _commitMaxDelay);
         }
 
