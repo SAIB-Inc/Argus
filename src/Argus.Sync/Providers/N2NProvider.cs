@@ -259,8 +259,8 @@ public class N2NProvider(string Host, int Port, int PipelineDepth = 100) : ICard
         }
     }
 
-    /// <summary>Pipeline depth as a function of the gap (in slots) to the node's tip.</summary>
-    private static int AdaptivePipelineDepth(int maxDepth, ulong tipGap)
+    /// <summary>Pipeline depth as a function of the gap (in slots) to the node's tip. Internal for unit testing.</summary>
+    internal static int AdaptivePipelineDepth(int maxDepth, ulong tipGap)
     {
         int target = tipGap switch
         {
