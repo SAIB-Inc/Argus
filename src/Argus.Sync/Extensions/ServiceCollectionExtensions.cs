@@ -1,62 +1,42 @@
-using System.Reflection;
-using Argus.Sync.Data;
 using Argus.Sync.Providers;
 using Argus.Sync.Workers;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Argus.Sync.Extensions;
 
-// Extension method class must be static
+/// <summary>
+/// Backend-agnostic registration for the Cardano indexer. A storage-backend package registers its own
+/// <see cref="Reducers.IBlockUnitOfWorkFactory"/> and (optionally) <see cref="ISingleInstanceLock"/>,
+/// then calls <see cref="AddCardanoIndexerCore"/> — for example <c>AddCardanoPostgresIndexer</c>
+/// (from <c>Argus.Sync.EntityFramework</c>) or <c>AddCardanoMongoIndexer</c> (from <c>Argus.Sync.MongoDb</c>).
+/// Register your reducers with <c>AddReducers</c>.
+/// </summary>
 public static class ServiceCollectionExtensions
 {
-    // Extension method to encapsulate the Cardano indexer service registrations
-    public static IServiceCollection AddCardanoIndexer<T>(this IServiceCollection services, IConfiguration configuration, int commandTimout = 60) where T : CardanoDbContext
+    /// <summary>
+    /// Registers the backend-agnostic indexer pieces: the chain-provider factory and the indexer worker as a
+    /// hosted service. Each storage-backend entry point (Postgres, Mongo, …) calls this after registering its
+    /// own <see cref="Reducers.IBlockUnitOfWorkFactory"/> and (optionally) <see cref="ISingleInstanceLock"/>.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="chainProviderFactory">An optional custom chain provider factory; defaults to configuration-based if null.</param>
+    /// <returns>The service collection for method chaining.</returns>
+    public static IServiceCollection AddCardanoIndexerCore(
+        this IServiceCollection services,
+        IChainProviderFactory? chainProviderFactory = null)
     {
-        return AddCardanoIndexer<T>(services, configuration, commandTimout, null);
-    }
+        ArgumentNullException.ThrowIfNull(services);
 
-    // Extension method with custom chain provider factory for testing scenarios
-    public static IServiceCollection AddCardanoIndexer<T>(this IServiceCollection services, IConfiguration configuration, int commandTimout, IChainProviderFactory? chainProviderFactory) where T : CardanoDbContext
-    {
-        services.AddDbContextFactory<T>(options =>
-        {
-            Assembly? contextAssembly = typeof(T).Assembly;
-            options
-                .UseNpgsql(
-                    configuration.GetConnectionString("CardanoContext"),
-                        x =>
-                        {
-                            x.MigrationsAssembly(contextAssembly!.FullName);
-                            x.CommandTimeout(commandTimout);
-                            x.MigrationsHistoryTable(
-                                "__EFMigrationsHistory",
-                                configuration!.GetConnectionString("CardanoContextSchema")
-                            );
-                            x.EnableRetryOnFailure(
-                                maxRetryCount: 5,
-                                maxRetryDelay: TimeSpan.FromSeconds(30),
-                                errorCodesToAdd: null
-                            );
-                        }
-                );
-        });
-
-        // Register chain provider factory - use provided factory or default to configuration-based
         if (chainProviderFactory != null)
         {
-            services.AddSingleton<IChainProviderFactory>(chainProviderFactory);
+            _ = services.AddSingleton(chainProviderFactory);
         }
         else
         {
-            services.AddSingleton<IChainProviderFactory, ConfigurationChainProviderFactory>();
+            _ = services.AddSingleton<IChainProviderFactory, ConfigurationChainProviderFactory>();
         }
 
-        // Registering the hosted service
-        services.AddHostedService<CardanoIndexWorker<T>>();
-
-        // Return IServiceCollection to support method chaining
+        _ = services.AddHostedService<CardanoIndexWorker>();
         return services;
     }
 }

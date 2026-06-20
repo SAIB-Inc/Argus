@@ -1,44 +1,44 @@
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Extensions.Cardano.Core.Transaction;
+using Chrysalis.Codec.Types.Cardano.Core;
+using Chrysalis.Codec.Types.Cardano.Core.Transaction;
 using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
 
-public class TransactionTestReducer(IDbContextFactory<TestDbContext> dbContextFactory) : IReducer<TransactionTest>
+public class TransactionTestReducer : IReducer
 {
-    public async Task RollBackwardAsync(ulong slot)
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)
     {
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
         dbContext.TransactionTests.RemoveRange(
             dbContext.TransactionTests
                 .AsNoTracking()
-                .Where(t => t.Slot >= slot
-            )
-        );
-
-        await dbContext.SaveChangesAsync();
+                .Where(t => t.Slot >= slot));
+        return Task.CompletedTask;
     }
 
-    public async Task RollForwardAsync(Block block)
+    public Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
+
         ulong slot = block.Header().HeaderBody().Slot();
         string blockHash = block.Header().Hash();
         ulong blockHeight = block.Header().HeaderBody().BlockNumber();
 
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-
         ulong index = 0;
-        foreach (var tx in block.TransactionBodies())
+        foreach (ITransactionBody tx in block.TransactionBodies())
         {
             string txHash = tx.Hash();
-            dbContext.TransactionTests.Add(new TransactionTest(txHash, index++, slot, blockHash, blockHeight, tx.Raw?.ToArray() ?? [], DateTimeOffset.UtcNow));
+            _ = dbContext.TransactionTests.Add(new TransactionTest(txHash, index++, slot, blockHash, blockHeight, tx.Raw.ToArray(), DateTimeOffset.UtcNow));
         }
-
-        await dbContext.SaveChangesAsync();
+        return Task.CompletedTask;
     }
 }

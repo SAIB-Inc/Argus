@@ -1,16 +1,26 @@
-using Argus.Sync.Data.Models;
+using Argus.Sync.EntityFramework;
 using Argus.Sync.Example.Data;
+using Argus.Sync.Example.Services;
 using Argus.Sync.Extensions;
+using Microsoft.EntityFrameworkCore;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddCardanoIndexer<TestDbContext>(builder.Configuration);
-builder.Services.AddReducers<TestDbContext, IReducerModel>(builder.Configuration);
+builder.Services.AddCardanoPostgresIndexer<TestDbContext>(builder.Configuration);
+builder.Services.AddReducers(builder.Configuration);
+builder.Services.AddHostedService<LiveSmokeMonitor>();
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
-app.Run();
+if (app.Configuration.GetValue("Example:Database:ApplyMigrations", true))
+{
+    await using AsyncServiceScope scope = app.Services.CreateAsyncScope();
+    TestDbContext dbContext = scope.ServiceProvider.GetRequiredService<TestDbContext>();
+    await dbContext.Database.MigrateAsync();
+}
+
+await app.RunAsync();

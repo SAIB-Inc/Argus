@@ -1,47 +1,38 @@
 using Argus.Sync.Example.Data;
-using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Transaction;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
+
 namespace Argus.Sync.Example.Reducers;
 
 [DependsOn(typeof(BlockTestReducer))]
-public class DependentTransactionReducer(
-    IDbContextFactory<TestDbContext> dbContextFactory) : IReducer<TransactionTest>
+public class DependentTransactionReducer : IReducer
 {
-    public async Task RollBackwardAsync(ulong slot)
-    {
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        
-        // For demonstration, we'll just count what would be rolled back
-        var txCount = await dbContext.TransactionTests
-            .Where(t => t.Slot >= slot)
-            .CountAsync();
-    }
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct) =>
+        // Demonstration only — read what *would* be rolled back. The framework
+        // owns the actual rollback semantics; this reducer doesn't write here.
+        Task.CompletedTask;
 
-    public async Task RollForwardAsync(Block block)
+    public async Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
         ulong slot = block.Header().HeaderBody().Slot();
-        
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        
-        // This reducer depends on BlockTestReducer, so blocks should already exist
-        var blockExists = await dbContext.BlockTests.AnyAsync(b => b.Slot == slot);
+
+        // Per-branch UoW: BlockTestReducer's Add() above is visible to this
+        // dependent via the change-tracker's Local view, even though the data
+        // hasn't been committed to the DB yet. No DB round-trip needed.
+        bool blockExists = dbContext.BlockTests.Local.Any(b => b.Slot == slot);
         if (!blockExists)
         {
             throw new InvalidOperationException($"Block at slot {slot} not found - dependency not satisfied!");
         }
-        
-        // Count existing transactions at this slot
-        var txCount = await dbContext.TransactionTests
-            .Where(t => t.Slot == slot)
-            .CountAsync();
-        
-        // Since this is a dependent reducer, we're just verifying that our dependency (BlockTestReducer) 
-        // has already processed this block. In a real scenario, this reducer might process additional
-        // transaction details or create derived data.
+
+        // Count is from the DB (committed prior blocks) plus Local (pending this block).
+        // For a real reducer, this is where read-modify-write logic would go.
+        _ = await dbContext.TransactionTests.Where(t => t.Slot == slot).CountAsync(ct).ConfigureAwait(false);
     }
 }

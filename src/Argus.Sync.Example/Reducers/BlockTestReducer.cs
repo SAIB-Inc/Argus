@@ -1,39 +1,37 @@
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
 
 namespace Argus.Sync.Example.Reducers;
 
-public class BlockTestReducer(
-    IDbContextFactory<TestDbContext> dbContextFactory
-) : IReducer<BlockTest>
+public class BlockTestReducer : IReducer
 {
-    public async Task RollBackwardAsync(ulong slot)
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)
     {
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
         dbContext.BlockTests.RemoveRange(
-            dbContext
-                .BlockTests
+            dbContext.BlockTests
                 .AsNoTracking()
-                .Where(b => b.Slot >= slot)
-        );
-
-        await dbContext.SaveChangesAsync();
+                .Where(b => b.Slot >= slot));
+        return Task.CompletedTask;
     }
 
-    public async Task RollForwardAsync(Block block)
+    public Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
+
         string blockHash = block.Header().Hash();
         ulong blockNumber = block.Header().HeaderBody().BlockNumber();
         ulong slot = block.Header().HeaderBody().Slot();
 
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        dbContext.BlockTests.Add(new BlockTest(blockHash, blockNumber, slot, DateTime.UtcNow));
-
-        await dbContext.SaveChangesAsync();
+        _ = dbContext.BlockTests.Add(new BlockTest(blockHash, blockNumber, slot, DateTime.UtcNow));
+        return Task.CompletedTask;
     }
 }

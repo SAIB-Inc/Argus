@@ -1,0 +1,54 @@
+# Top-level EditorConfig
+root = true
+
+[*.cs]
+
+# ── Style preferences ──
+csharp_style_namespace_declarations = file_scoped
+
+# ── Expression-body preferences: allow either style ──
+csharp_style_expression_bodied_methods = true:silent
+csharp_style_expression_bodied_constructors = true:silent
+csharp_style_expression_bodied_operators = true:silent
+csharp_style_expression_bodied_properties = true:silent
+csharp_style_expression_bodied_indexers = true:silent
+csharp_style_expression_bodied_accessors = true:silent
+csharp_style_expression_bodied_lambdas = true:silent
+csharp_style_expression_bodied_local_functions = true:silent
+dotnet_diagnostic.IDE0045.severity = suggestion
+dotnet_diagnostic.IDE0046.severity = suggestion
+
+# ── Promote ALL Roslyn style suggestions to warnings. ──
+# Combined with TreatWarningsAsErrors in Directory.Build.props,
+# every IDE suggestion becomes a build error.
+dotnet_analyzer_diagnostic.category-Style.severity = warning
+
+# ── Deferred rules ──
+dotnet_diagnostic.CA1819.severity = none
+dotnet_diagnostic.CA1515.severity = none
+dotnet_diagnostic.CA1002.severity = none
+dotnet_diagnostic.CA1724.severity = none
+dotnet_diagnostic.CA1054.severity = none
+dotnet_diagnostic.CA1056.severity = none
+dotnet_diagnostic.CA1303.severity = none
+dotnet_diagnostic.CA1031.severity = none
+dotnet_diagnostic.IDE0370.severity = none
+dotnet_diagnostic.CA2007.severity = none
+
+# ── XML documentation ──
+dotnet_diagnostic.CS1591.severity = warning
+
+# ── Example project ──
+[src/Argus.Sync.Example/**.cs]
+dotnet_diagnostic.CS1591.severity = none
+
+# ── Test project ──
+[src/Argus.Sync.Tests/**.cs]
+dotnet_diagnostic.CS1591.severity = none
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1812.severity = none
+dotnet_diagnostic.CA1852.severity = none
+dotnet_diagnostic.CA1859.severity = none
+dotnet_diagnostic.IDE0002.severity = none
+dotnet_diagnostic.IDE0059.severity = none
+dotnet_diagnostic.IDE0063.severity = none

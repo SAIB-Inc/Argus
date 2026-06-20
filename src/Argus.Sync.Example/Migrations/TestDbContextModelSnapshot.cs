@@ -18,7 +18,7 @@ namespace Argus.Sync.Example.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("public")
-                .HasAnnotation("ProductVersion", "9.0.0")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -91,6 +91,40 @@ namespace Argus.Sync.Example.Migrations
                     b.HasKey("TxHash", "TxIndex");
 
                     b.ToTable("TransactionTests", "public");
+                });
+
+            modelBuilder.Entity("Argus.Sync.Example.Models.WalletUtxo", b =>
+                {
+                    b.Property<string>("TxHash")
+                        .HasColumnType("text");
+
+                    b.Property<int>("TxIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("AddressName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal>("Slot")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.Property<decimal?>("SpentSlot")
+                        .HasColumnType("numeric(20,0)");
+
+                    b.HasKey("TxHash", "TxIndex");
+
+                    b.HasIndex("Address");
+
+                    b.HasIndex("SpentSlot");
+
+                    b.ToTable("WalletUtxos", "public");
                 });
 #pragma warning restore 612, 618
         }

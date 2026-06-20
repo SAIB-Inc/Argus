@@ -1,51 +1,34 @@
 using Argus.Sync.Example.Data;
-using Argus.Sync.Example.Models;
 using Argus.Sync.Reducers;
-using Chrysalis.Cbor.Extensions.Cardano.Core;
-using Chrysalis.Cbor.Extensions.Cardano.Core.Header;
-using Chrysalis.Cbor.Types.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core;
+using Chrysalis.Codec.Extensions.Cardano.Core.Header;
+using Chrysalis.Codec.Types.Cardano.Core;
 using Microsoft.EntityFrameworkCore;
+
 namespace Argus.Sync.Example.Reducers;
 
 [DependsOn(typeof(DependentTransactionReducer))]
-public class ChainedDependentReducer(
-    IDbContextFactory<TestDbContext> dbContextFactory) : IReducer<BlockTest>
+public class ChainedDependentReducer : IReducer
 {
-    public async Task RollBackwardAsync(ulong slot)
-    {
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        
-        // This is a chained dependent (depends on DependentTransactionReducer which depends on BlockTestReducer)
-        var blockCount = await dbContext.BlockTests
-            .Where(b => b.Slot >= slot)
-            .CountAsync();
-    }
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct) => Task.CompletedTask;
 
-    public async Task RollForwardAsync(Block block)
+    public async Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(uow);
+        TestDbContext dbContext = uow.GetStorage<TestDbContext>();
         ulong slot = block.Header().HeaderBody().Slot();
-        ulong height = block.Header().HeaderBody().BlockNumber();
-        
-        using TestDbContext dbContext = dbContextFactory.CreateDbContext();
-        
-        // Verify that both dependencies have processed this block
-        var blockExists = await dbContext.BlockTests.AnyAsync(b => b.Slot == slot);
+
+        // Both upstream reducers (BlockTestReducer, DependentTransactionReducer)
+        // have run inside this same UoW; their pending writes are visible via
+        // Local. This demonstrates the chained dependency:
+        //   BlockTestReducer -> DependentTransactionReducer -> this
+        bool blockExists = dbContext.BlockTests.Local.Any(b => b.Slot == slot);
         if (!blockExists)
         {
             throw new InvalidOperationException($"Block at slot {slot} not found - BlockTestReducer dependency not satisfied!");
         }
-        
-        // Verify that DependentTransactionReducer has already processed this block
-        var txCount = await dbContext.TransactionTests
-            .Where(t => t.Slot == slot)
-            .CountAsync();
-        
-        // This demonstrates a chained dependency:
-        // BlockTestReducer -> TransactionTestReducer (root reducers)
-        // DependentTransactionReducer (depends on BlockTestReducer)
-        // ChainedDependentReducer (depends on DependentTransactionReducer)
-        // 
-        // The forwarding system ensures this reducer only receives blocks after
-        // its entire dependency chain has processed them.
+
+        _ = await dbContext.TransactionTests.Where(t => t.Slot == slot).CountAsync(ct).ConfigureAwait(false);
     }
 }

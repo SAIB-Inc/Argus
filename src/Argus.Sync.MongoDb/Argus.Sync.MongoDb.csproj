@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Argus.Sync.MongoDb</PackageId>
+    <Authors>clark@saib.dev</Authors>
+    <Company>SAIB Inc.</Company>
+    <PackageDescription>MongoDB storage backend for Argus.Sync — index Cardano data into MongoDB.</PackageDescription>
+    <RepositoryUrl>https://github.com/SAIB-Inc/Argus</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
+    <PackageReference Include="MongoDB.Driver" />
+  </ItemGroup>
+
+</Project>
