@@ -1,8 +1,8 @@
-using System.Formats.Cbor;
 using Argus.Sync.Data.Models;
 using Chrysalis.Codec.Serialization;
 using Chrysalis.Codec.Types.Cardano.Core;
 using Chrysalis.Network.Cbor.Common;
+using SAIB.Cbor.Serialization;
 
 namespace Argus.Sync.Utils;
 
@@ -47,16 +47,19 @@ public static class ArgusUtil
         byte[] owned = blockCbor.ToArray();
         ReadOnlyMemory<byte> ownedMemory = owned;
 
+        // Peel an optional CBOR tag-24 (encoded-CBOR-data-item) wrapper using the SAIB.Cbor
+        // reader that already ships with Chrysalis: TryReadSemanticTag consumes the tag only
+        // when present, leaving the bare [era, block] form (what CborEncodedValue / the
+        // ChannelBuffer deliver) untouched.
         ReadOnlyMemory<byte> innerBytes;
-        CborReader probe = new(ownedMemory, CborConformanceMode.Lax);
-        if (probe.PeekState() == CborReaderState.Tag)
+        CborReader probe = new(ownedMemory.Span);
+        if (probe.TryReadSemanticTag(out ulong tag))
         {
-            CborTag tag = probe.ReadTag();
-            if (tag != CborTag.EncodedCborDataItem)
+            if (tag != 24)
             {
                 throw new InvalidOperationException($"Expected CBOR tag 24, got {tag}");
             }
-            innerBytes = probe.ReadByteString();
+            innerBytes = probe.ReadByteString().ToArray();
         }
         else
         {

@@ -10,7 +10,6 @@
 
   <ItemGroup>
     <PackageReference Include="Chrysalis" />
-    <PackageReference Include="CborSerializer" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Configuration" />
     <PackageReference Include="Spectre.Console" />

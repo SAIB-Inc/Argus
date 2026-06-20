@@ -1,8 +1,8 @@
-using System.Formats.Cbor;
 using Argus.Sync.Utils;
 using Chrysalis.Codec.Extensions.Cardano.Core;
 using Chrysalis.Codec.Extensions.Cardano.Core.Header;
 using Chrysalis.Codec.Types.Cardano.Core;
+using SAIB.Cbor.Serialization;
 
 namespace Argus.Sync.Tests.Unit;
 
@@ -56,9 +56,9 @@ public sealed class BufferOwnershipTest
 
     private static byte[] StripEraTag(byte[] blockCbor)
     {
-        CborReader reader = new(blockCbor, CborConformanceMode.Lax);
-        return reader.PeekState() == CborReaderState.Tag && reader.ReadTag() == CborTag.EncodedCborDataItem
-            ? reader.ReadByteString()
+        CborReader reader = new(blockCbor);
+        return reader.TryReadSemanticTag(out ulong tag) && tag == 24
+            ? reader.ReadByteString().ToArray()
             : blockCbor;
     }
 }

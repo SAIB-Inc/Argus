@@ -131,8 +131,8 @@ public class N2NProvider(string Host, int Port) : ICardanoChainProvider, IAsyncD
     /// </summary>
     private static async Task<IBlock> FetchBlockAsync(PeerClient client, N2NBlockHeader headerPayload, CancellationToken token)
     {
-        // N2N RollForward carries [era, #6.24(header)]; rebuild the era-aware header to extract its point.
-        ChainSyncHeader header = new((byte)headerPayload.EraTag, null, headerPayload.HeaderCbor.Value);
+        // N2N RollForward carries [era, header]; decode era-aware (Byron through Conway) to extract its point.
+        ChainSyncHeader header = ChainSyncHeader.Decode(headerPayload.Raw);
         ChainPoint chainPoint = header.ExtractPoint();
         SpecificPoint fetchPoint = new(chainPoint.Slot, chainPoint.Hash);
 

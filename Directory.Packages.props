@@ -5,9 +5,8 @@
 
   <ItemGroup>
     <!-- Blockchain -->
-    <PackageVersion Include="Chrysalis" Version="1.7.11-alpha" />
+    <PackageVersion Include="Chrysalis" Version="1.7.12-alpha" />
     <PackageVersion Include="Utxorpc.Sdk" Version="1.7.0-alpha" />
-    <PackageVersion Include="CborSerializer" Version="1.0.10" />
 
     <!-- Microsoft Extensions -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
