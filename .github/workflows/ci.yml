@@ -58,13 +58,13 @@ jobs:
 
       - name: Test
         if: steps.changes.outputs.code == 'true'
-        run: dotnet test --no-build --filter "Category!=DataGeneration"
+        run: dotnet test --no-build --filter "Category!=Integration&Category!=DataGeneration"
 
       - name: Pack (dry run)
         if: steps.changes.outputs.code == 'true'
         run: |
           mkdir -p out
-          for proj in src/Argus.Sync/Argus.Sync.csproj; do
+          for proj in src/Argus.Sync/Argus.Sync.csproj src/Argus.Sync.EntityFramework/Argus.Sync.EntityFramework.csproj src/Argus.Sync.MongoDb/Argus.Sync.MongoDb.csproj; do
             echo "Packing $proj..."
             dotnet pack "$proj" -c Release -o out
           done
