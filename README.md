@@ -70,7 +70,7 @@ Argus is a .NET library that turns the Cardano blockchain into structured, query
 - **Recovery is fail-fast + restart.** Argus does not retry database faults in-process. On an unrecoverable error it stops the host; your supervisor (systemd, Kubernetes, `docker restart`) restarts the process, which resumes from the last committed checkpoint and replays. Because data and checkpoint are committed together, replay is at-least-once and idempotent.
 
 <div align="center">
-  <img src="assets/argus_architecture.png" alt="Argus Architecture" width="100%" />
+  <img src="assets/argus_architecture.svg" alt="How Argus indexes a block: a Cardano node streams blocks through CardanoIndexWorker into one batched reducer graph per root (root with nested and fan-out dependents), committing atomically to PostgreSQL or MongoDB" width="100%" />
 </div>
 
 ## 🚀 Getting Started
