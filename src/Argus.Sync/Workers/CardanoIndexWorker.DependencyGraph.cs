@@ -66,7 +66,9 @@ public partial class CardanoIndexWorker
                 logger: logger,
                 telemetryRecorder: RecordTelemetry,
                 intersectionRecorder: UpdateInMemoryStateRollforward,
-                rollbackRecorder: UpdateInMemoryStateRollback);
+                rollbackRecorder: UpdateInMemoryStateRollback,
+                batchSize: _commitBatchSize,
+                maxBatchDelay: _commitMaxDelay);
         }
 
         foreach ((string parentName, List<string> dependentNames) in _dependentReducers)

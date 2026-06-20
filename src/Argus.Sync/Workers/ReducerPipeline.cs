@@ -48,6 +48,16 @@ internal sealed partial class ReducerPipeline
     private readonly Action<string, Point>? _intersectionRecorder;
     private readonly Action<string, ulong>? _rollbackRecorder;
 
+    // Batch-commit (independent / 0-dependent reducers only): the open batch UoW is
+    // reused across up to _batchSize blocks — or until _maxBatchDelay elapses, or the
+    // inbox drains at tip — so the durable commit/fsync amortizes across the batch.
+    // _batchSize == 1 reproduces per-block commit exactly.
+    private readonly int _batchSize;
+    private readonly TimeSpan _maxBatchDelay;
+    private IBlockUnitOfWork? _batchUow;
+    private int _batchCount;
+    private long _batchStartTimestamp;
+
     private int _completionVotes;
     private int _expectedCompletionVotes;
 
@@ -73,7 +83,9 @@ internal sealed partial class ReducerPipeline
         ILogger logger,
         Action<string, long, ulong>? telemetryRecorder = null,
         Action<string, Point>? intersectionRecorder = null,
-        Action<string, ulong>? rollbackRecorder = null)
+        Action<string, ulong>? rollbackRecorder = null,
+        int batchSize = 1,
+        TimeSpan maxBatchDelay = default)
     {
         ArgumentNullException.ThrowIfNull(reducer);
         ArgumentNullException.ThrowIfNull(uowFactory);
@@ -85,6 +97,8 @@ internal sealed partial class ReducerPipeline
         _telemetryRecorder = telemetryRecorder;
         _intersectionRecorder = intersectionRecorder;
         _rollbackRecorder = rollbackRecorder;
+        _batchSize = Math.Max(1, batchSize);
+        _maxBatchDelay = maxBatchDelay;
         Name = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
         _inbox = Channel.CreateBounded<Envelope>(new BoundedChannelOptions(channelCapacity)
         {
@@ -150,12 +164,21 @@ internal sealed partial class ReducerPipeline
                         catch (Exception rollbackEx) { LogRollbackError(_logger, rollbackEx, Name); }
                         await envelope.BranchUow.DisposeAsync().ConfigureAwait(false);
                     }
+
+                    // Batched leaf: the open batch holds this block's partial writes.
+                    await DiscardOpenBatchAsync().ConfigureAwait(false);
                     throw;
                 }
             }
         }
         finally
         {
+            // Persist the final partial batch before signaling completion. Best-effort
+            // on shutdown (CancellationToken.None) — a hard abort that loses it is
+            // recovered by replay from the last committed checkpoint.
+            try { await CommitBatchAsync(CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception ex) { LogReducerError(_logger, ex, Name); }
+
             // Cascade completion downstream — each dependent gets one vote per
             // upstream producer, so calling Complete once is correct.
             foreach (ReducerPipeline dep in _dependents)
@@ -167,6 +190,22 @@ internal sealed partial class ReducerPipeline
 
     private async Task ProcessEnvelopeAsync(Envelope envelope, CancellationToken ct)
     {
+        // Batched independent leaf (0 dependents): accumulate forward blocks into one
+        // UoW and commit on size / delay / drain, so the fsync amortizes across the
+        // batch. A rollback commits the open batch first (then the normal path below
+        // deletes any over-committed tip blocks) — committing, not discarding, so a
+        // rollback inside the batch keeps the valid pre-fork blocks the chain won't
+        // re-deliver. batchSize == 1 skips this entirely (per-block commit).
+        if (_batchSize > 1 && _dependents.Count == 0)
+        {
+            if (envelope.Response.Action == NextResponseAction.RollForward)
+            {
+                await ProcessBatchedRollForwardAsync(envelope).ConfigureAwait(false);
+                return;
+            }
+            await CommitBatchAsync(ct).ConfigureAwait(false);
+        }
+
         // Branch-root pipelines see envelope.BranchUow == null and create one;
         // interior pipelines reuse the UoW the parent forwarded.
         bool ownsUow = envelope.BranchUow is null;
@@ -247,6 +286,93 @@ internal sealed partial class ReducerPipeline
                 await uow.DisposeAsync().ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>
+    /// Accumulates one forward block into the open batch UoW (creating it on the
+    /// first block of a batch), flushing per block so later blocks in the batch can
+    /// read this one within the open transaction, then commits the batch when it is
+    /// full, the delay cap elapses, or the inbox has drained (caught up to tip).
+    /// </summary>
+    private async Task ProcessBatchedRollForwardAsync(Envelope envelope)
+    {
+        // CancellationToken.None throughout: once a block enters the batch it runs to
+        // completion (create + reduce + flush + any triggered commit) so shutdown
+        // never interrupts a DB write mid-flight. Cancellation is observed only
+        // between blocks, at the inbox read in RunAsync — which then commits the
+        // final partial batch in the run loop's finally.
+        if (_batchUow is null)
+        {
+            _batchUow = await _uowFactory.CreateAsync(CancellationToken.None).ConfigureAwait(false);
+            _batchCount = 0;
+            _batchStartTimestamp = Stopwatch.GetTimestamp();
+        }
+
+        ulong slot = envelope.Response.Block!.Header().HeaderBody().Slot();
+        Stopwatch sw = Stopwatch.StartNew();
+        try
+        {
+            await _reducer.RollForwardAsync(envelope.Response.Block!, _batchUow, CancellationToken.None).ConfigureAwait(false);
+            Point point = new(envelope.Response.Block!.Header().Hash(), slot);
+            _batchUow.TrackIntersection(Name, point);
+            _intersectionRecorder?.Invoke(Name, point);
+            // Flush (no commit/fsync) so this block's writes are visible to later
+            // blocks in the batch via a query within the open transaction.
+            await _batchUow.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            sw.Stop();
+            _telemetryRecorder?.Invoke(Name, sw.ElapsedMilliseconds, slot);
+            LatestSlot = slot;
+        }
+
+        _batchCount++;
+
+        bool full = _batchCount >= _batchSize;
+        bool delayElapsed = _maxBatchDelay > TimeSpan.Zero
+            && Stopwatch.GetElapsedTime(_batchStartTimestamp) >= _maxBatchDelay;
+        bool drained = _inbox.Reader.Count == 0;
+        if (full || delayElapsed || drained)
+        {
+            await CommitBatchAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Commits the open batch UoW (an all-empty batch defers, exactly like per-block
+    /// empty deferral) and clears batch state. No-op when no batch is open.
+    /// </summary>
+    private async Task CommitBatchAsync(CancellationToken ct)
+    {
+        if (_batchUow is null)
+        {
+            return;
+        }
+        IBlockUnitOfWork uow = _batchUow;
+        _batchUow = null;
+        _batchCount = 0;
+        await CommitOrDeferAsync(uow, deferIfEmpty: true, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Rolls back and disposes the open batch UoW (error path) and clears batch
+    /// state. No-op when no batch is open.
+    /// </summary>
+    private async Task DiscardOpenBatchAsync()
+    {
+        if (_batchUow is null)
+        {
+            return;
+        }
+        IBlockUnitOfWork uow = _batchUow;
+        _batchUow = null;
+        _batchCount = 0;
+        // Best-effort cleanup on None — the fault path may run with an already-
+        // cancelled ambient token.
+        try { await uow.RollbackAsync(CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception ex) { LogRollbackError(_logger, ex, Name); }
+        await uow.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>
