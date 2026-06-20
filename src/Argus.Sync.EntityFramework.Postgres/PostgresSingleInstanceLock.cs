@@ -6,7 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
-namespace Argus.Sync.EntityFramework;
+namespace Argus.Sync.EntityFramework.Postgres;
 
 /// <summary>
 /// <see cref="BackgroundService"/> that holds a Postgres <em>session-level advisory lock</em>
@@ -25,21 +25,21 @@ namespace Argus.Sync.EntityFramework;
 /// <para>Requires a session-pinned connection: behind PgBouncer use session-pooling mode, not
 /// transaction-pooling, or the session advisory lock will not persist across statements.</para>
 /// </remarks>
-public sealed partial class PostgresSingleInstanceLockWorker : BackgroundService, ISingleInstanceLock
+public sealed partial class PostgresSingleInstanceLock : BackgroundService, ISingleInstanceLock
 {
     private readonly string _connectionString;
     private readonly long _key;
     private readonly TimeSpan _pollInterval;
     private readonly TimeSpan _healthInterval;
-    private readonly ILogger<PostgresSingleInstanceLockWorker> _logger;
+    private readonly ILogger<PostgresSingleInstanceLock> _logger;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly TaskCompletionSource _acquired = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private NpgsqlConnection? _connection;
 
     /// <summary>Creates the lock worker from configuration (connection string, schema, intervals).</summary>
-    public PostgresSingleInstanceLockWorker(
+    public PostgresSingleInstanceLock(
         IConfiguration configuration,
-        ILogger<PostgresSingleInstanceLockWorker> logger,
+        ILogger<PostgresSingleInstanceLock> logger,
         IHostApplicationLifetime lifetime)
     {
         ArgumentNullException.ThrowIfNull(configuration);

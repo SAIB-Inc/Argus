@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Argus.Sync.EntityFramework.Postgres</PackageId>
+    <Authors>clark@saib.dev</Authors>
+    <Company>SAIB Inc.</Company>
+    <PackageDescription>PostgreSQL / Npgsql provider for the Argus.Sync Entity Framework Core backend — the AddCardanoPostgresIndexer entry point and its Postgres advisory single-instance lock, layered over the provider-neutral Argus.Sync.EntityFramework core.</PackageDescription>
+    <RepositoryUrl>https://github.com/SAIB-Inc/Argus</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Argus.Sync.EntityFramework\Argus.Sync.EntityFramework.csproj" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+</Project>

@@ -2,6 +2,7 @@ using Argus.Sync.Data;
 using Argus.Sync.Data.Models;
 using Argus.Sync.Reducers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 
 namespace Argus.Sync.EntityFramework;
@@ -38,7 +39,7 @@ public sealed class EfBlockUnitOfWorkFactory<TContext> : IBlockUnitOfWorkFactory
     public async Task<IBlockUnitOfWork> CreateAsync(CancellationToken ct = default)
     {
         TContext dbContext = await _dbContextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction =
+        IDbContextTransaction transaction =
             await dbContext.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
         return new EfBlockUnitOfWork<TContext>(dbContext, transaction, _rollbackBuffer);
     }

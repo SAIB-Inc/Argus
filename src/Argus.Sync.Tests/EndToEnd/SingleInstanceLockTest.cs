@@ -1,4 +1,4 @@
-using Argus.Sync.EntityFramework;
+using Argus.Sync.EntityFramework.Postgres;
 using Argus.Sync.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -48,8 +48,8 @@ public sealed class SingleInstanceLockTest(ITestOutputHelper output) : IAsyncLif
         using ILoggerFactory loggerFactory = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Warning));
         FakeLifetime lifetime = new();
 
-        using PostgresSingleInstanceLockWorker first = CreateWorker(loggerFactory, lifetime);
-        using PostgresSingleInstanceLockWorker second = CreateWorker(loggerFactory, lifetime);
+        using PostgresSingleInstanceLock first = CreateWorker(loggerFactory, lifetime);
+        using PostgresSingleInstanceLock second = CreateWorker(loggerFactory, lifetime);
 
         // 1. First instance starts and acquires the (uncontended) lock.
         await first.StartAsync(CancellationToken.None);
@@ -74,7 +74,7 @@ public sealed class SingleInstanceLockTest(ITestOutputHelper output) : IAsyncLif
         Assert.False(lifetime.StopCalled, "the host should never be asked to stop in the happy path");
     }
 
-    private PostgresSingleInstanceLockWorker CreateWorker(ILoggerFactory loggerFactory, IHostApplicationLifetime lifetime)
+    private PostgresSingleInstanceLock CreateWorker(ILoggerFactory loggerFactory, IHostApplicationLifetime lifetime)
     {
         // Both workers point at the same test database → same lock key → they contend.
         IConfiguration config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
@@ -84,9 +84,9 @@ public sealed class SingleInstanceLockTest(ITestOutputHelper output) : IAsyncLif
             ["Sync:SingleInstanceLock:HealthCheckSeconds"] = "1",
         }).Build();
 
-        return new PostgresSingleInstanceLockWorker(
+        return new PostgresSingleInstanceLock(
             config,
-            loggerFactory.CreateLogger<PostgresSingleInstanceLockWorker>(),
+            loggerFactory.CreateLogger<PostgresSingleInstanceLock>(),
             lifetime);
     }
 

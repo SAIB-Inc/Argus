@@ -42,6 +42,7 @@ jobs:
           V="${{ steps.version.outputs.version }}"
           dotnet pack src/Argus.Sync/Argus.Sync.csproj -c Release -o out -p:Version="$V"
           dotnet pack src/Argus.Sync.EntityFramework/Argus.Sync.EntityFramework.csproj -c Release -o out -p:Version="$V"
+          dotnet pack src/Argus.Sync.EntityFramework.Postgres/Argus.Sync.EntityFramework.Postgres.csproj -c Release -o out -p:Version="$V"
           dotnet pack src/Argus.Sync.MongoDb/Argus.Sync.MongoDb.csproj -c Release -o out -p:Version="$V"
 
       - name: Push to NuGet

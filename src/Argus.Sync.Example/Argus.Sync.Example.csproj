@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
     <ProjectReference Include="..\Argus.Sync.EntityFramework\Argus.Sync.EntityFramework.csproj" />
+    <ProjectReference Include="..\Argus.Sync.EntityFramework.Postgres\Argus.Sync.EntityFramework.Postgres.csproj" />
   </ItemGroup>
 
 </Project>

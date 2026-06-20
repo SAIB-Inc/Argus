@@ -1,4 +1,5 @@
 using Argus.Sync.EntityFramework;
+using Argus.Sync.EntityFramework.Postgres;
 using Argus.Sync.Example.Data;
 using Argus.Sync.MongoDb;
 using Argus.Sync.Reducers;
@@ -53,7 +54,7 @@ public sealed class IndexerRegistrationTest
 
         // The lock is the Postgres advisory lock, shared across both roles.
         ISingleInstanceLock gate = provider.GetRequiredService<ISingleInstanceLock>();
-        PostgresSingleInstanceLockWorker concrete = provider.GetRequiredService<PostgresSingleInstanceLockWorker>();
+        PostgresSingleInstanceLock concrete = provider.GetRequiredService<PostgresSingleInstanceLock>();
         Assert.Same(concrete, gate);
 
         AssertWorkerHosted(services);
