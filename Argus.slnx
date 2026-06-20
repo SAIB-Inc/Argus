@@ -1,6 +1,9 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Argus.Sync/Argus.Sync.csproj" />
+    <Project Path="src/Argus.Sync.EntityFramework/Argus.Sync.EntityFramework.csproj" />
+    <Project Path="src/Argus.Sync.EntityFramework.Postgres/Argus.Sync.EntityFramework.Postgres.csproj" />
+    <Project Path="src/Argus.Sync.MongoDb/Argus.Sync.MongoDb.csproj" />
     <Project Path="src/Argus.Sync.Example/Argus.Sync.Example.csproj" />
     <Project Path="src/Argus.Sync.Tests/Argus.Sync.Tests.csproj" />
     <Project Path="src/Argus.Sync.Bench/Argus.Sync.Bench.csproj" />
