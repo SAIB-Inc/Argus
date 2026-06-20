@@ -48,7 +48,7 @@ public partial class CardanoIndexWorker(
     private readonly ConcurrentDictionary<string, ICardanoChainProvider> _rootReducerProviders = [];
 
     // Pipeline structures (Commit 3 rearchitecture).
-    private readonly Dictionary<string, ReducerPipeline> _pipelines = [];
+    private readonly Dictionary<string, ReducerGraphProcessor> _graphProcessors = [];
     private readonly List<Task> _pipelineRunTasks = [];
 
     private readonly int _pipelineChannelCapacity = configuration.GetValue("Sync:Pipeline:ChannelCapacity", 256);
@@ -85,7 +85,7 @@ public partial class CardanoIndexWorker(
 
         // Build dependency graph first
         BuildDependencyGraph();
-        BuildPipelines();
+        BuildGraphProcessors();
 
         // Initialize state for all reducers (including dependents)
         await InitializeAllReducerStatesAsync(stoppingToken);
@@ -95,10 +95,10 @@ public partial class CardanoIndexWorker(
         // parked on a full bounded channel) unwind instead of deadlocking.
         using CancellationTokenSource workerCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
-        // Start every reducer's run loop. They block on their inbox channel.
-        foreach (ReducerPipeline pipeline in _pipelines.Values)
+        // Start each root graph's run loop. They block on their inbox channel.
+        foreach (ReducerGraphProcessor processor in _graphProcessors.Values)
         {
-            _pipelineRunTasks.Add(pipeline.RunAsync(workerCts.Token));
+            _pipelineRunTasks.Add(processor.RunAsync(workerCts.Token));
         }
 
         if (!_rollbackModeEnabled)
@@ -215,7 +215,7 @@ public partial class CardanoIndexWorker(
             LogStartingReducerChainSync(logger, reducerName, intersectionList.Count, latestSlot, oldestSlot, slotPreview);
 
             string rootReducerName = ArgusUtil.GetTypeNameWithoutGenerics(reducer.GetType());
-            ReducerPipeline rootPipeline = _pipelines[rootReducerName];
+            ReducerGraphProcessor rootProcessor = _graphProcessors[rootReducerName];
 
             try
             {
@@ -251,7 +251,7 @@ public partial class CardanoIndexWorker(
                     // doesn't wait on the dep tree — control returns immediately
                     // to pull the next block, suspending only when the root
                     // pipeline's bounded channel is full (cooperative backpressure).
-                    await rootPipeline.EnqueueAsync(new Envelope(nextResponse, BranchUow: null), stoppingToken).ConfigureAwait(false);
+                    await rootProcessor.EnqueueAsync(nextResponse, stoppingToken).ConfigureAwait(false);
 
                     if (rollbackMode)
                     {
@@ -267,7 +267,7 @@ public partial class CardanoIndexWorker(
                 // downstream: each dependent expects one vote per upstream
                 // producer, so once the parent's RunAsync drains its inbox and
                 // calls Complete on its dependents, the cascade unwinds cleanly.
-                rootPipeline.Complete();
+                rootProcessor.Complete();
             }
         }
         catch (OperationCanceledException)
