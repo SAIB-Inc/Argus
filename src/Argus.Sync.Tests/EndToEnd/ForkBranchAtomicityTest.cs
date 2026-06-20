@@ -19,11 +19,13 @@ using Xunit.Abstractions;
 namespace Argus.Sync.Tests.EndToEnd;
 
 /// <summary>
-/// Per-branch atomicity at a fork (backlog P1-5). A fork's children commit in SEPARATE transactions,
-/// so a fork is not atomic across its children: when one child faults the worker fails fast, but a
-/// sibling (and the parent) that already committed is NOT rolled back. The crasher delays before
-/// throwing so the survivor commits the same block first — proving the survivor's committed branch
-/// survives the crasher's failure. Uses TestData/Blocks (no node required; Postgres only).
+/// Whole-graph atomicity (unified branch model). A root and all its dependents share one unit of
+/// work per batch, so a fault anywhere in the graph rolls back EVERY reducer's writes for that batch
+/// — strictly stronger than the old per-branch fork (where a sibling that had already committed
+/// survived). Per-block commit (BatchSize=1) gives a clean block its own committed boundary; the
+/// crasher then throws on the next slot and we prove that block's writes for BOTH the sibling AND the
+/// parent roll back together, while the clean block survives. Uses TestData/Blocks (no node required;
+/// Postgres only).
 /// </summary>
 public sealed class ForkBranchAtomicityTest(ITestOutputHelper output) : IAsyncLifetime, IDisposable
 {
@@ -54,7 +56,7 @@ public sealed class ForkBranchAtomicityTest(ITestOutputHelper output) : IAsyncLi
 
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task ForkChildCrash_FailsFast_AndSiblingCommittedDataSurvives()
+    public async Task ChildCrash_FailsFast_AndTheCrashBlockRollsBackAtomically()
     {
         string testDataDir = Path.Combine(Directory.GetCurrentDirectory(), "TestData");
         if (!Directory.Exists(Path.Combine(testDataDir, "Blocks")))
@@ -91,27 +93,30 @@ public sealed class ForkBranchAtomicityTest(ITestOutputHelper output) : IAsyncLi
             await WaitForAsync(() => SurvivorCommittedAsync(dbf, warmSlot), TimeSpan.FromSeconds(10),
                 "survivor did not commit the warm-up block");
 
-            // Crash block: the survivor commits it (fast), while the crasher is still delaying.
+            // Crash block: the crasher runs last in topo order, after the parent + sibling have
+            // written into the SAME batch unit of work, then throws — so the whole block rolls back.
             await provider.TriggerRollForwardAsync(crashSlot);
-            await WaitForAsync(() => SurvivorCommittedAsync(dbf, crashSlot), TimeSpan.FromSeconds(10),
-                "survivor did not commit the crash block before the crash");
 
-            // The crasher's delayed throw now fails the worker fast.
+            // The crasher's delayed throw fails the worker fast.
             Task workerTask = worker.ExecuteTask ?? Task.CompletedTask;
             Task winner = await Task.WhenAny(workerTask, Task.Delay(TimeSpan.FromSeconds(15)));
-            Assert.True(winner == workerTask, "worker did not fail fast after a fork child crashed");
-            Assert.False(workerTask.IsCompletedSuccessfully, "the fork-child crash was swallowed — it must surface");
+            Assert.True(winner == workerTask, "worker did not fail fast after a graph reducer crashed");
+            Assert.False(workerTask.IsCompletedSuccessfully, "the reducer crash was swallowed — it must surface");
 
-            // Per-branch atomicity: the sibling's AND the parent's commits for the crash block survive
-            // the crasher's failure (separate transactions; the crash is not atomic across the fork).
+            // Whole-graph atomicity: NEITHER the sibling's NOR the parent's crash-block writes survive —
+            // they shared the crashing reducer's unit of work and rolled back together. The earlier
+            // cleanly-committed block remains.
             await using TestDbContext ctx = await dbf.CreateDbContextAsync();
             Assert.True(
+                await ctx.WatchedAddressBalances.AnyAsync(s => s.Reducer == nameof(ForkSurvivorReducer) && s.Slot == warmSlot),
+                "the earlier cleanly-committed block must survive");
+            Assert.False(
                 await ctx.WatchedAddressBalances.AnyAsync(s => s.Reducer == nameof(ForkSurvivorReducer) && s.Slot == crashSlot),
-                "the sibling's crash-block commit must survive the other child's crash");
-            Assert.True(
+                "the sibling's crash-block write must roll back with the crash (whole-graph atomicity)");
+            Assert.False(
                 await ctx.BlockTests.AnyAsync(b => b.Slot == crashSlot),
-                "the parent's crash-block commit must survive");
-            _output.WriteLine("Fork child crashed → worker failed fast; sibling + parent commits survived (per-branch atomicity).");
+                "the parent's crash-block write must roll back with the crash (whole-graph atomicity)");
+            _output.WriteLine("Graph reducer crashed → worker failed fast; the crash block rolled back atomically, the clean block survived.");
         }
         finally
         {
@@ -128,6 +133,7 @@ public sealed class ForkBranchAtomicityTest(ITestOutputHelper output) : IAsyncLi
             ["CardanoNodeConnection:Slot"] = firstBlock.Header().HeaderBody().Slot().ToString(CultureInfo.InvariantCulture),
             ["Sync:Worker:ExitOnCompletion"] = "false",
             ["Sync:Dashboard:TuiMode"] = "false",
+            ["Sync:Commit:BatchSize"] = "1",
         }).Build();
 
     private static async Task<bool> SurvivorCommittedAsync(IDbContextFactory<TestDbContext> dbf, ulong slot)

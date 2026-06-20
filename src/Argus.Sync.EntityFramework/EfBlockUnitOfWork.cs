@@ -49,6 +49,11 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
         _dbContext = dbContext;
         _transaction = transaction;
         _rollbackBuffer = Math.Max(1, rollbackBuffer);
+        // Batch-commit calls SaveChanges once per block within this single
+        // transaction; EF's default per-SaveChanges savepoints are unnecessary (the
+        // whole batch is the atomic unit — a fault discards it via RollbackAsync) and
+        // trip Npgsql under repeated same-transaction SaveChanges. Disable them.
+        _dbContext.Database.AutoSavepointsEnabled = false;
     }
 
     /// <inheritdoc />
@@ -113,6 +118,25 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
 
         ClearAfterCompletion();
         return true;
+    }
+
+    /// <inheritdoc />
+    public async Task FlushAsync(CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+
+        // Push this block's writes into the open transaction (no commit, no fsync)
+        // so later blocks in the same batch can read them via a query within the
+        // transaction, then clear the change-tracker to keep EF's O(n^2) tracker
+        // bounded across the batch — the rows live in the transaction, so a
+        // subsequent query re-fetches and re-tracks them. Checkpoints are NOT
+        // written here; they ride the batch's single CommitAsync.
+        int written = await _dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+        if (written > 0)
+        {
+            _dataChanged = true;
+        }
+        _dbContext.ChangeTracker.Clear();
     }
 
     /// <inheritdoc />

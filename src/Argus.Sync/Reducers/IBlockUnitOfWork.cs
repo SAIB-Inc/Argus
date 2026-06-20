@@ -80,6 +80,17 @@ public interface IBlockUnitOfWork : IAsyncDisposable
     Task<bool> CommitAsync(bool deferIfEmpty = false, CancellationToken ct = default);
 
     /// <summary>
+    /// Flushes buffered reducer writes to the backend WITHOUT committing the
+    /// transaction. Used by batch-commit so a block's writes are visible to later
+    /// blocks in the same batch (read-your-own-writes within the open transaction)
+    /// while the durable commit/fsync is deferred to the batch boundary. Default:
+    /// no-op — a backend whose writes are already in-transaction (e.g. a MongoDB
+    /// session) needs no flush. The EF backend flushes via SaveChanges and clears
+    /// the change-tracker to keep it bounded across a batch.
+    /// </summary>
+    Task FlushAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    /// <summary>
     /// Discards all registered changes. Called by the framework on
     /// per-block error to prevent partial data from landing.
     /// </summary>

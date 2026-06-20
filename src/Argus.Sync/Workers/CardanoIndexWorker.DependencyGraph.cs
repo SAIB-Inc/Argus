@@ -51,40 +51,48 @@ public partial class CardanoIndexWorker
     }
 
     /// <summary>
-    /// Constructs one <see cref="ReducerPipeline"/> per reducer and wires the
-    /// dependency-graph topology into bounded-channel edges. Must be called
-    /// after <see cref="BuildDependencyGraph"/>.
+    /// Constructs one <see cref="ReducerGraphProcessor"/> per root reducer, each driving
+    /// that root's entire reachable subgraph in topological order over a single batched
+    /// unit of work. Must be called after <see cref="BuildDependencyGraph"/>.
     /// </summary>
-    private void BuildPipelines()
+    private void BuildGraphProcessors()
     {
-        foreach ((string reducerName, IReducer reducer) in _reducersByName)
+        foreach (string rootName in _rootReducers)
         {
-            _pipelines[reducerName] = new ReducerPipeline(
-                reducer: reducer,
+            _graphProcessors[rootName] = new ReducerGraphProcessor(
+                topologicallyOrderedReducers: TopologicalOrderFromRoot(rootName),
                 uowFactory: unitOfWorkFactory,
                 channelCapacity: _pipelineChannelCapacity,
+                batchSize: _commitBatchSize,
+                maxBatchDelay: _commitMaxDelay,
                 logger: logger,
                 telemetryRecorder: RecordTelemetry,
                 intersectionRecorder: UpdateInMemoryStateRollforward,
                 rollbackRecorder: UpdateInMemoryStateRollback);
         }
+    }
 
-        foreach ((string parentName, List<string> dependentNames) in _dependentReducers)
+    /// <summary>
+    /// Breadth-first order of a root's reachable subgraph. Every reducer has a single
+    /// dependency (its parent), so breadth order is a valid topological order — a parent
+    /// is always emitted before its children, which is what lets a child read its
+    /// parent's same-block writes through the shared unit of work.
+    /// </summary>
+    private List<IReducer> TopologicalOrderFromRoot(string rootName)
+    {
+        List<IReducer> ordered = [];
+        Queue<string> queue = new();
+        queue.Enqueue(rootName);
+        while (queue.Count > 0)
         {
-            ReducerPipeline parent = _pipelines[parentName];
-            foreach (string depName in dependentNames)
+            string name = queue.Dequeue();
+            ordered.Add(_reducersByName[name]);
+            foreach (string dependentName in _dependentReducers[name])
             {
-                parent.AddDependent(_pipelines[depName]);
+                queue.Enqueue(dependentName);
             }
         }
-
-        // Each root pipeline's chain consumer (StartReducerChainSyncAsync) is
-        // the one upstream producer — register that vote so completion fires
-        // after the chain consumer signals done.
-        foreach (string rootName in _rootReducers)
-        {
-            _pipelines[rootName].IncrementExpectedVotes();
-        }
+        return ordered;
     }
 
     private void CollectAllDependentsRecursively(string reducerName, HashSet<string> collected)

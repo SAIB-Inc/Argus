@@ -9,8 +9,8 @@ public partial class CardanoIndexWorker
 {
     /// <summary>
     /// Updates the in-memory <see cref="ReducerState"/> with a new intersection
-    /// point. Called by <see cref="ReducerPipeline"/> after each successful
-    /// roll-forward, before the branch UoW commits. Pure in-memory; the
+    /// point. Called by the reducer graph processor after each successful
+    /// roll-forward, before the batch UoW commits. Pure in-memory; the
     /// authoritative checkpoint write happens via the UoW.
     /// </summary>
     private void UpdateInMemoryStateRollforward(string reducerName, Point point)
