@@ -18,14 +18,12 @@ public class PipelineBenchmarks
 {
     private sealed class Config : ManualConfig
     {
-        public Config()
-        {
+        public Config() =>
             // ShortRunJob keeps wall time reasonable while still doing
             // 3 warmup + 3 measurement iterations — enough to stabilize for
             // a comparative bench (we care about ratio between impls more
             // than absolute ns precision).
             AddJob(Job.ShortRun);
-        }
     }
 
     [Params(2_000)]

@@ -10,12 +10,10 @@ namespace Argus.Sync.Example.Reducers;
 [DependsOn(typeof(BlockTestReducer))]
 public class DependentTransactionReducer : IReducer
 {
-    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)
-    {
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct) =>
         // Demonstration only — read what *would* be rolled back. The framework
         // owns the actual rollback semantics; this reducer doesn't write here.
-        return Task.CompletedTask;
-    }
+        Task.CompletedTask;
 
     public async Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {

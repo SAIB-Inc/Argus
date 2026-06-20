@@ -194,7 +194,7 @@ public sealed class LovelaceBalanceRollbackTest(ITestOutputHelper output) : IAsy
         Dictionary<ulong, IBlock> collected = [];
 
         await using N2NProvider provider = new(host, port);
-        List<Argus.Sync.Data.Models.Point> intersection = [new(IntersectionHash, IntersectionSlot)];
+        List<Data.Models.Point> intersection = [new(IntersectionHash, IntersectionSlot)];
         using CancellationTokenSource cts = new(TimeSpan.FromSeconds(60));
 
         await foreach (NextResponse response in provider.StartChainSyncAsync(intersection, NetworkMagic, cts.Token))

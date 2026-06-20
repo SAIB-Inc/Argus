@@ -9,7 +9,7 @@ namespace Argus.Sync.EntityFramework;
 /// Base database context for EF Core consumers. Inherit from this to colocate
 /// your reducer-data tables with the framework's <see cref="ReducerState"/>
 /// table in a single Postgres schema. Non-EF consumers do not need this type;
-/// implement <see cref="Argus.Sync.Reducers.IBlockUnitOfWorkFactory"/> directly instead.
+/// implement <see cref="Reducers.IBlockUnitOfWorkFactory"/> directly instead.
 /// </summary>
 /// <param name="Options">The database context options.</param>
 /// <param name="Configuration">The application configuration.</param>

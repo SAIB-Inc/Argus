@@ -247,12 +247,12 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         // Process with reducers — frame each reducer in its own UoW since this
         // test drives reducers directly (no worker, no per-branch sharing).
         IDbContextFactory<TestDbContext> dbcFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
-        await using (Argus.Sync.Reducers.IBlockUnitOfWork uow1 = new Argus.Sync.EntityFramework.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
+        await using (Reducers.IBlockUnitOfWork uow1 = new EntityFramework.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
         {
             await blockReducer.RollForwardAsync(response.Block!, uow1, CancellationToken.None);
             _ = await uow1.CommitAsync();
         }
-        await using (Argus.Sync.Reducers.IBlockUnitOfWork uow2 = new Argus.Sync.EntityFramework.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
+        await using (Reducers.IBlockUnitOfWork uow2 = new EntityFramework.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
         {
             await txReducer.RollForwardAsync(response.Block!, uow2, CancellationToken.None);
             _ = await uow2.CommitAsync();
@@ -477,12 +477,12 @@ public class ReducerDirectTest(ITestOutputHelper output) : IAsyncLifetime, IDisp
         TransactionTestReducer txReducer, ulong normalizedRollbackSlot)
     {
         IDbContextFactory<TestDbContext> dbcFactory = _databaseManager!.ServiceProvider.GetRequiredService<IDbContextFactory<TestDbContext>>();
-        await using (Argus.Sync.Reducers.IBlockUnitOfWork uow1 = new Argus.Sync.EntityFramework.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
+        await using (Reducers.IBlockUnitOfWork uow1 = new EntityFramework.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
         {
             await blockReducer.RollBackwardAsync(normalizedRollbackSlot, uow1, CancellationToken.None);
             _ = await uow1.CommitAsync();
         }
-        await using (Argus.Sync.Reducers.IBlockUnitOfWork uow2 = new Argus.Sync.EntityFramework.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
+        await using (Reducers.IBlockUnitOfWork uow2 = new EntityFramework.EfBlockUnitOfWork<TestDbContext>(dbcFactory.CreateDbContext()))
         {
             await txReducer.RollBackwardAsync(normalizedRollbackSlot, uow2, CancellationToken.None);
             _ = await uow2.CommitAsync();

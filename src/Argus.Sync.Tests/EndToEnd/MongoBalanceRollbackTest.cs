@@ -146,7 +146,7 @@ public sealed class MongoBalanceRollbackTest(ITestOutputHelper output) : IAsyncL
     {
         await using IBlockUnitOfWork uow = await uowFactory.CreateAsync();
         await reducer.RollForwardAsync(block, uow, CancellationToken.None);
-        uow.TrackIntersection(reducerName, new Argus.Sync.Data.Models.Point(block.Header().Hash(), block.Header().HeaderBody().Slot()));
+        uow.TrackIntersection(reducerName, new Data.Models.Point(block.Header().Hash(), block.Header().HeaderBody().Slot()));
         _ = await uow.CommitAsync();
     }
 

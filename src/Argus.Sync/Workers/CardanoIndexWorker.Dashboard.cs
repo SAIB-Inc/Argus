@@ -243,7 +243,7 @@ public partial class CardanoIndexWorker
                         .Label("[bold underline]CPU Usage (%)[/]")
                         .CenterLabel()
                         .WithMaxValue(100)
-                        .AddItem("Current", Math.Round(cpuUsage, 1), CardanoIndexWorker.GetCpuColor(cpuUsage));
+                        .AddItem("Current", Math.Round(cpuUsage, 1), GetCpuColor(cpuUsage));
 
                     // Create the combined panel
                     Panel systemMonitorPanel = new(

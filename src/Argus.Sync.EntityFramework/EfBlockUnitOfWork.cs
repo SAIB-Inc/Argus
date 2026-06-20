@@ -168,10 +168,7 @@ public sealed class EfBlockUnitOfWork<TContext> : IBlockUnitOfWork
         _dataChanged = false;
     }
 
-    private void ThrowIfDisposed()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-    }
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     private static IDbContextTransaction BeginTransaction(TContext dbContext)
     {

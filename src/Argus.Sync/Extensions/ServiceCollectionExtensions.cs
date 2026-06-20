@@ -6,7 +6,7 @@ namespace Argus.Sync.Extensions;
 
 /// <summary>
 /// Backend-agnostic registration for the Cardano indexer. A storage-backend package registers its own
-/// <see cref="Argus.Sync.Reducers.IBlockUnitOfWorkFactory"/> and (optionally) <see cref="ISingleInstanceLock"/>,
+/// <see cref="Reducers.IBlockUnitOfWorkFactory"/> and (optionally) <see cref="ISingleInstanceLock"/>,
 /// then calls <see cref="AddCardanoIndexerCore"/> — for example <c>AddCardanoPostgresIndexer</c>
 /// (from <c>Argus.Sync.EntityFramework</c>) or <c>AddCardanoMongoIndexer</c> (from <c>Argus.Sync.MongoDb</c>).
 /// Register your reducers with <c>AddReducers</c>.
@@ -16,7 +16,7 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Registers the backend-agnostic indexer pieces: the chain-provider factory and the indexer worker as a
     /// hosted service. Each storage-backend entry point (Postgres, Mongo, …) calls this after registering its
-    /// own <see cref="Argus.Sync.Reducers.IBlockUnitOfWorkFactory"/> and (optionally) <see cref="ISingleInstanceLock"/>.
+    /// own <see cref="Reducers.IBlockUnitOfWorkFactory"/> and (optionally) <see cref="ISingleInstanceLock"/>.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="chainProviderFactory">An optional custom chain provider factory; defaults to configuration-based if null.</param>

@@ -10,10 +10,7 @@ namespace Argus.Sync.Example.Reducers;
 [DependsOn(typeof(DependentTransactionReducer))]
 public class ChainedDependentReducer : IReducer
 {
-    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)
-    {
-        return Task.CompletedTask;
-    }
+    public Task RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct) => Task.CompletedTask;
 
     public async Task RollForwardAsync(IBlock block, IBlockUnitOfWork uow, CancellationToken ct)
     {
