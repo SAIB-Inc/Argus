@@ -64,7 +64,7 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: |
           mkdir -p out
-          for proj in src/Argus.Sync/Argus.Sync.csproj src/Argus.Sync.EntityFramework/Argus.Sync.EntityFramework.csproj src/Argus.Sync.MongoDb/Argus.Sync.MongoDb.csproj; do
+          for proj in src/Argus.Sync/Argus.Sync.csproj src/Argus.Sync.EntityFramework/Argus.Sync.EntityFramework.csproj src/Argus.Sync.EntityFramework.Postgres/Argus.Sync.EntityFramework.Postgres.csproj src/Argus.Sync.MongoDb/Argus.Sync.MongoDb.csproj; do
             echo "Packing $proj..."
             dotnet pack "$proj" -c Release -o out
           done

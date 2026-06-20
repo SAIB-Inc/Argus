@@ -4,13 +4,13 @@
     <PackageId>Argus.Sync.EntityFramework</PackageId>
     <Authors>clark@saib.dev</Authors>
     <Company>SAIB Inc.</Company>
-    <PackageDescription>Entity Framework Core (PostgreSQL / Npgsql) storage backend for Argus.Sync — the AddCardanoPostgresIndexer entry point and its EF unit-of-work, DbContext base, and advisory-lock.</PackageDescription>
+    <PackageDescription>Provider-neutral Entity Framework Core storage backend for Argus.Sync — the EF unit-of-work, DbContext base, and the AddCardanoEntityFrameworkIndexer registration seam. Pair with a provider package such as Argus.Sync.EntityFramework.Postgres.</PackageDescription>
     <RepositoryUrl>https://github.com/SAIB-Inc/Argus</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Argus.Sync\Argus.Sync.csproj" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
   </ItemGroup>
 
 </Project>

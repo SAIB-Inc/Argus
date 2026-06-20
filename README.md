@@ -82,9 +82,8 @@ Argus is a .NET library that turns the Cardano blockchain into structured, query
 dotnet add package Argus.Sync
 
 # PostgreSQL backend (Entity Framework Core) + EF tooling for migrations
-dotnet add package Argus.Sync.EntityFramework
+dotnet add package Argus.Sync.EntityFramework.Postgres   # pulls in the provider-neutral Argus.Sync.EntityFramework core + Npgsql
 dotnet add package Microsoft.EntityFrameworkCore.Design
-dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
 
 # Or, instead: MongoDB backend
 dotnet add package Argus.Sync.MongoDb
@@ -201,8 +200,8 @@ public class BlockReducer : IReducer
 ### 6️⃣ Register services
 
 ```csharp
-using Argus.Sync.EntityFramework;   // AddCardanoPostgresIndexer + CardanoDbContext
-using Argus.Sync.Extensions;        // AddReducers
+using Argus.Sync.EntityFramework.Postgres;  // AddCardanoPostgresIndexer
+using Argus.Sync.Extensions;                // AddReducers
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -285,9 +284,11 @@ A backend is one implementation of `IBlockUnitOfWorkFactory` (create a batched t
 
 ### PostgreSQL (Entity Framework Core)
 
-Add the `Argus.Sync.EntityFramework` package. Your `CardanoDbContext`-derived context *is* the storage handle:
+Add the `Argus.Sync.EntityFramework.Postgres` package (it brings in the provider-neutral `Argus.Sync.EntityFramework` core). Your `CardanoDbContext`-derived context *is* the storage handle:
 
 ```csharp
+using Argus.Sync.EntityFramework.Postgres;
+
 builder.Services.AddCardanoPostgresIndexer<MyDbContext>(builder.Configuration);
 builder.Services.AddReducers(builder.Configuration);
 ```
@@ -402,9 +403,10 @@ dotnet test
 dotnet test --filter "Category!=Integration"
 
 # Pack the NuGet packages
-dotnet pack src/Argus.Sync                 --configuration Release
-dotnet pack src/Argus.Sync.EntityFramework --configuration Release
-dotnet pack src/Argus.Sync.MongoDb         --configuration Release
+dotnet pack src/Argus.Sync                          --configuration Release
+dotnet pack src/Argus.Sync.EntityFramework          --configuration Release
+dotnet pack src/Argus.Sync.EntityFramework.Postgres --configuration Release
+dotnet pack src/Argus.Sync.MongoDb                  --configuration Release
 ```
 
 Integration tests run against a real preprod/preview node and a local PostgreSQL (and, for the Mongo suite, a MongoDB replica set); they self-skip when those aren't reachable. The end-to-end suite under `src/Argus.Sync.Tests/EndToEnd` exercises the worker, the dependency graph, whole-graph atomicity, batch commits, crash-recovery, N2N pipelining, the single-instance lock, and both storage backends against real Conway-era blocks.
@@ -414,7 +416,8 @@ Integration tests run against a real preprod/preview node and a local PostgreSQL
 | Project | Purpose |
 | ------- | ------- |
 | `src/Argus.Sync` | Core library (storage-agnostic): worker, reducer graph, unit-of-work seam, chain providers. |
-| `src/Argus.Sync.EntityFramework` | PostgreSQL / EF Core backend (`AddCardanoPostgresIndexer`, `CardanoDbContext`). |
+| `src/Argus.Sync.EntityFramework` | Provider-neutral EF Core backend (`CardanoDbContext`, EF unit-of-work, the `AddCardanoEntityFrameworkIndexer` seam). |
+| `src/Argus.Sync.EntityFramework.Postgres` | PostgreSQL / Npgsql provider (`AddCardanoPostgresIndexer`, advisory single-instance lock). |
 | `src/Argus.Sync.MongoDb` | MongoDB storage backend (`AddCardanoMongoIndexer`). |
 | `src/Argus.Sync.Example` | Runnable reference app with example models and reducers. |
 | `src/Argus.Sync.Tests` | Unit + end-to-end tests. |
@@ -434,15 +437,15 @@ The rearchitecture — channel pipeline, storage-agnostic unit of work, and the 
 | `RollBackwardAsync` | `RollBackwardAsync(ulong slot)` | `RollBackwardAsync(ulong slot, IBlockUnitOfWork uow, CancellationToken ct)` |
 | Block type | `Block` (`Chrysalis.Cbor.Types…`) | `IBlock` (`Chrysalis.Codec.Types.Cardano.Core`) |
 | Data access | inject `IDbContextFactory<T>`; call `db.SaveChangesAsync()` | `uow.GetStorage<T>()`; the framework commits — **never** call `SaveChangesAsync` |
-| Postgres registration | `AddCardanoIndexer<T>()` (core package) | `AddCardanoPostgresIndexer<T>()` from the **`Argus.Sync.EntityFramework`** package |
+| Postgres registration | `AddCardanoIndexer<T>()` (core package) | `AddCardanoPostgresIndexer<T>()` from the **`Argus.Sync.EntityFramework.Postgres`** package |
 | Reducer registration | `AddReducers<T, V>(config)` | `AddReducers(config)` (non-generic) |
-| Packages | `Argus.Sync` (EF baked in) | `Argus.Sync` (core) **+** `Argus.Sync.EntityFramework` (Postgres) or `Argus.Sync.MongoDb` |
+| Packages | `Argus.Sync` (EF baked in) | `Argus.Sync` (core) **+** `Argus.Sync.EntityFramework.Postgres` or `Argus.Sync.MongoDb` |
 | `IReducerModel` | marker interface | now requires `ulong Slot { get; }` |
 | Rollback-mode config | `CardanoIndexReducers:RollbackMode:*` | `Sync:Rollback:*` |
 | Removed config | `Sync:State:ReducerStateSyncInterval` | gone |
 | N2N (TCP) provider | not implemented | supported (`ConnectionType: "TCP"`) |
 
-**To upgrade a reducer in practice:** drop the `IDbContextFactory` constructor parameter and the `<T>` on `IReducer`; change both methods to take `(…, IBlockUnitOfWork uow, CancellationToken ct)`; replace `dbContextFactory.CreateDbContext()` with `uow.GetStorage<YourDbContext>()`; and delete every `SaveChangesAsync` call. Then add the `Argus.Sync.EntityFramework` package reference, and switch `AddCardanoIndexer<T>` → `AddCardanoPostgresIndexer<T>` and `AddReducers<T, V>` → `AddReducers`.
+**To upgrade a reducer in practice:** drop the `IDbContextFactory` constructor parameter and the `<T>` on `IReducer`; change both methods to take `(…, IBlockUnitOfWork uow, CancellationToken ct)`; replace `dbContextFactory.CreateDbContext()` with `uow.GetStorage<YourDbContext>()`; and delete every `SaveChangesAsync` call. Then add the `Argus.Sync.EntityFramework.Postgres` package reference, and switch `AddCardanoIndexer<T>` → `AddCardanoPostgresIndexer<T>` and `AddReducers<T, V>` → `AddReducers`.
 
 ## 🤝 Contributing
 

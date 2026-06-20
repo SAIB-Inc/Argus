@@ -1,4 +1,4 @@
-using Argus.Sync.EntityFramework;
+using Argus.Sync.EntityFramework.Postgres;
 using Argus.Sync.Example.Data;
 using Argus.Sync.Example.Services;
 using Argus.Sync.Extensions;
