@@ -36,6 +36,7 @@ jobs:
               - 'src/**'
               - '*.slnx'
               - 'Directory.Build.props'
+              - 'Directory.Packages.props'
               - '.github/workflows/ci.yml'
 
       - name: Setup .NET
